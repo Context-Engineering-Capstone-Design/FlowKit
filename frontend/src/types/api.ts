@@ -57,6 +57,8 @@ export interface MessageBlock {
   role: MessageRole
   content: string
   currentVersionId: string | null
+  /** 채팅 상세 조회에는 없고, 블록 단위 응답에만 담긴다 */
+  versionNo?: number | null
   orderIndex: number
   createdAt: string
 }
@@ -89,4 +91,58 @@ export interface ApiError {
   message: string
   detail: unknown
   traceId: string
+}
+
+export interface BlockResponse {
+  blockId: string
+  role: MessageRole
+  content: string
+  currentVersionId: string | null
+  versionNo: number | null
+  orderIndex: number
+  createdAt: string
+}
+
+export interface AppliedContextOut {
+  blockId: string
+  versionId: string
+  orderIndex: number
+}
+
+export interface SendMessageResponse {
+  userBlock: BlockResponse
+  assistantBlock: BlockResponse
+  appliedContext: AppliedContextOut[]
+  chatTitle: string
+  titleGenerated: boolean
+}
+
+export type RefineStatus = 'pending' | 'approved' | 'rejected'
+
+export interface RefineResultItem {
+  resultId: string
+  blockId: string
+  baseVersionId: string
+  baseContent: string
+  refinedContent: string
+  status: RefineStatus
+  approvedVersionId: string | null
+  orderIndex: number
+  updatedAt: string
+}
+
+export interface RefineJob {
+  refineJobId: string
+  status: string
+  instructionText: string
+  results: RefineResultItem[]
+}
+
+export interface VersionItem {
+  versionId: string
+  versionNo: number
+  content: string
+  sourceType: string
+  createdAt: string
+  isCurrent: boolean
 }

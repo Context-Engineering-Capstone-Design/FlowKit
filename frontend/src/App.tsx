@@ -1,25 +1,55 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/api/client'
+import { ChatArea } from '@/components/ChatArea'
+import { ContextPanel } from '@/components/ContextPanel'
+import { LoginScreen } from '@/components/LoginScreen'
+import { Sidebar } from '@/components/Sidebar'
+import { useAuthStore } from '@/store/authStore'
+import { useChatStore } from '@/store/chatStore'
 
-// 앱 최상단 틀 — 현재는 백엔드 연결 상태만 확인하는 임시 화면
+// 앱 최상단 틀 — 로그인 여부에 따라 로그인 화면 또는 3단 작업 화면을 보여준다
 export default function App() {
-  const [status, setStatus] = useState<'확인 중' | '연결됨' | '연결 실패'>('확인 중')
+  const user = useAuthStore((s) => s.user)
+  const isChecking = useAuthStore((s) => s.isChecking)
+  const check = useAuthStore((s) => s.check)
 
   useEffect(() => {
-    api
-      .get('/health')
-      .then(() => setStatus('연결됨'))
-      .catch(() => setStatus('연결 실패'))
-  }, [])
+    void check()
+  }, [check])
+
+  if (isChecking) {
+    return (
+      <div className="flex h-full items-center justify-center text-[13px] text-txt-3">
+        불러오는 중…
+      </div>
+    )
+  }
+
+  return user ? <Workspace /> : <LoginScreen />
+}
+
+// 3단 작업 화면 — 좌측 대화·브랜치, 중앙 채팅, 우측 Context 편집 (NFR-001)
+function Workspace() {
+  const [panelOpen, setPanelOpen] = useState(true)
+  const loadChats = useChatStore((s) => s.loadChats)
+  const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
+
+  useEffect(() => {
+    void loadChats()
+  }, [loadChats])
+
+  // 블록을 고르면 편집할 곳이 보여야 한다
+  useEffect(() => {
+    if (selectedCount > 0) setPanelOpen(true)
+  }, [selectedCount])
 
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-txt-0">FlowKit</h1>
-        <p className="mt-2 text-sm text-txt-2">
-          백엔드 연결: <span className="text-accent">{status}</span>
-        </p>
-      </div>
+    <div className="flex h-full">
+      <Sidebar />
+      <ChatArea
+        panelOpen={panelOpen}
+        onTogglePanel={() => setPanelOpen((v) => !v)}
+      />
+      {panelOpen && <ContextPanel onClose={() => setPanelOpen(false)} />}
     </div>
   )
 }

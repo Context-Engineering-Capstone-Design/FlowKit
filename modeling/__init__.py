@@ -6,7 +6,7 @@
 from modeling.chains.answer import generate_answer
 from modeling.chains.refine import refine_blocks
 from modeling.chains.title import generate_title
-from modeling.llm import MissingApiKeyError
+from modeling.llm import MissingApiKeyError, configure
 from modeling.types import AnswerRequest, ChatTurn, RefineResult, RefineTarget
 
 __all__ = [
@@ -14,6 +14,7 @@ __all__ = [
     "refine_blocks",
     "generate_title",
     "MissingApiKeyError",
+    "configure",
     "AnswerRequest",
     "ChatTurn",
     "RefineTarget",

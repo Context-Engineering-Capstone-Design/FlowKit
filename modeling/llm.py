@@ -18,9 +18,23 @@ class MissingApiKeyError(RuntimeError):
     """GOOGLE_API_KEY 가 없을 때. 백엔드는 이 오류를 사용자 안내로 바꿔 보여준다."""
 
 
+_api_key: str | None = None
+
+
+def configure(api_key: str) -> None:
+    """쓸 API 키를 지정한다.
+
+    백엔드는 .env 를 자기 설정 객체로 읽기 때문에, 그 값이 프로세스 환경변수에는
+    들어가지 않는다. 지정하지 않으면 환경변수를 찾으므로 단독 실행도 그대로 된다.
+    """
+    global _api_key
+    _api_key = api_key.strip() or None
+    get_chat_model.cache_clear()
+
+
 @lru_cache
 def get_chat_model(model: str = DEFAULT_MODEL) -> BaseChatModel:
-    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    api_key = _api_key or os.getenv("GOOGLE_API_KEY", "").strip()
     if not api_key:
         raise MissingApiKeyError(
             "GOOGLE_API_KEY 가 설정되지 않았습니다. .env 를 확인해주세요."

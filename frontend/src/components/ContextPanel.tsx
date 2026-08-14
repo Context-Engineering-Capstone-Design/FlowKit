@@ -1,0 +1,280 @@
+import { Check, SlidersHorizontal, X } from 'lucide-react'
+import { useState } from 'react'
+import { useChatStore } from '@/store/chatStore'
+
+const QUICK_EDITS = [
+  '핵심만 요약',
+  '불필요한 내용 제거',
+  '초보자용으로',
+  '예시 추가',
+  '용어 설명 추가',
+  '시험 대비용',
+  '발표 대본용',
+  '표로 정리',
+]
+
+interface Props {
+  onClose: () => void
+}
+
+// 우측 Context 편집 패널 — 선택한 블록 확인, 편집 지시 입력, 정제 결과 검토
+export function ContextPanel({ onClose }: Props) {
+  const blocks = useChatStore((s) => s.blocks)
+  const selectedIds = useChatStore((s) => s.selectedBlockIds)
+  const refineJob = useChatStore((s) => s.refineJob)
+
+  const selected = blocks.filter((b) => selectedIds.includes(b.blockId))
+
+  return (
+    <aside className="flex w-[310px] shrink-0 flex-col overflow-hidden bg-bg-1">
+      <header className="flex items-center justify-between px-4 py-3.5">
+        <span className="flex items-center gap-2 text-[13px] font-semibold">
+          <SlidersHorizontal className="h-3.5 w-3.5 text-txt-2" />
+          Context 편집 패널
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-txt-3 transition hover:text-txt-0"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </header>
+
+      {selected.length === 0 && !refineJob ? (
+        <EmptyGuide />
+      ) : (
+        <div className="flex-1 overflow-y-auto px-4 pb-4">
+          <SelectedBlocks />
+          <RefineForm />
+          {refineJob && <RefinePreview />}
+        </div>
+      )}
+
+      {selected.length > 0 && !refineJob && <PanelFooter />}
+    </aside>
+  )
+}
+
+function EmptyGuide() {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+      <p className="text-[12.5px] leading-relaxed text-txt-2">
+        메시지 블록에 마우스를 올리면
+        <br />
+        왼쪽에 체크박스가 나타납니다.
+      </p>
+      <p className="mt-4 text-[12.5px] leading-relaxed text-txt-3">
+        원하는 블록을 선택하면
+        <br />
+        Context 편집이 시작됩니다.
+      </p>
+    </div>
+  )
+}
+
+// 선택된 블록 목록 (REQ-023)
+function SelectedBlocks() {
+  const blocks = useChatStore((s) => s.blocks)
+  const selectedIds = useChatStore((s) => s.selectedBlockIds)
+  const toggleBlock = useChatStore((s) => s.toggleBlock)
+
+  const selected = blocks.filter((b) => selectedIds.includes(b.blockId))
+  if (selected.length === 0) return null
+
+  return (
+    <section className="pt-3">
+      <SectionLabel>
+        선택된 블록
+        <span className="ml-1.5 rounded bg-blue px-1.5 text-[10px] font-bold text-white">
+          {selected.length}
+        </span>
+      </SectionLabel>
+
+      <div className="mt-2 space-y-1.5">
+        {selected.map((b) => (
+          <div
+            key={b.blockId}
+            className="flex items-start gap-2 rounded-md bg-bg-2 px-2.5 py-2"
+          >
+            <span
+              className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
+                b.role === 'user' ? 'bg-blue' : 'bg-green'
+              }`}
+            />
+            <span className="line-clamp-2 flex-1 text-[11.5px] leading-relaxed text-txt-1">
+              {toPreview(b.content)}
+            </span>
+            <button
+              type="button"
+              onClick={() => toggleBlock(b.blockId)}
+              className="text-txt-3 transition hover:text-txt-0"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+// 빠른 편집 버튼과 자연어 편집 지시 입력 (REQ-024, REQ-025)
+function RefineForm() {
+  const [instruction, setInstruction] = useState('')
+  const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
+  const isRefining = useChatStore((s) => s.isRefining)
+  const runRefine = useChatStore((s) => s.runRefine)
+  const refineJob = useChatStore((s) => s.refineJob)
+
+  if (selectedCount === 0 || refineJob) return null
+
+  return (
+    <>
+      <section className="pt-5">
+        <SectionLabel>빠른 편집</SectionLabel>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {QUICK_EDITS.map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setInstruction(q)}
+              className="rounded-full bg-bg-2 px-2.5 py-1 text-[11px] text-txt-1 transition hover:bg-bg-3 hover:text-txt-0"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="pt-5">
+        <SectionLabel>AI 편집 지시</SectionLabel>
+        <textarea
+          value={instruction}
+          onChange={(e) => setInstruction(e.target.value)}
+          rows={3}
+          placeholder="어떻게 정리할지 적어주세요"
+          className="mt-2 w-full resize-none rounded-lg bg-bg-2 p-2.5 text-[12.5px] text-txt-0 outline-none placeholder:text-txt-3"
+        />
+        <button
+          type="button"
+          onClick={() => void runRefine(instruction)}
+          disabled={isRefining || !instruction.trim()}
+          className="mt-2 w-full rounded-lg bg-blue py-2.5 text-[12.5px] font-semibold text-white transition disabled:opacity-40"
+        >
+          {isRefining ? '정제 중…' : '블록별로 정제하기'}
+        </button>
+        <p className="mt-2 text-[11px] leading-relaxed text-txt-3">
+          선택한 블록을 각각 따로 정제합니다. 승인한 결과만 원본에 반영됩니다.
+        </p>
+      </section>
+    </>
+  )
+}
+
+// 정제 결과 미리보기 — 원본과 정제본 비교 (REQ-029)
+function RefinePreview() {
+  const refineJob = useChatStore((s) => s.refineJob)
+  const approve = useChatStore((s) => s.approveResult)
+  const reject = useChatStore((s) => s.rejectResult)
+  const approveAll = useChatStore((s) => s.approveAll)
+  const closeRefine = useChatStore((s) => s.closeRefine)
+
+  if (!refineJob) return null
+  const pending = refineJob.results.filter((r) => r.status === 'pending')
+
+  return (
+    <section className="pt-5">
+      <SectionLabel>블록별 정제 미리보기</SectionLabel>
+
+      <div className="mt-2 space-y-2.5">
+        {refineJob.results.map((r) => (
+          <div key={r.resultId} className="rounded-lg bg-bg-2 p-2.5">
+            <p className="text-[10.5px] font-semibold text-txt-3">원본</p>
+            <p className="mt-1 line-clamp-3 border-l-2 border-line pl-2 text-[11.5px] leading-relaxed text-txt-2">
+              {r.baseContent}
+            </p>
+
+            <p className="mt-2.5 text-[10.5px] font-semibold text-green">
+              정제 결과
+            </p>
+            <p className="mt-1 line-clamp-4 border-l-2 border-green pl-2 text-[11.5px] leading-relaxed text-txt-1">
+              {r.refinedContent}
+            </p>
+
+            <div className="mt-2.5 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => void approve(r.resultId)}
+                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-blue-dim py-1.5 text-[11px] font-semibold text-blue transition hover:bg-blue hover:text-white"
+              >
+                <Check className="h-3 w-3" /> 승인
+              </button>
+              <button
+                type="button"
+                onClick={() => void reject(r.resultId)}
+                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-bg-3 py-1.5 text-[11px] text-txt-1 transition hover:text-txt-0"
+              >
+                <X className="h-3 w-3" /> 거절
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 flex gap-1.5">
+        {pending.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void approveAll()}
+            className="flex-1 rounded-lg bg-blue py-2 text-[12px] font-semibold text-white"
+          >
+            전체 승인
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => void closeRefine()}
+          className="flex-1 rounded-lg bg-bg-3 py-2 text-[12px] text-txt-1 transition hover:text-txt-0"
+        >
+          닫기
+        </button>
+      </div>
+    </section>
+  )
+}
+
+// Context 적용과 브랜치 생성 (REQ-046, REQ-010)
+function PanelFooter() {
+  const applyContext = useChatStore((s) => s.applyContext)
+  const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
+
+  return (
+    <div className="space-y-1.5 px-4 py-3">
+      <button
+        type="button"
+        onClick={applyContext}
+        className="w-full rounded-lg bg-blue py-2.5 text-[12.5px] font-semibold text-white"
+      >
+        이 Context로 질문하기 ({selectedCount})
+      </button>
+    </div>
+  )
+}
+
+/** 목록에 한 줄로 보여줄 때 쓰는 미리보기. 마크다운 기호가 그대로 보이면 읽기 어렵다. */
+function toPreview(content: string): string {
+  return content
+    .replace(/```[\s\S]*?```/g, ' 코드 ')
+    .replace(/[#>*_`~|-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[10.5px] font-semibold uppercase tracking-wide text-txt-3">
+      {children}
+    </p>
+  )
+}

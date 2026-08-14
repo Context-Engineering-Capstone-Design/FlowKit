@@ -1,25 +1,33 @@
 @import 'tailwindcss';
 
-/* UI 시안(기획 문서/FlowKit_0520.html)의 다크 테마 값을 토큰으로 옮겼다.
-   시안을 화면으로 옮길 때 색을 직접 쓰지 말고 이 토큰을 쓴다. */
+/* UI 시안(기획 문서/FlowKit_0520.html)의 색을 그대로 옮겼다.
+   화면을 만들 때 색을 직접 쓰지 말고 이 토큰을 쓴다. */
 @theme {
-  --color-bg-0: #0d0d0d;
-  --color-bg-1: #151515;
-  --color-bg-2: #1c1c1c;
-  --color-bg-3: #242424;
+  --color-bg-0: #141414;
+  --color-bg-1: #1e1e1e;
+  --color-bg-2: #262626;
+  --color-bg-3: #303030;
+  --color-bg-4: #3a3a3a;
 
-  --color-border-subtle: #262626;
-  --color-border-strong: #333333;
+  --color-line: #383838;
+  --color-line-strong: #444444;
 
-  --color-txt-0: #ededed;
-  --color-txt-1: #b4b4b4;
-  --color-txt-2: #7d7d7d;
+  --color-txt-0: #f0f0f0;
+  --color-txt-1: #c0c0c0;
+  --color-txt-2: #888888;
+  --color-txt-3: #555555;
 
-  --color-accent: #4a9eff;
-  --color-accent-soft: #1e3a5f;
-  --color-success: #3fb950;
-  --color-warning: #d29922;
-  --color-danger: #f85149;
+  --color-blue: #4f8ef7;
+  --color-blue-dim: rgba(79, 142, 247, 0.12);
+  --color-blue-line: rgba(79, 142, 247, 0.35);
+  --color-green: #4caf7d;
+  --color-green-dim: rgba(76, 175, 125, 0.12);
+  --color-orange: #f0a03e;
+  --color-red: #ff6b6b;
+
+  /* 선택된 메시지 블록 강조 (NFR-002) */
+  --color-sel-bg: rgba(79, 142, 247, 0.1);
+  --color-sel-line: rgba(79, 142, 247, 0.5);
 }
 
 html,
@@ -34,4 +42,57 @@ body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo',
     'Segoe UI', sans-serif;
+  font-size: 14px;
+}
+
+/* AI 답변은 마크다운으로 온다 */
+.markdown > * + * {
+  margin-top: 0.6em;
+}
+.markdown h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 1em;
+}
+.markdown ul,
+.markdown ol {
+  padding-left: 1.2em;
+  list-style: disc;
+}
+.markdown ol {
+  list-style: decimal;
+}
+.markdown code {
+  background: var(--color-bg-3);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12.5px;
+}
+.markdown pre {
+  background: var(--color-bg-2);
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.markdown pre code {
+  background: none;
+  padding: 0;
+}
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--color-line);
+  padding: 5px 8px;
+  text-align: left;
+}
+.markdown th {
+  background: var(--color-bg-3);
+}
+.markdown strong {
+  font-weight: 600;
+  color: var(--color-txt-0);
 }

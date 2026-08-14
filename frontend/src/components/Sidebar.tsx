@@ -1,0 +1,141 @@
+import { GitBranch, Layers, Search, SquarePen } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useAuthStore } from '@/store/authStore'
+import { useChatStore } from '@/store/chatStore'
+
+// 좌측 사이드바 — 새 채팅, 대화 검색, 최근 대화 목록, 현재 대화의 브랜치 목록
+export function Sidebar() {
+  const chats = useChatStore((s) => s.chats)
+  const chatId = useChatStore((s) => s.chatId)
+  const branches = useChatStore((s) => s.branches)
+  const loadChats = useChatStore((s) => s.loadChats)
+  const newChat = useChatStore((s) => s.newChat)
+  const openChat = useChatStore((s) => s.openChat)
+  const switchBranch = useChatStore((s) => s.switchBranch)
+
+  const [keyword, setKeyword] = useState('')
+
+  useEffect(() => {
+    // 입력할 때마다 요청하지 않도록 잠시 기다렸다 검색한다
+    const timer = setTimeout(() => void loadChats(keyword || undefined), 250)
+    return () => clearTimeout(timer)
+  }, [keyword, loadChats])
+
+  return (
+    <aside className="flex w-[236px] shrink-0 flex-col overflow-hidden bg-bg-1">
+      <div className="flex items-center justify-between px-4 py-3.5">
+        <span className="flex items-center gap-2 text-[15px] font-bold">
+          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-linear-to-br from-blue to-green">
+            <Layers className="h-3.5 w-3.5 text-white" strokeWidth={2.2} />
+          </span>
+          FlowKit
+        </span>
+        <button
+          type="button"
+          onClick={() => void newChat()}
+          title="새 채팅"
+          className="rounded-md p-1.5 text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"
+        >
+          <SquarePen className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="px-3 pb-3">
+        <div className="flex items-center gap-2 rounded-lg bg-bg-2 px-2.5 py-2">
+          <Search className="h-3.5 w-3.5 shrink-0 text-txt-3" />
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="채팅 검색"
+            className="w-full bg-transparent text-[12.5px] text-txt-0 outline-none placeholder:text-txt-3"
+          />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
+        <SectionLabel>최근 대화</SectionLabel>
+        {chats.length === 0 && (
+          <p className="px-2 py-1 text-[12px] text-txt-3">대화가 없습니다</p>
+        )}
+        {chats.map((c) => (
+          <button
+            key={c.chatId}
+            type="button"
+            onClick={() => void openChat(c.chatId)}
+            className={`block w-full truncate rounded-md px-2 py-[7px] text-left text-[12.5px] transition ${
+              c.chatId === chatId
+                ? 'bg-bg-3 text-txt-0'
+                : 'text-txt-1 hover:bg-bg-2'
+            }`}
+          >
+            {c.title}
+          </button>
+        ))}
+
+        {branches.length > 0 && (
+          <>
+            <SectionLabel>현재 대화 — 브랜치</SectionLabel>
+            {branches.map((b) => (
+              <button
+                key={b.branchId}
+                type="button"
+                onClick={() => void switchBranch(b.branchId)}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-[7px] text-left text-[12.5px] transition ${
+                  b.isActive ? 'bg-bg-3 text-txt-0' : 'text-txt-1 hover:bg-bg-2'
+                }`}
+              >
+                <GitBranch
+                  className={`h-3.5 w-3.5 shrink-0 ${
+                    b.branchType === 'MAIN' ? 'text-blue' : 'text-green'
+                  }`}
+                />
+                <span className="truncate">{b.branchName}</span>
+              </button>
+            ))}
+          </>
+        )}
+      </div>
+
+      <ProfileArea />
+    </aside>
+  )
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-2 pb-1 pt-3 text-[10.5px] font-semibold uppercase tracking-wide text-txt-3">
+      {children}
+    </p>
+  )
+}
+
+// 사이드바 하단 프로필 영역 — 사용자 정보와 로그아웃
+function ProfileArea() {
+  const user = useAuthStore((s) => s.user)
+  const logout = useAuthStore((s) => s.logout)
+
+  if (!user) return null
+
+  return (
+    <div className="flex items-center gap-2.5 px-3 py-3">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue text-[12px] font-semibold text-white">
+        {user.name.charAt(0).toUpperCase()}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12.5px] font-semibold">
+          {user.name}
+        </span>
+        <span className="block truncate text-[11px] text-txt-3">
+          {user.email}
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={() => void logout()}
+        className="shrink-0 text-[11px] text-txt-3 transition hover:text-txt-1"
+      >
+        로그아웃
+      </button>
+    </div>
+  )
+}
