@@ -1,0 +1,366 @@
+"""메시지 전송·답변 테스트 (2.7 Context 적용, 2.8 AI 응답 관리)."""
+
+from __future__ import annotations
+
+import pytest
+
+from app.routers import auth as auth_router
+from app.services.google_auth import GoogleUser
+
+USER = GoogleUser("sub-conv", "conv@example.com", "대화테스터", None)
+
+
+@pytest.fixture
+def auth(client, monkeypatch) -> dict:
+    monkeypatch.setattr(auth_router, "verify_google_id_token", lambda _t: USER)
+    res = client.post("/api/auth/google", json={"idToken": "dummy"})
+    return {"Authorization": f"Bearer {res.json()['accessToken']}"}
+
+
+@pytest.fixture
+def captured(monkeypatch) -> list:
+    """AI 에 실제로 무엇이 전달됐는지 확인하기 위해 입력을 기록한다."""
+    calls = []
+    import modeling
+
+    def _answer(request):
+        calls.append(request)
+        return f"답변({len(calls)})"
+
+    monkeypatch.setattr(modeling, "generate_answer", _answer)
+    monkeypatch.setattr(modeling, "generate_title", lambda p: f"제목: {p[:10]}")
+    return calls
+
+
+@pytest.fixture
+def chat(client, auth) -> dict:
+    return client.post("/api/chats", headers=auth).json()
+
+
+def msg_url(chat: dict) -> str:
+    return (
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}/messages"
+    )
+
+
+def send(client, auth, chat, prompt: str, context_ids=None) -> dict:
+    res = client.post(
+        msg_url(chat),
+        json={"userPrompt": prompt, "contextBlockIds": context_ids or []},
+        headers=auth,
+    )
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+# ── BE-AIRESP-001, 002: 전송과 저장 ───────────────────────────────────────
+
+
+def test_send_creates_question_and_answer(client, auth, chat, captured):
+    body = send(client, auth, chat, "파이프라이닝이 뭐야?")
+
+    assert body["userBlock"]["role"] == "user"
+    assert body["userBlock"]["content"] == "파이프라이닝이 뭐야?"
+    assert body["assistantBlock"]["role"] == "assistant"
+    assert body["assistantBlock"]["content"] == "답변(1)"
+
+
+def test_blocks_are_in_order(client, auth, chat, captured):
+    send(client, auth, chat, "첫 질문")
+    send(client, auth, chat, "두 번째 질문")
+
+    detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
+    blocks = detail.json()["messageBlocks"]
+    assert [b["role"] for b in blocks] == ["user", "assistant", "user", "assistant"]
+    assert [b["orderIndex"] for b in blocks] == [0, 1, 2, 3]
+
+
+def test_prompt_is_not_duplicated_into_history(client, auth, chat, captured):
+    """방금 보낸 질문이 이전 대화에도 들어가면 같은 말이 두 번 전달된다."""
+    send(client, auth, chat, "첫 질문")
+
+    request = captured[0]
+    assert request.user_prompt == "첫 질문"
+    assert request.message_flow == []
+
+
+def test_second_send_includes_previous_turns(client, auth, chat, captured):
+    send(client, auth, chat, "첫 질문")
+    send(client, auth, chat, "두 번째 질문")
+
+    request = captured[1]
+    assert [t.content for t in request.message_flow] == ["첫 질문", "답변(1)"]
+    assert request.user_prompt == "두 번째 질문"
+
+
+def test_send_requires_prompt(client, auth, chat, captured):
+    res = client.post(
+        msg_url(chat), json={"userPrompt": "   "}, headers=auth
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+def test_question_survives_ai_failure(client, auth, chat, monkeypatch):
+    """답변 생성이 실패해도 질문은 남아야 다시 입력하지 않는다."""
+    import modeling
+
+    def _boom(request):
+        raise RuntimeError("모델 오류")
+
+    monkeypatch.setattr(modeling, "generate_answer", _boom)
+
+    res = client.post(msg_url(chat), json={"userPrompt": "질문"}, headers=auth)
+    assert res.status_code == 502
+    assert res.json()["errorCode"] == "AI_RESPONSE_FAILED"
+
+    detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
+    assert [b["content"] for b in detail.json()["messageBlocks"]] == ["질문"]
+
+
+# ── BE-CTXAPPLY-001~003: Context 적용 ─────────────────────────────────────
+
+
+def test_applied_context_is_passed_to_ai(client, auth, chat, captured):
+    first = send(client, auth, chat, "구조적 해저드 설명해줘")
+    answer_block = first["assistantBlock"]["blockId"]
+
+    body = send(client, auth, chat, "표로 정리해줘", context_ids=[answer_block])
+
+    assert [c["blockId"] for c in body["appliedContext"]] == [answer_block]
+    assert captured[1].applied_context == ["답변(1)"]
+
+
+def test_applied_context_replaces_prior_conversation(client, auth, chat, captured):
+    """Context 를 고르면 나머지 대화는 빼고 묻는 것이다 (NFR-011).
+
+    이전 흐름을 함께 넣으면 최근 대화가 Context 를 눌러, 고르지 않은 주제로
+    답이 흘러간다.
+    """
+    first = send(client, auth, chat, "해저드 설명해줘")
+    send(client, auth, chat, "캐시는 뭐야?")
+
+    send(
+        client,
+        auth,
+        chat,
+        "방금 내용을 표로 정리해줘",
+        context_ids=[first["assistantBlock"]["blockId"]],
+    )
+
+    request = captured[-1]
+    assert request.applied_context == ["답변(1)"]
+    assert request.message_flow == []
+
+
+def test_prior_conversation_is_kept_without_context(client, auth, chat, captured):
+    """Context 를 고르지 않았으면 평소처럼 이전 대화를 이어간다."""
+    send(client, auth, chat, "첫 질문")
+    send(client, auth, chat, "두 번째 질문")
+
+    assert [t.content for t in captured[-1].message_flow] == ["첫 질문", "답변(1)"]
+
+
+def test_context_uses_server_side_current_version(client, auth, chat, captured):
+    """화면이 보낸 본문이 아니라 서버의 현재 활성 버전을 쓴다."""
+    first = send(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+
+    block_url = (
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}/blocks/{block_id}"
+    )
+    client.patch(block_url, json={"editedContent": "수정된 답변"}, headers=auth)
+
+    send(client, auth, chat, "이어서", context_ids=[block_id])
+    assert captured[1].applied_context == ["수정된 답변"]
+
+
+def test_context_items_follow_conversation_order(client, auth, chat, captured):
+    first = send(client, auth, chat, "첫 질문")
+    second = send(client, auth, chat, "두 번째 질문")
+
+    # 일부러 뒤집어 보낸다
+    body = send(
+        client,
+        auth,
+        chat,
+        "정리해줘",
+        context_ids=[second["assistantBlock"]["blockId"], first["userBlock"]["blockId"]],
+    )
+
+    assert [c["orderIndex"] for c in body["appliedContext"]] == [0, 3]
+
+
+def test_duplicate_context_ids_are_deduplicated(client, auth, chat, captured):
+    first = send(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+
+    body = send(client, auth, chat, "이어서", context_ids=[block_id, block_id])
+
+    assert len(body["appliedContext"]) == 1
+    assert captured[1].applied_context == ["답변(1)"]
+
+
+def test_context_block_outside_branch_is_rejected(client, auth, chat, captured):
+    res = client.post(
+        msg_url(chat),
+        json={
+            "userPrompt": "질문",
+            "contextBlockIds": ["00000000-0000-0000-0000-000000000000"],
+        },
+        headers=auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+def test_pending_refine_result_is_not_used_as_context(
+    client, auth, chat, captured, monkeypatch
+):
+    """승인하지 않은 정제본은 활성 버전이 아니므로 Context 에 들어가면 안 된다."""
+    import modeling
+    from modeling.types import RefineResult
+
+    first = send(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+
+    monkeypatch.setattr(
+        modeling,
+        "refine_blocks",
+        lambda targets, instruction: [
+            RefineResult(block_id=t.block_id, refined_content="정제된 내용")
+            for t in targets
+        ],
+    )
+    client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}/refine-jobs",
+        json={"selectedBlockIds": [block_id], "instructionText": "요약"},
+        headers=auth,
+    )
+
+    send(client, auth, chat, "이어서", context_ids=[block_id])
+    assert captured[1].applied_context == ["답변(1)"]
+
+
+# ── BE-CHAT-004: 제목 자동 생성 ───────────────────────────────────────────
+
+
+def test_first_message_generates_title(client, auth, chat, captured):
+    body = send(client, auth, chat, "파이프라이닝 알려줘")
+
+    assert body["titleGenerated"] is True
+    assert body["chatTitle"] == "제목: 파이프라이닝 알려줘"
+
+
+def test_title_is_generated_only_once(client, auth, chat, captured):
+    send(client, auth, chat, "첫 질문")
+    body = send(client, auth, chat, "두 번째 질문")
+
+    assert body["titleGenerated"] is False
+    assert body["chatTitle"] == "제목: 첫 질문"
+
+
+def test_conversation_continues_when_title_fails(client, auth, chat, monkeypatch):
+    """제목은 부가 정보라 실패해도 대화는 정상이어야 한다."""
+    import modeling
+
+    monkeypatch.setattr(modeling, "generate_answer", lambda r: "답변")
+
+    def _boom(prompt):
+        raise RuntimeError("제목 생성 실패")
+
+    monkeypatch.setattr(modeling, "generate_title", _boom)
+
+    body = send(client, auth, chat, "질문")
+    assert body["assistantBlock"]["content"] == "답변"
+    assert body["titleGenerated"] is False
+    assert body["chatTitle"] == "새 대화"
+
+
+# ── BE-AIRESP-003: 재생성 ─────────────────────────────────────────────────
+
+
+def test_regenerate_adds_version_to_same_block(client, auth, chat, captured):
+    first = send(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    base = (
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}/blocks/{block_id}"
+    )
+
+    again = client.post(f"{base}/regenerate", headers=auth).json()
+
+    assert again["blockId"] == block_id
+    assert again["versionNo"] == 2
+    assert again["content"] == "답변(2)"
+
+    versions = client.get(f"{base}/versions", headers=auth).json()
+    assert [v["content"] for v in versions] == ["답변(1)", "답변(2)"]
+    assert versions[-1]["sourceType"] == "ai_regenerate"
+
+
+def test_regenerate_reuses_the_original_question(client, auth, chat, captured):
+    send(client, auth, chat, "첫 질문")
+    second = send(client, auth, chat, "두 번째 질문")
+
+    client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}"
+        f"/blocks/{second['assistantBlock']['blockId']}/regenerate",
+        headers=auth,
+    )
+
+    request = captured[-1]
+    assert request.user_prompt == "두 번째 질문"
+    assert [t.content for t in request.message_flow] == ["첫 질문", "답변(1)"]
+
+
+def test_regenerate_rejects_user_block(client, auth, chat, captured):
+    first = send(client, auth, chat, "질문")
+
+    res = client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}"
+        f"/blocks/{first['userBlock']['blockId']}/regenerate",
+        headers=auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "NOT_ASSISTANT_BLOCK"
+
+
+def test_regenerated_answer_can_be_rolled_back(client, auth, chat, captured):
+    first = send(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    base = (
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}/blocks/{block_id}"
+    )
+    client.post(f"{base}/regenerate", headers=auth)
+
+    versions = client.get(f"{base}/versions", headers=auth).json()
+    restored = client.patch(
+        f"{base}/version",
+        json={"targetVersionId": versions[0]["versionId"]},
+        headers=auth,
+    ).json()
+
+    assert restored["content"] == "답변(1)"
+
+
+# ── 권한 ──────────────────────────────────────────────────────────────────
+
+
+def test_other_user_cannot_send(client, auth, chat, captured, monkeypatch):
+    other = GoogleUser("sub-y", "y@example.com", "다른사람", None)
+    monkeypatch.setattr(auth_router, "verify_google_id_token", lambda _t: other)
+    token = client.post("/api/auth/google", json={"idToken": "x"}).json()["accessToken"]
+
+    res = client.post(
+        msg_url(chat),
+        json={"userPrompt": "침입"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 403
