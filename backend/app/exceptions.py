@@ -57,6 +57,36 @@ class TokenReuseDetectedError(AppError):
     message = "이미 사용된 토큰입니다. 보안을 위해 모든 세션을 종료했습니다."
 
 
+class ValidationError(AppError):
+    status_code = 400
+    error_code = "VALIDATION_ERROR"
+    message = "입력값이 올바르지 않습니다."
+
+
+class ChatNotFoundError(AppError):
+    status_code = 404
+    error_code = "CHAT_NOT_FOUND"
+    message = "채팅을 찾을 수 없습니다."
+
+
+class ChatAccessDeniedError(AppError):
+    status_code = 403
+    error_code = "CHAT_ACCESS_DENIED"
+    message = "해당 채팅에 접근할 권한이 없습니다."
+
+
+class BranchNotFoundError(AppError):
+    status_code = 404
+    error_code = "BRANCH_NOT_FOUND"
+    message = "브랜치를 찾을 수 없습니다."
+
+
+class MessageBlockNotFoundError(AppError):
+    status_code = 404
+    error_code = "MESSAGE_BLOCK_NOT_FOUND"
+    message = "메시지 블록을 찾을 수 없습니다."
+
+
 class UserNotFoundError(AppError):
     status_code = 404
     error_code = "USER_NOT_FOUND"

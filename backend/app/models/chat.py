@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -24,8 +24,15 @@ class Chat(Base, TimestampMixin):
     )
     title: Mapped[str] = mapped_column(String(200), default="새 대화")
     # 최근 대화 목록 정렬 전용. API 응답에는 노출하지 않는다 (BE-CHAT-003)
+    #
+    # 커서 페이지네이션이 이 값의 동률을 id 로 가르는데, DB 기본값(now())에 맡기면
+    # SQLite 는 초 단위라 여러 건이 같은 시각이 되고 커서가 항목을 걸러내지 못한다.
+    # 백엔드와 무관하게 같은 정밀도를 쓰도록 파이썬에서 채운다.
     last_activity_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), index=True
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+        index=True,
     )
 
     branches: Mapped[list[Branch]] = relationship(
