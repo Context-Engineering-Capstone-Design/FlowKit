@@ -1,0 +1,2220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowKit — Block-based Context Editing</title>
+<script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/turndown/dist/turndown.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --bg0: #141414;
+  --bg1: #1e1e1e;
+  --bg2: #262626;
+  --bg3: #303030;
+  --bg4: #3a3a3a;
+  --border: #383838;
+  --border2: #444;
+  --txt0: #f0f0f0;
+  --txt1: #c0c0c0;
+  --txt2: #888;
+  --txt3: #555;
+  --blue: #4f8ef7;
+  --blue-dim: rgba(79,142,247,.12);
+  --blue-border: rgba(79,142,247,.35);
+  --green: #4caf7d;
+  --green-dim: rgba(76,175,125,.12);
+  --orange: #f0a03e;
+  --red: #ff6b6b;
+  --sel-bg: rgba(79,142,247,.1);
+  --sel-border: rgba(79,142,247,.5);
+}
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg0); color:var(--txt0); height:100vh; overflow:hidden; font-size:14px; }
+.app { display:flex; height:100vh; }
+
+/* Lucide icon sizing */
+.lucide { display:block; flex-shrink:0; }
+.ic { display:inline-flex; align-items:center; justify-content:center; }
+.ic .lucide { width:14px; height:14px; stroke-width:1.8; }
+.ic-sm .lucide { width:12px; height:12px; stroke-width:2; }
+.ic-lg .lucide { width:16px; height:16px; stroke-width:1.7; }
+.ic-xl .lucide { width:40px; height:40px; stroke-width:1.2; }
+.ic-send .lucide { width:18px; height:18px; stroke-width:2; }
+
+/* ── Sidebar ─────────────────────────────── */
+.sidebar { width:236px; min-width:236px; background:var(--bg1); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+
+/* top bar */
+.sb-top { padding:12px 12px 10px; display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.sb-logo-mark { display:none; }
+.sb-logo-text { font-size:19px; font-weight:600; letter-spacing:.5px; color:var(--txt0); margin-right:auto; }
+.sb-new-btn { width:30px; height:30px; border-radius:7px; border:1px solid var(--border); background:var(--bg2); color:var(--txt1); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; flex-shrink:0; }
+.sb-new-btn .lucide { width:14px; height:14px; stroke-width:1.8; }
+.sb-new-btn:hover { background:var(--bg3); color:var(--blue); border-color:var(--blue); }
+
+/* search */
+.sb-search-wrap { padding:0 10px 6px; flex-shrink:0; }
+.sb-search { display:flex; align-items:center; gap:7px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:7px 10px; cursor:text; transition:border-color .15s; }
+.sb-search:focus-within { border-color:var(--blue-border); }
+.sb-search .lucide { width:13px; height:13px; stroke-width:2; color:var(--txt3); flex-shrink:0; }
+.sb-search input { flex:1; background:transparent; border:none; outline:none; font-size:12.5px; color:var(--txt0); font-family:inherit; }
+.sb-search input::placeholder { color:var(--txt3); }
+
+/* scroll area */
+.sb-scroll { flex:1; overflow-y:auto; padding:4px 0 8px; }
+
+/* section label */
+.sb-sec-title { font-size:10px; font-weight:700; color:var(--txt3); padding:10px 14px 3px; text-transform:uppercase; letter-spacing:.8px; }
+
+/* conversation / branch / ctx items */
+.sb-item { padding:6px 10px; margin:1px 6px; border-radius:7px; cursor:pointer; display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--txt1); transition:all .15s; position:relative; }
+.sb-item:hover { background:var(--bg3); color:var(--txt0); }
+.sb-item.active { background:var(--blue-dim); color:var(--blue); }
+.sb-item .si-icon { width:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--txt2); }
+.sb-item.active .si-icon { color:var(--blue); }
+.sb-item:hover .si-icon { color:var(--txt0); }
+.sb-item .si-icon .lucide { width:13px; height:13px; stroke-width:1.8; }
+.sb-item .si-label { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sb-badge { font-size:10px; background:var(--blue); color:#fff; padding:1px 6px; border-radius:10px; flex-shrink:0; }
+.sb-badge.green { background:var(--green); }
+.sb-badge.orange { background:var(--orange); }
+.branch-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.ctx-tag { font-size:10px; padding:1px 6px; border-radius:8px; border:1px solid var(--border2); color:var(--txt2); flex-shrink:0; }
+.ctx-tag.cur { border-color:var(--blue-border); color:var(--blue); background:var(--blue-dim); }
+
+/* user profile footer */
+.sb-footer { padding:8px 10px; border-top:1px solid var(--border); flex-shrink:0; position:relative; }
+.sb-profile { display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:8px; cursor:pointer; transition:background .15s; }
+.sb-profile:hover { background:var(--bg3); }
+.sb-avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#5b7cf7,#4caf7d); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#fff; flex-shrink:0; }
+.sb-profile-info { flex:1; overflow:hidden; }
+.sb-profile-name { font-size:12.5px; font-weight:600; color:var(--txt0); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sb-profile-plan { font-size:10.5px; color:var(--txt2); }
+.sb-profile-chevron { color:var(--txt2); display:flex; }
+.sb-profile-chevron .lucide { width:14px; height:14px; stroke-width:1.8; }
+
+/* profile popup */
+.sb-popup { position:absolute; bottom:calc(100% + 4px); left:8px; right:8px; background:var(--bg2); border:1px solid var(--border2); border-radius:10px; overflow:hidden; box-shadow:0 8px 28px rgba(0,0,0,.5); z-index:300; }
+.sb-pop-item { padding:9px 13px; cursor:pointer; display:flex; align-items:center; gap:10px; font-size:13px; color:var(--txt0); transition:background .1s; }
+.sb-pop-item:hover { background:var(--bg3); }
+.sb-pop-icon { width:16px; display:flex; align-items:center; justify-content:center; color:var(--txt2); flex-shrink:0; }
+.sb-pop-icon .lucide { width:14px; height:14px; stroke-width:1.8; }
+.sb-pop-item .sb-pop-chevron { margin-left:auto; color:var(--txt3); display:flex; }
+.sb-pop-item .sb-pop-chevron .lucide { width:13px; height:13px; }
+.sb-pop-sep { height:1px; background:var(--border); margin:3px 0; }
+.sb-pop-user { padding:10px 13px 8px; display:flex; align-items:center; gap:9px; border-bottom:1px solid var(--border); margin-bottom:3px; }
+.sb-pop-avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#5b7cf7,#4caf7d); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; color:#fff; flex-shrink:0; }
+.sb-pop-uinfo { flex:1; }
+.sb-pop-uname { font-size:13px; font-weight:600; color:var(--txt0); }
+.sb-pop-uplan { font-size:11px; color:var(--txt2); }
+.sb-pop-item.upgrade { color:#f0a03e; }
+.sb-pop-item.upgrade .sb-pop-icon { color:#f0a03e; }
+
+/* ── Chat Area ─────────────────────────────── */
+.chat-area { flex:1; display:flex; flex-direction:column; min-width:0; background:var(--bg0); }
+.chat-header { padding:11px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; background:var(--bg0); flex-shrink:0; }
+.chat-title { font-size:14px; font-weight:500; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hdr-btn { display:flex; align-items:center; gap:5px; padding:5px 11px; border-radius:7px; border:1px solid var(--border); background:var(--bg2); color:var(--txt1); font-size:12px; cursor:pointer; transition:all .15s; white-space:nowrap; }
+.hdr-btn .lucide { width:13px; height:13px; stroke-width:1.8; }
+.hdr-btn:hover { border-color:var(--blue); color:var(--blue); }
+.hdr-btn.on { background:var(--blue-dim); border-color:var(--blue-border); color:var(--blue); }
+.sel-badge { background:var(--blue); color:#fff; font-size:10px; padding:1px 6px; border-radius:10px; }
+
+/* messages */
+.messages { flex:1; overflow-y:auto; padding:8px 0 4px; }
+.msg-block { position:relative; padding:10px 20px 10px 44px; display:flex; gap:10px; transition:background .12s; border-left:3px solid transparent; cursor:default; }
+.msg-block:hover { background:rgba(255,255,255,.025); }
+.msg-block:hover .blk-actions { opacity:1; }
+.msg-block:hover .chk-wrap { opacity:1; }
+.msg-block.sel { background:var(--sel-bg)!important; border-left-color:var(--sel-border); }
+.msg-block.editing-mode { background:rgba(79,142,247,.05); }
+
+.chk-wrap { position:absolute; left:16px; top:14px; opacity:0; transition:opacity .12s; }
+.msg-block.sel .chk-wrap { opacity:1; }
+.chk-wrap input[type=checkbox] {
+  -webkit-appearance:none;
+  appearance:none;
+  width:15px;
+  height:15px;
+  cursor:pointer;
+  border:1px solid var(--border2);
+  border-radius:3px;
+  background:var(--bg2);
+  display:grid;
+  place-content:center;
+  transition:border-color .12s, background .12s, box-shadow .12s, transform .08s;
+}
+.chk-wrap input[type=checkbox]::before {
+  content:'';
+  width:8px;
+  height:8px;
+  border-radius:1px;
+  background:var(--blue);
+  transform:translate(0,0) scale(0);
+  transition:transform .12s ease-out;
+}
+.chk-wrap input[type=checkbox]:hover { border-color:var(--blue-border); }
+.chk-wrap input[type=checkbox]:active { transform:scale(.96); }
+.chk-wrap input[type=checkbox]:checked {
+  border-color:var(--blue);
+  background:rgba(79,142,247,.12);
+  box-shadow:0 0 0 2px rgba(79,142,247,.12);
+}
+.chk-wrap input[type=checkbox]:checked::before { transform:translate(0,0) scale(1); }
+.chk-wrap input[type=checkbox]:focus-visible {
+  outline:none;
+  box-shadow:0 0 0 2px rgba(79,142,247,.22);
+}
+
+.blk-body { flex:1; min-width:0; }
+.blk-meta { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.blk-role { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; }
+.blk-role.user { color:var(--blue); }
+.blk-role.ai { color:var(--green); }
+.blk-time { font-size:11px; color:var(--txt3); }
+.blk-content { line-height:1.72; color:var(--txt0); }
+.blk-content p { margin-bottom:7px; }
+.blk-content p:last-child { margin-bottom:0; }
+.blk-content h3 { font-size:14px; margin:12px 0 5px; color:#fff; }
+.blk-content ul { padding-left:18px; margin-bottom:7px; }
+.blk-content li { margin-bottom:4px; line-height:1.65; }
+.blk-content strong { color:#fff; }
+.arr { color:var(--green); font-weight:700; }
+
+/* edit textarea */
+.edit-ta { width:100%; background:var(--bg2); border:1px solid var(--blue); border-radius:8px; color:var(--txt0); font-family:'Consolas','Monaco',monospace; font-size:12.5px; line-height:1.65; padding:10px 12px; resize:vertical; min-height:100px; outline:none; }
+.edit-btns { display:flex; gap:7px; margin-top:7px; justify-content:flex-end; align-items:center; }
+
+/* ── Context Summary Block ───────────────────────────────── */
+.ctx-sum-block { background:rgba(76,175,125,.06); border-left-color:var(--green) !important; border-left-width:3px; }
+.ctx-sum-block:hover { background:rgba(76,175,125,.09) !important; }
+.ctx-sum-badge { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; color:var(--green); background:rgba(76,175,125,.12); border:1px solid rgba(76,175,125,.28); border-radius:10px; padding:1px 8px; margin-left:4px; }
+.ctx-sum-badge .lucide { width:11px; height:11px; stroke-width:2; }
+.ctx-sum-pills { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }
+.ctx-sum-pill { font-size:11px; padding:2px 9px; border-radius:10px; border:1px solid var(--border2); color:var(--txt2); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ctx-sum-pill { cursor:pointer; transition:all .12s; }
+.ctx-sum-pill.ai { border-color:rgba(76,175,125,.3); color:var(--green); background:rgba(76,175,125,.07); }
+.ctx-sum-pill.user { border-color:rgba(79,142,247,.3); color:var(--blue); background:rgba(79,142,247,.07); }
+.ctx-sum-pill:hover { filter:brightness(1.1); border-color:var(--txt1); }
+.msg-block.ctx-jump-focus { animation:ctxJumpFlash 1.1s ease-out; }
+@keyframes ctxJumpFlash {
+  0% { background:rgba(79,142,247,.22); border-left-color:rgba(79,142,247,.95); }
+  100% { background:transparent; border-left-color:transparent; }
+}
+
+/* block action bar */
+.blk-actions { position:absolute; top:8px; right:16px; opacity:0; display:flex; align-items:center; gap:3px; transition:opacity .15s; }
+.blk-btn { width:28px; height:28px; border-radius:6px; border:1px solid var(--border); background:var(--bg2); color:var(--txt1); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .12s; position:relative; }
+.blk-btn .lucide { width:13px; height:13px; stroke-width:1.8; }
+.blk-btn:hover { background:var(--bg3); color:var(--txt0); border-color:var(--blue); }
+
+/* dropdown */
+.dd { position:absolute; top:calc(100% + 4px); right:0; background:var(--bg2); border:1px solid var(--border2); border-radius:9px; min-width:190px; box-shadow:0 8px 28px rgba(0,0,0,.5); z-index:200; overflow:hidden; }
+.dd-item { padding:9px 13px; cursor:pointer; display:flex; align-items:center; gap:9px; font-size:13px; color:var(--txt0); transition:background .1s; }
+.dd-item:hover { background:var(--bg3); }
+.dd-icon { width:16px; display:flex; align-items:center; justify-content:center; color:var(--txt2); flex-shrink:0; }
+.dd-icon .lucide { width:13px; height:13px; stroke-width:1.8; }
+.dd-sep { height:1px; background:var(--border); margin:3px 0; }
+.dd-item.danger { color:var(--red); }
+.dd-item.danger .dd-icon { color:var(--red); opacity:.8; }
+.dd-item.danger:hover { background:rgba(255,107,107,.1); }
+
+/* ── Input area ──────────────────────────── */
+.input-area { padding:10px 16px 14px; background:var(--bg0); flex-shrink:0; }
+.ctx-pill { display:flex; align-items:center; gap:7px; padding:5px 10px; background:var(--blue-dim); border:1px solid var(--blue-border); border-radius:7px; margin-bottom:8px; font-size:12px; color:var(--blue); }
+.ctx-pill .lucide { width:13px; height:13px; stroke-width:1.8; flex-shrink:0; }
+.ctx-pill-label { flex:1; }
+.ctx-pill-x { cursor:pointer; color:var(--txt2); display:flex; align-items:center; }
+.ctx-pill-x .lucide { width:14px; height:14px; }
+.ctx-pill-x:hover { color:var(--txt0); }
+
+/* card */
+.inp-card { background:var(--bg2); border:1px solid var(--border); border-radius:16px; overflow:visible; transition:border-color .15s; position:relative; }
+.inp-card:focus-within { border-color:var(--border2); }
+
+/* attachment chips */
+.attach-row { display:flex; flex-wrap:wrap; gap:7px; padding:10px 12px 0; }
+.attach-row:empty { display:none; }
+.attach-chip { display:flex; align-items:center; gap:8px; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:6px 10px 6px 8px; max-width:200px; }
+.attach-chip-icon { width:28px; height:28px; border-radius:7px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.attach-chip-icon.pdf { background:#e8443a; }
+.attach-chip-icon.img { background:#4f8ef7; }
+.attach-chip-icon.file { background:#666; }
+.attach-chip-icon .lucide { width:14px; height:14px; stroke-width:2; color:#fff; }
+.attach-chip-info { flex:1; min-width:0; }
+.attach-chip-name { font-size:12px; font-weight:500; color:var(--txt0); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.attach-chip-type { font-size:10.5px; color:var(--txt2); }
+.attach-chip-rm { cursor:pointer; color:var(--txt3); display:flex; align-items:center; background:var(--bg4); border-radius:50%; width:16px; height:16px; justify-content:center; flex-shrink:0; transition:all .12s; }
+.attach-chip-rm .lucide { width:10px; height:10px; stroke-width:2.5; }
+.attach-chip-rm:hover { background:var(--red); color:#fff; }
+
+/* textarea */
+.chat-inp { width:100%; background:transparent; border:none; outline:none; resize:none; color:var(--txt0); font-size:14px; font-family:inherit; line-height:1.6; padding:12px 14px 4px; min-height:44px; max-height:160px; }
+.chat-inp::placeholder { color:var(--txt3); }
+
+/* bottom toolbar */
+.inp-toolbar { display:flex; align-items:center; gap:4px; padding:6px 8px 8px; }
+.inp-toolbar-left { display:flex; align-items:center; gap:4px; flex:1; }
+.inp-toolbar-right { display:flex; align-items:center; gap:6px; }
+
+/* + attach button */
+.attach-btn { width:32px; height:32px; border-radius:50%; border:1px solid var(--border); background:transparent; color:var(--txt1); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; position:relative; flex-shrink:0; }
+.attach-btn .lucide { width:16px; height:16px; stroke-width:2; }
+.attach-btn:hover { background:var(--bg3); color:var(--txt0); border-color:var(--border2); }
+
+/* attach popup */
+.attach-popup { position:absolute; bottom:calc(100% + 8px); left:8px; background:var(--bg2); border:1px solid var(--border2); border-radius:10px; min-width:180px; box-shadow:0 8px 24px rgba(0,0,0,.5); z-index:300; overflow:hidden; }
+.attach-pop-item { padding:9px 13px; cursor:pointer; display:flex; align-items:center; gap:10px; font-size:13px; color:var(--txt0); transition:background .1s; }
+.attach-pop-item:hover { background:var(--bg3); }
+.attach-pop-icon { width:28px; height:28px; border-radius:7px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.attach-pop-icon .lucide { width:14px; height:14px; stroke-width:1.8; }
+
+/* web search toggle */
+.web-btn { display:flex; align-items:center; gap:5px; padding:5px 11px; border-radius:20px; border:1px solid var(--border); background:transparent; color:var(--txt1); font-size:12px; cursor:pointer; transition:all .15s; white-space:nowrap; }
+.web-btn .lucide { width:13px; height:13px; stroke-width:1.8; }
+.web-btn:hover { border-color:var(--border2); color:var(--txt0); }
+.web-btn.on { background:var(--blue-dim); border-color:var(--blue-border); color:var(--blue); }
+.web-btn.on .lucide { color:var(--blue); }
+
+/* mic button */
+.mic-btn { width:32px; height:32px; border-radius:50%; border:1px solid var(--border); background:transparent; color:var(--txt2); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; }
+.mic-btn .lucide { width:15px; height:15px; stroke-width:1.8; }
+.mic-btn:hover { background:var(--bg3); color:var(--txt0); border-color:var(--border2); }
+
+/* send button */
+.send-btn { width:34px; height:34px; border-radius:50%; border:none; background:var(--txt0); color:var(--bg0); cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all .15s; }
+.send-btn .lucide { width:16px; height:16px; stroke-width:2.5; }
+.send-btn:hover { background:#fff; transform:scale(1.05); }
+.send-btn:disabled { background:var(--bg4); color:var(--txt3); cursor:default; transform:none; }
+
+/* ── Context Panel ─────────────────────────── */
+.ctx-panel { width:310px; min-width:310px; background:var(--bg1); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; transition:width .25s,min-width .25s; }
+.ctx-panel.hidden { width:0; min-width:0; }
+.pnl-hdr { padding:13px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.pnl-hdr-icon { color:var(--txt2); display:flex; }
+.pnl-hdr-icon .lucide { width:15px; height:15px; stroke-width:1.8; }
+.pnl-title { font-size:13.5px; font-weight:600; flex:1; }
+.pnl-close { cursor:pointer; color:var(--txt2); display:flex; align-items:center; }
+.pnl-close .lucide { width:17px; height:17px; stroke-width:1.8; }
+.pnl-close:hover { color:var(--txt0); }
+.pnl-scroll { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:10px; }
+
+/* panel card */
+.pcard { background:var(--bg2); border-radius:9px; overflow:hidden; }
+.pcard-hdr { padding:8px 12px; font-size:10.5px; font-weight:700; color:var(--txt2); text-transform:uppercase; letter-spacing:.7px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:6px; }
+.pcard-hdr .lucide { width:11px; height:11px; stroke-width:2; }
+.blk-list-item { padding:8px 12px; border-bottom:1px solid var(--border); display:flex; align-items:flex-start; gap:8px; }
+.blk-list-item:last-child { border-bottom:none; }
+.bli-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; margin-top:5px; }
+.bli-dot.user { background:var(--blue); }
+.bli-dot.ai { background:var(--green); }
+.bli-txt { flex:1; font-size:12px; color:var(--txt1); line-height:1.5; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.bli-rm { cursor:pointer; color:var(--txt3); display:flex; align-items:center; }
+.bli-rm .lucide { width:14px; height:14px; stroke-width:1.8; }
+.bli-rm:hover { color:var(--red); }
+
+/* quick edit */
+.qe-grid { display:flex; flex-wrap:wrap; gap:5px; padding:9px 11px; }
+.qe-btn { padding:4px 9px; border-radius:14px; border:1px solid var(--border); background:var(--bg3); color:var(--txt1); font-size:11.5px; cursor:pointer; transition:all .12s; white-space:nowrap; }
+.qe-btn:hover { border-color:var(--blue); color:var(--blue); background:var(--blue-dim); }
+
+/* instruction */
+.instr-ta { width:100%; background:var(--bg1); border:1px solid var(--border); border-radius:7px; color:var(--txt0); padding:8px 10px; font-size:12.5px; resize:none; min-height:66px; font-family:inherit; outline:none; }
+.instr-ta:focus { border-color:var(--blue); }
+.instr-ta::placeholder { color:var(--txt3); }
+.instr-wrap { padding:0 11px 9px; display:flex; flex-direction:column; gap:7px; }
+.refine-btn { width:100%; padding:8px; border-radius:7px; border:none; background:var(--blue); color:#fff; font-size:13px; font-weight:500; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; transition:background .15s; }
+.refine-btn .lucide { width:14px; height:14px; stroke-width:2; }
+.refine-btn:hover { background:#6ba3ff; }
+
+/* refined preview */
+.refined-box { padding:10px 12px; font-size:12.5px; color:var(--txt1); line-height:1.65; border-top:1px solid var(--border); }
+.refined-box p { margin-bottom:6px; }
+.refined-box p:last-child { margin-bottom:0; }
+.refined-tag { display:inline-flex; align-items:center; gap:5px; font-size:10px; padding:2px 7px; border-radius:9px; background:var(--green-dim); color:var(--green); border:1px solid rgba(76,175,125,.3); margin-bottom:7px; }
+.refined-tag .lucide { width:10px; height:10px; stroke-width:2; }
+
+/* panel footer */
+.pnl-foot { padding:10px 10px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:7px; flex-shrink:0; }
+.pf-btn { width:100%; padding:8px; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; transition:all .15s; border:none; display:flex; align-items:center; justify-content:center; gap:6px; }
+.pf-btn .lucide { width:13px; height:13px; stroke-width:2; }
+.pf-btn.prim { background:var(--blue); color:#fff; }
+.pf-btn.prim:hover { background:#6ba3ff; }
+.pf-btn.outl { background:transparent; color:var(--blue); border:1px solid var(--blue-border); }
+.pf-btn.outl:hover { background:var(--blue-dim); }
+.pf-btn.ghost { background:var(--bg3); color:var(--txt0); border:1px solid var(--border); }
+.pf-btn.ghost:hover { background:var(--bg4); }
+
+/* empty panel */
+.pnl-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--txt2); padding:24px; text-align:center; }
+.pnl-empty-icon { color:var(--txt2); opacity:.35; }
+.pnl-empty-icon .lucide { width:42px; height:42px; stroke-width:1.2; }
+.pnl-empty-txt { font-size:12.5px; line-height:1.6; }
+
+/* ── Modal ─────────────────────────────── */
+.overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:1000; backdrop-filter:blur(2px); }
+.modal { background:var(--bg2); border:1px solid var(--border2); border-radius:13px; width:480px; max-width:92vw; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+.modal-hdr { padding:15px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:9px; justify-content:space-between; }
+.modal-hdr-left { display:flex; align-items:center; gap:9px; }
+.modal-hdr-left .lucide { width:15px; height:15px; stroke-width:1.8; color:var(--txt1); }
+.modal-title { font-size:14.5px; font-weight:600; }
+.modal-x { cursor:pointer; background:none; border:none; color:var(--txt1); display:flex; align-items:center; padding:2px; }
+.modal-x .lucide { width:18px; height:18px; stroke-width:1.8; }
+.modal-x:hover { color:var(--txt0); }
+.modal-body { padding:16px 18px; display:flex; flex-direction:column; gap:14px; max-height:60vh; overflow-y:auto; }
+.modal-foot { padding:12px 18px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
+.form-label { font-size:11.5px; font-weight:600; color:var(--txt2); margin-bottom:5px; display:block; }
+.form-inp { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:7px; color:var(--txt0); padding:8px 11px; font-size:13px; outline:none; font-family:inherit; }
+.form-inp:focus { border-color:var(--blue); }
+.form-sel { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:7px; color:var(--txt0); padding:8px 11px; font-size:13px; outline:none; font-family:inherit; }
+.suggest-row { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.modal-blk-chk { display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:7px; cursor:pointer; font-size:12.5px; color:var(--txt1); transition:background .1s; }
+.modal-blk-chk:hover { background:var(--bg3); }
+.modal-blk-chk input { accent-color:var(--blue); }
+
+/* generic btns */
+.btn { padding:7px 15px; border-radius:7px; border:none; cursor:pointer; font-size:13px; font-weight:500; transition:all .15s; display:inline-flex; align-items:center; gap:6px; }
+.btn .lucide { width:13px; height:13px; stroke-width:2; }
+.btn-prim { background:var(--blue); color:#fff; }
+.btn-prim:hover { background:#6ba3ff; }
+.btn-sec { background:var(--bg3); color:var(--txt0); border:1px solid var(--border); }
+.btn-sec:hover { background:var(--bg4); }
+.btn-ghost { background:transparent; color:var(--txt1); }
+.btn-ghost:hover { background:var(--bg3); }
+
+/* toast */
+.toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:var(--bg2); border:1px solid var(--border2); color:var(--txt0); padding:9px 18px; border-radius:9px; font-size:13px; box-shadow:0 6px 24px rgba(0,0,0,.5); z-index:3000; display:flex; align-items:center; gap:8px; animation:toastIn .2s ease; white-space:nowrap; }
+.toast .lucide { width:14px; height:14px; stroke-width:2; flex-shrink:0; }
+.toast.toast-ok { border-color:rgba(76,175,125,.4); }
+.toast.toast-ok .lucide { color:var(--green); }
+.toast.toast-info .lucide { color:var(--blue); }
+.toast.toast-warn .lucide { color:var(--orange); }
+.toast.toast-warn { border-color:rgba(240,160,62,.4); }
+@keyframes toastIn { from { transform:translateX(-50%) translateY(10px); opacity:0; } to { transform:translateX(-50%) translateY(0); opacity:1; } }
+
+/* scrollbar */
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+/* branch intro banner */
+.branch-banner { margin:6px 20px; padding:8px 12px; background:rgba(76,175,125,.1); border:1px solid rgba(76,175,125,.25); border-radius:8px; font-size:12px; color:var(--green); display:none; align-items:center; gap:7px; }
+.branch-banner .lucide { width:13px; height:13px; stroke-width:1.8; flex-shrink:0; }
+
+/* ── Model selector (input toolbar) ───────── */
+.inp-model-wrap { position:relative; }
+.inp-model-btn { display:flex; align-items:center; gap:5px; padding:5px 11px; border-radius:20px; border:1px solid var(--border); background:transparent; color:var(--txt1); font-size:12.5px; font-weight:500; cursor:pointer; transition:all .15s; white-space:nowrap; font-family:inherit; }
+.inp-model-btn .lucide { width:12px; height:12px; stroke-width:2; color:var(--txt2); }
+.inp-model-btn:hover { border-color:var(--border2); color:var(--txt0); background:var(--bg3); }
+.inp-model-dropdown { position:absolute; bottom:calc(100% + 8px); right:0; background:var(--bg2); border:1px solid var(--border2); border-radius:10px; min-width:230px; box-shadow:0 8px 28px rgba(0,0,0,.5); z-index:400; overflow:hidden; }
+.model-option { padding:9px 12px; cursor:pointer; display:flex; align-items:center; gap:10px; transition:background .1s; }
+.model-option:hover { background:var(--bg3); }
+.model-option.active { background:var(--blue-dim); }
+.model-opt-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.model-opt-info { flex:1; }
+.model-opt-name { font-size:13px; font-weight:500; color:var(--txt0); }
+.model-opt-desc { font-size:11px; color:var(--txt2); margin-top:1px; }
+.model-opt-tag { font-size:10px; padding:1px 6px; border-radius:7px; border:1px solid var(--border2); color:var(--txt2); flex-shrink:0; }
+.model-opt-tag.fast { border-color:rgba(76,175,125,.3); color:var(--green); background:var(--green-dim); }
+.model-opt-tag.reason { border-color:rgba(240,160,62,.3); color:var(--orange); background:rgba(240,160,62,.1); }
+
+/* ── generating indicator ────────────────── */
+/* generating indicator */
+/* ── Block footer bar ────────────────────── */
+.blk-footer { display:flex; align-items:center; gap:4px; margin-top:8px; padding-top:4px; }
+.blk-foot-actions { display:flex; align-items:center; gap:2px; flex:1; }
+.blk-foot-btn { width:26px; height:26px; border-radius:6px; border:none; background:transparent; color:var(--txt2); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .12s; flex-shrink:0; }
+.blk-foot-btn .lucide { width:13px; height:13px; stroke-width:1.8; }
+.blk-foot-btn:hover { background:var(--bg3); color:var(--txt0); }
+.blk-foot-btn.liked { color:var(--blue); }
+.blk-foot-btn.disliked { color:var(--red); }
+.ver-nav { display:flex; align-items:center; gap:2px; }
+.ver-nav-btn { width:22px; height:22px; border-radius:5px; border:none; background:transparent; color:var(--txt2); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .12s; }
+.ver-nav-btn .lucide { width:12px; height:12px; stroke-width:2; }
+.ver-nav-btn:hover { background:var(--bg3); color:var(--txt0); }
+.ver-nav-btn:disabled { opacity:.25; cursor:default; }
+.ver-label { font-size:11.5px; color:var(--txt2); min-width:26px; text-align:center; }
+
+.generating { display:flex; align-items:center; gap:6px; color:var(--txt2); font-size:13px; }
+.generating .lucide { width:13px; height:13px; stroke-width:1.8; animation:spin 1.2s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ── Login Screen ──────────────────────────────── */
+.login-screen { position:fixed; inset:0; background:var(--bg0); display:flex; align-items:center; justify-content:center; z-index:2000; overflow:hidden; }
+
+/* background orbs */
+.login-bg { position:absolute; inset:0; pointer-events:none; }
+.login-orb { position:absolute; border-radius:50%; filter:blur(88px); animation:orbFloat 9s ease-in-out infinite; }
+.login-orb-1 { width:420px; height:420px; background:#3d5fc4; opacity:.22; top:-140px; left:-100px; animation-delay:0s; }
+.login-orb-2 { width:320px; height:320px; background:#2d7a57; opacity:.18; bottom:-80px; right:-60px; animation-delay:-3.5s; }
+.login-orb-3 { width:240px; height:240px; background:#6b3fa0; opacity:.14; top:38%; left:58%; animation-delay:-7s; }
+@keyframes orbFloat {
+  0%,100% { transform:translate(0,0) scale(1); }
+  33%      { transform:translate(18px,-14px) scale(1.04); }
+  66%      { transform:translate(-10px,12px) scale(.97); }
+}
+
+/* subtle dot-grid overlay */
+.login-grid { position:absolute; inset:0; pointer-events:none;
+  background-image:radial-gradient(circle, rgba(255,255,255,.045) 1px, transparent 1px);
+  background-size:28px 28px; }
+
+/* card */
+.login-card { position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; gap:20px;
+  padding:48px 40px 40px; width:390px; max-width:92vw;
+  background:rgba(28,28,28,.82); backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px);
+  border:1px solid rgba(255,255,255,.085); border-radius:22px;
+  box-shadow:0 40px 90px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.07);
+  animation:cardIn .45s cubic-bezier(.16,1,.3,1); }
+@keyframes cardIn { from { opacity:0; transform:translateY(20px) scale(.97); } to { opacity:1; transform:none; } }
+
+/* logo row */
+.login-logo-row { display:flex; align-items:center; gap:11px; }
+.login-logo-icon { width:40px; height:40px; border-radius:11px;
+  background:linear-gradient(135deg,#5b7cf7,#4caf7d);
+  display:flex; align-items:center; justify-content:center; color:#fff; flex-shrink:0;
+  box-shadow:0 4px 18px rgba(79,142,247,.38); }
+.login-logo-icon .lucide { width:20px; height:20px; stroke-width:2; }
+.login-wordmark { font-size:22px; font-weight:700; letter-spacing:.2px;
+  background:linear-gradient(120deg,#f0f0f0 35%,#9ab4ff 100%);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+/* headline */
+.login-headline { font-size:27px; font-weight:700; text-align:center; line-height:1.3; letter-spacing:-.4px; color:var(--txt0); }
+.login-headline em { font-style:normal;
+  background:linear-gradient(120deg,#7aa5ff,#5ecfa0);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.login-subtext { font-size:13px; color:var(--txt2); text-align:center; line-height:1.75; }
+
+/* feature pills */
+.login-pills { display:flex; gap:7px; flex-wrap:wrap; justify-content:center; }
+.login-pill { font-size:11px; padding:3px 10px; border-radius:20px;
+  border:1px solid var(--border2); color:var(--txt2); background:rgba(255,255,255,.03);
+  white-space:nowrap; }
+
+/* divider */
+.login-divider { width:100%; height:1px; background:linear-gradient(90deg,transparent,var(--border2),transparent); }
+
+/* google button */
+.google-mock-btn { position:relative; display:flex; align-items:center; justify-content:center; gap:10px;
+  width:100%; padding:13px 20px; overflow:hidden;
+  background:var(--bg3); border:1px solid rgba(255,255,255,.1); border-radius:11px;
+  color:var(--txt0); font-size:14px; font-weight:500; font-family:inherit;
+  cursor:pointer; transition:all .18s; }
+.google-mock-btn::after { content:''; position:absolute; inset:0;
+  background:linear-gradient(135deg,rgba(79,142,247,.1),rgba(76,175,125,.07));
+  opacity:0; transition:opacity .2s; }
+.google-mock-btn:hover { background:var(--bg4); border-color:rgba(255,255,255,.2);
+  transform:translateY(-1px); box-shadow:0 6px 20px rgba(0,0,0,.35); }
+.google-mock-btn:hover::after { opacity:1; }
+.google-mock-btn:active { transform:none; box-shadow:none; }
+
+/* notice / footer */
+.login-notice { font-size:12px; color:var(--orange); text-align:center; line-height:1.65;
+  border:1px solid rgba(240,160,62,.3); background:rgba(240,160,62,.07);
+  border-radius:8px; padding:10px 14px; width:100%; }
+.login-notice code { font-family:'Consolas','Monaco',monospace; font-size:11px;
+  background:rgba(240,160,62,.12); padding:1px 5px; border-radius:4px; }
+.login-footer { font-size:11px; color:var(--txt3); text-align:center; line-height:1.65; }
+
+/* avatar image support */
+.sb-avatar { overflow:hidden; }
+.sb-pop-avatar { overflow:hidden; }
+.sb-avatar img, .sb-pop-avatar img { width:100%; height:100%; object-fit:cover; border-radius:50%; display:block; }
+
+/* ── Toggle Switch ─────────────────────────────── */
+.toggle-row { display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid var(--border); }
+.toggle-row:last-child { border-bottom:none; }
+.toggle-lbl { font-size:13px; color:var(--txt0); }
+.toggle-desc { font-size:11px; color:var(--txt2); margin-top:2px; }
+.toggle-switch { position:relative; width:38px; height:22px; flex-shrink:0; cursor:pointer; }
+.toggle-switch input { opacity:0; width:0; height:0; position:absolute; }
+.toggle-track { position:absolute; inset:0; background:var(--bg4); border-radius:11px; transition:background .2s; border:1px solid var(--border2); }
+.toggle-switch input:checked + .toggle-track { background:var(--blue); border-color:var(--blue); }
+.toggle-thumb { position:absolute; top:3px; left:3px; width:14px; height:14px; background:#fff; border-radius:50%; transition:transform .2s; pointer-events:none; }
+.toggle-switch input:checked ~ .toggle-thumb { transform:translateX(16px); }
+
+/* ── API Key ───────────────────────────────────── */
+.api-status-badge { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; padding:3px 10px; border-radius:20px; font-weight:600; }
+.api-status-badge.registered { background:rgba(76,175,125,.15); border:1px solid rgba(76,175,125,.35); color:var(--green); }
+.api-status-badge.unregistered { background:rgba(136,136,136,.1); border:1px solid var(--border2); color:var(--txt2); }
+.api-status-badge .lucide { width:11px; height:11px; stroke-width:2.5; }
+.key-inp-wrap { position:relative; display:flex; align-items:center; }
+.key-inp-wrap .form-inp { padding-right:42px; font-family:'Consolas','Monaco',monospace; font-size:12.5px; letter-spacing:.03em; }
+.key-vis-btn { position:absolute; right:10px; background:none; border:none; cursor:pointer; color:var(--txt2); display:flex; align-items:center; padding:4px; }
+.key-vis-btn .lucide { width:15px; height:15px; stroke-width:1.8; }
+.key-vis-btn:hover { color:var(--txt0); }
+
+/* ── Connection result ─────────────────────────── */
+.conn-result { padding:10px 13px; border-radius:8px; font-size:12.5px; display:flex; align-items:flex-start; gap:9px; }
+.conn-result.success { background:rgba(76,175,125,.1); border:1px solid rgba(76,175,125,.25); color:var(--green); }
+.conn-result.fail { background:rgba(255,107,107,.1); border:1px solid rgba(255,107,107,.25); color:var(--red); }
+.conn-result.testing { background:var(--bg3); border:1px solid var(--border); color:var(--txt2); }
+.conn-result .lucide { width:14px; height:14px; stroke-width:2; flex-shrink:0; margin-top:1px; }
+.conn-result-txt { flex:1; line-height:1.5; }
+.conn-result-sub { font-size:11px; opacity:.75; margin-top:2px; }
+
+/* ── Error Banner ──────────────────────────────── */
+.error-banner { background:rgba(255,107,107,.1); border-bottom:1px solid rgba(255,107,107,.3); padding:9px 20px; display:flex; align-items:center; gap:10px; font-size:13px; color:var(--red); flex-shrink:0; animation:errSlide .2s ease; }
+.error-banner .lucide { width:14px; height:14px; stroke-width:2; flex-shrink:0; }
+.error-banner-msg { flex:1; line-height:1.45; }
+.error-banner-close { cursor:pointer; color:var(--red); display:flex; opacity:.65; flex-shrink:0; }
+.error-banner-close .lucide { width:16px; height:16px; }
+.error-banner-close:hover { opacity:1; }
+@keyframes errSlide { from { opacity:0; transform:translateY(-5px); } to { opacity:1; transform:translateY(0); } }
+
+/* ── Feedback type buttons ──────────────────────── */
+.fb-type-grid { display:flex; flex-wrap:wrap; gap:6px; }
+.fb-type-btn { padding:5px 13px; border-radius:20px; border:1px solid var(--border); background:var(--bg3); color:var(--txt1); font-size:12px; cursor:pointer; transition:all .12s; font-family:inherit; }
+.fb-type-btn:hover { border-color:var(--blue-border); color:var(--blue); background:var(--blue-dim); }
+.fb-type-btn.active { border-color:var(--blue); color:var(--blue); background:var(--blue-dim); }
+</style>
+</head>
+<body>
+<!-- ═══ LOGIN SCREEN ═══ -->
+<div class="login-screen" id="login-screen">
+  <!-- background -->
+  <div class="login-bg">
+    <div class="login-orb login-orb-1"></div>
+    <div class="login-orb login-orb-2"></div>
+    <div class="login-orb login-orb-3"></div>
+  </div>
+  <div class="login-grid"></div>
+
+  <div class="login-card">
+    <!-- logo -->
+    <div class="login-logo-row">
+      <div class="login-logo-icon"><i data-lucide="layers"></i></div>
+      <span class="login-wordmark">FlowKit</span>
+    </div>
+
+    <!-- headline -->
+    <div class="login-headline">대화를 <em>설계</em>하는<br>AI 워크플로 도구</div>
+    <div class="login-subtext">메시지 블록을 직접 선택하고 편집해<br>AI에게 전달할 Context를 정밀하게 제어하세요</div>
+
+    <!-- feature pills -->
+    <div class="login-pills">
+      <span class="login-pill">블록 선택</span>
+      <span class="login-pill">Context 정제</span>
+      <span class="login-pill">브랜치 생성</span>
+      <span class="login-pill">버전 관리</span>
+    </div>
+
+    <div class="login-divider"></div>
+
+    <!-- google button -->
+    <button class="google-mock-btn" onclick="mockGoogleLogin()">
+      <svg width="18" height="18" viewBox="0 0 48 48" style="flex-shrink:0;position:relative;z-index:1"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.33 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.67 14.62 48 24 48z"/></svg>
+      <span style="position:relative;z-index:1">Google로 계속하기</span>
+    </button>
+
+    <div class="login-notice" id="login-notice" style="display:none"></div>
+    <div class="login-footer">계정 정보는 이 기기에만 저장됩니다</div>
+  </div>
+</div>
+
+<div class="app" id="app">
+
+<!-- ═══ LEFT SIDEBAR ═══ -->
+<aside class="sidebar">
+
+  <!-- top: logo + new chat -->
+  <div class="sb-top">
+    <span class="sb-logo-text">FlowKit</span>
+    <button class="sb-new-btn" onclick="newChat()" title="새 채팅">
+      <i data-lucide="square-pen"></i>
+    </button>
+  </div>
+
+  <!-- search -->
+  <div class="sb-search-wrap">
+    <div class="sb-search">
+      <i data-lucide="search"></i>
+      <input id="sb-search-inp" type="text" placeholder="채팅 검색" oninput="filterChats(this.value)">
+    </div>
+  </div>
+
+  <!-- scrollable list -->
+  <div class="sb-scroll" id="sb-scroll">
+
+    <div class="sb-sec-title">최근 대화</div>
+    <div id="recent-chats">
+      <div class="sb-item active" data-chat="파이프라이닝: 개념, 해저드, 해결책">
+        <span class="si-label">파이프라이닝: 개념, 해저드, 해결책</span>
+      </div>
+      <div class="sb-item" onclick="openChat(this)" data-chat="캐싱 리스트 변환 요청">
+        <span class="si-label">캐싱 리스트 변환 요청</span>
+      </div>
+      <div class="sb-item" onclick="openChat(this)" data-chat="CPU 아키텍처 개요">
+        <span class="si-label">CPU 아키텍처 개요</span>
+      </div>
+      <div class="sb-item" onclick="openChat(this)" data-chat="스마트 에어백 구매 검토">
+        <span class="si-label">스마트 에어백 구매 검토</span>
+      </div>
+      <div class="sb-item" onclick="openChat(this)" data-chat="지방 지원 법인 설립">
+        <span class="si-label">지방 지원 법인 설립</span>
+      </div>
+      <div class="sb-item" onclick="openChat(this)" data-chat="타임라인 자막 정리">
+        <span class="si-label">타임라인 자막 정리</span>
+      </div>
+      <div class="sb-item" onclick="openChat(this)" data-chat="올리브유 대체 가능 여부">
+        <span class="si-label">올리브유 대체 가능 여부</span>
+      </div>
+      <div class="sb-item" onclick="openChat(this)" data-chat="안전모 내피 중요성">
+        <span class="si-label">안전모 내피 중요성</span>
+      </div>
+    </div>
+
+    <div class="sb-sec-title">현재 대화 — 브랜치</div>
+    <div class="sb-item active" id="sb-branch-main" onclick="loadPage('main')">
+      <span class="branch-dot" style="background:var(--blue)"></span>
+      <span class="si-label">Main</span>
+    </div>
+    <div class="sb-item" id="sb-branch-hazard" onclick="loadPage('hazard')">
+      <span class="branch-dot" style="background:var(--green)"></span>
+      <span class="si-label">구조적 해저드 중심</span>
+      <span class="sb-badge green">v2</span>
+    </div>
+    <div class="sb-item" id="sb-branch-exam" onclick="loadPage('exam')">
+      <span class="branch-dot" style="background:var(--orange)"></span>
+      <span class="si-label">시험 대비 요약</span>
+    </div>
+
+
+  </div>
+
+  <!-- profile footer -->
+  <div class="sb-footer">
+    <!-- profile popup (hidden by default) -->
+    <div class="sb-popup" id="sb-popup" style="display:none">
+      <div class="sb-pop-user">
+        <div class="sb-pop-avatar" id="pop-avatar">U</div>
+        <div class="sb-pop-uinfo">
+          <div class="sb-pop-uname" id="pop-uname">사용자</div>
+          <div class="sb-pop-uplan" id="pop-uemail">FlowKit</div>
+        </div>
+      </div>
+      <div class="sb-pop-item" onclick="openUserInfoModal();togglePopup()">
+        <span class="sb-pop-icon"><i data-lucide="user"></i></span>
+        사용자 정보
+      </div>
+      <div class="sb-pop-item" onclick="openApiKeyModal();togglePopup()">
+        <span class="sb-pop-icon"><i data-lucide="key"></i></span>
+        API 키 관리
+      </div>
+      <div class="sb-pop-sep"></div>
+      <div class="sb-pop-item" onclick="openFeedbackModal();togglePopup()">
+        <span class="sb-pop-icon"><i data-lucide="message-circle"></i></span>
+        피드백 남기기
+      </div>
+      <div class="sb-pop-sep"></div>
+      <div class="sb-pop-item" onclick="signOut()">
+        <span class="sb-pop-icon"><i data-lucide="log-out"></i></span>
+        로그아웃
+      </div>
+    </div>
+
+    <!-- profile button -->
+    <div class="sb-profile" onclick="togglePopup()">
+      <div class="sb-avatar">J</div>
+      <div class="sb-profile-info">
+        <div class="sb-profile-name">jangryo</div>
+        <div class="sb-profile-plan">Plus</div>
+      </div>
+      <span class="sb-profile-chevron"><i data-lucide="chevron-right"></i></span>
+    </div>
+  </div>
+
+</aside>
+
+<!-- ═══ CHAT AREA ═══ -->
+<main class="chat-area">
+  <div class="chat-header">
+    <span class="chat-title">파이프라이닝: 개념, 해저드, 해결책</span>
+    <button class="hdr-btn on" id="panel-toggle-btn" onclick="togglePanel()">
+      <i data-lucide="panel-right"></i>
+      Context 패널
+      <span class="sel-badge" id="hdr-sel-badge" style="display:none">0</span>
+    </button>
+  </div>
+
+  <!-- error banner -->
+  <div class="error-banner" id="error-banner" style="display:none">
+    <i data-lucide="alert-circle"></i>
+    <span class="error-banner-msg" id="error-banner-msg"></span>
+    <span class="error-banner-close" onclick="clearError()"><i data-lucide="x"></i></span>
+  </div>
+
+  <div class="messages" id="messages">
+  </div><!-- /messages -->
+
+  <!-- Input -->
+  <div class="input-area">
+    <!-- context pill -->
+    <div class="ctx-pill" id="ctx-pill" style="display:none">
+      <i data-lucide="bookmark"></i>
+      <span class="ctx-pill-label" id="ctx-pill-label">Context 적용 중</span>
+      <span class="ctx-pill-x" onclick="clearCtx()"><i data-lucide="x"></i></span>
+    </div>
+
+    <!-- card -->
+    <div class="inp-card">
+
+      <!-- hidden file inputs -->
+      <input type="file" id="file-inp" style="display:none" accept="*/*" onchange="handleFile(this,'file')">
+      <input type="file" id="img-inp" style="display:none" accept="image/*" onchange="handleFile(this,'img')">
+
+      <!-- attachment chips -->
+      <div class="attach-row" id="attach-row"></div>
+
+      <!-- attach menu popup -->
+      <div class="attach-popup" id="attach-popup" style="display:none">
+        <div class="attach-pop-item" onclick="document.getElementById('img-inp').click();hideAttachPopup()">
+          <span class="attach-pop-icon" style="background:#4f8ef7"><i data-lucide="image"></i></span>
+          사진 업로드
+        </div>
+        <div class="attach-pop-item" onclick="document.getElementById('file-inp').click();hideAttachPopup()">
+          <span class="attach-pop-icon" style="background:#666"><i data-lucide="paperclip"></i></span>
+          파일 업로드
+        </div>
+      </div>
+
+      <!-- textarea -->
+      <textarea class="chat-inp" id="chat-inp"
+        placeholder="무엇이든 물어보세요"
+        rows="1"
+        onkeydown="handleKey(event)"
+        oninput="autoResize(this)"></textarea>
+
+      <!-- toolbar -->
+      <div class="inp-toolbar">
+        <div class="inp-toolbar-left">
+          <!-- attach -->
+          <button class="attach-btn" onclick="toggleAttachPopup(event)" title="파일 / 이미지 업로드">
+            <i data-lucide="plus"></i>
+          </button>
+          <!-- web search -->
+          <button class="web-btn" id="web-btn" onclick="toggleWeb()" title="웹 검색">
+            <i data-lucide="globe"></i>
+            웹 검색
+          </button>
+        </div>
+        <div class="inp-toolbar-right">
+          <!-- model selector -->
+          <div class="inp-model-wrap" id="inp-model-wrap">
+            <button class="inp-model-btn" id="inp-model-btn" onclick="toggleModelDD(event)">
+              <span id="inp-model-name">GPT-5.5</span>
+              <i data-lucide="chevron-up"></i>
+            </button>
+            <div class="inp-model-dropdown" id="model-dropdown" style="display:none">
+              <!-- populated by JS -->
+            </div>
+          </div>
+          <!-- mic -->
+          <button class="mic-btn" title="음성 입력"><i data-lucide="mic"></i></button>
+          <!-- send -->
+          <button class="send-btn" id="send-btn" onclick="sendMsg()"><i data-lucide="arrow-up"></i></button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<!-- ═══ CONTEXT PANEL ═══ -->
+<aside class="ctx-panel" id="ctx-panel">
+  <div class="pnl-hdr">
+    <span class="pnl-hdr-icon"><i data-lucide="sliders-horizontal"></i></span>
+    <span class="pnl-title">Context 편집 패널</span>
+    <span class="pnl-close" onclick="togglePanel()"><i data-lucide="x"></i></span>
+  </div>
+
+  <div class="pnl-scroll" id="pnl-scroll">
+    <!-- empty state -->
+    <div class="pnl-empty" id="pnl-empty">
+      <div class="pnl-empty-icon"><i data-lucide="square-dashed-mouse-pointer"></i></div>
+      <div class="pnl-empty-txt">
+        메시지 블록에 마우스를 올리면<br>
+        왼쪽에 체크박스가 나타납니다.<br><br>
+        원하는 블록을 선택하면<br>
+        Context 편집이 시작됩니다.
+      </div>
+    </div>
+
+    <!-- filled state -->
+    <div id="pnl-filled" style="display:none">
+
+      <!-- selected blocks -->
+      <div class="pcard">
+        <div class="pcard-hdr">
+          <i data-lucide="pin"></i> 선택된 블록
+          <span class="sel-badge" id="pnl-sel-count">0</span>
+        </div>
+        <div id="sel-blk-list"></div>
+      </div>
+
+      <!-- quick edit -->
+      <div class="pcard">
+        <div class="pcard-hdr"><i data-lucide="zap"></i> 빠른 편집</div>
+        <div class="qe-grid">
+          <button class="qe-btn" onclick="setInstr('핵심만 3줄로 요약해줘')">핵심만 요약</button>
+          <button class="qe-btn" onclick="setInstr('불필요한 내용을 모두 제거해줘')">불필요한 내용 제거</button>
+          <button class="qe-btn" onclick="setInstr('초보자도 이해할 수 있게 쉽게 바꿔줘')">초보자용으로</button>
+          <button class="qe-btn" onclick="setInstr('구체적인 예시를 추가해줘')">예시 추가</button>
+          <button class="qe-btn" onclick="setInstr('어려운 용어마다 괄호로 설명을 추가해줘')">용어 설명 추가</button>
+          <button class="qe-btn" onclick="setInstr('시험 대비용으로 핵심 포인트만 정리해줘')">시험 대비용</button>
+          <button class="qe-btn" onclick="setInstr('발표 대본 스타일로 바꿔줘')">발표 대본용</button>
+          <button class="qe-btn" onclick="setInstr('표 형식으로 정리해줘')">표로 정리</button>
+        </div>
+      </div>
+
+      <!-- instruction input -->
+      <div class="pcard">
+        <div class="pcard-hdr"><i data-lucide="wand-2"></i> AI 편집 지시</div>
+        <div class="instr-wrap">
+          <textarea class="instr-ta" id="instr-ta" placeholder="예: 구조적 해저드 부분만 남기고 나머지는 제거해줘"></textarea>
+          <button class="refine-btn" onclick="refine()">
+            <i data-lucide="sparkles"></i> AI로 Context 정제
+          </button>
+        </div>
+      </div>
+
+      <!-- refined preview -->
+      <div class="pcard" id="refined-card" style="display:none">
+        <div class="pcard-hdr"><i data-lucide="eye"></i> 정제된 Context 미리보기</div>
+        <div class="refined-box" id="refined-box"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="pnl-foot" id="pnl-foot" style="display:none">
+    <button class="pf-btn prim" onclick="applyCtx()">
+      <i data-lucide="check-circle"></i> 이 Context로 질문하기
+    </button>
+    <button class="pf-btn outl" onclick="openBranchModal(null)">
+      <i data-lucide="git-branch"></i> 이 Context로 브랜치 생성
+    </button>
+  </div>
+</aside>
+
+</div><!-- /app -->
+
+<!-- ═══ BRANCH MODAL ═══ -->
+<div class="overlay" id="branch-overlay" style="display:none" onclick="closeBranchModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <div class="modal-hdr-left">
+        <i data-lucide="git-branch"></i>
+        <span class="modal-title">브랜치 생성</span>
+      </div>
+      <button class="modal-x" onclick="closeBranchModal()"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div>
+        <label class="form-label">브랜치 이름</label>
+        <input class="form-inp" id="branch-name" placeholder="예: 구조적 해저드 중심 설명">
+        <div class="suggest-row">
+          <button class="qe-btn" onclick="setSuggestName('구조적 해저드 중심 설명')">구조적 해저드 중심 설명</button>
+          <button class="qe-btn" onclick="setSuggestName('시험 대비 요약 중심')">시험 대비 요약 중심</button>
+          <button class="qe-btn" onclick="setSuggestName('발표 자료용 설명')">발표 자료용 설명</button>
+          <button class="qe-btn" onclick="setSuggestName('초보자용 쉬운 설명')">초보자용 쉬운 설명</button>
+        </div>
+      </div>
+      <div>
+        <label class="form-label">분기 지점</label>
+        <select class="form-sel" id="branch-point">
+          <option value="b2">블록 2 이후 — 첫 번째 AI 응답</option>
+          <option value="b4">블록 4 이후 — 구조적 해저드 설명</option>
+          <option value="b6" selected>블록 6 이후 — 데이터 해저드 설명 (현재 위치)</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">포함할 Context 블록 선택</label>
+        <div id="modal-blk-list"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeBranchModal()">취소</button>
+      <button class="btn btn-prim" onclick="createBranch()">
+        <i data-lucide="git-branch"></i> 브랜치 생성
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ USER INFO MODAL ═══ -->
+<div class="overlay" id="userinfo-overlay" style="display:none" onclick="closeUserInfoModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <div class="modal-hdr-left">
+        <i data-lucide="user"></i>
+        <span class="modal-title">사용자 정보</span>
+      </div>
+      <button class="modal-x" onclick="closeUserInfoModal()"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div>
+        <label class="form-label">이름 / 닉네임</label>
+        <input class="form-inp" id="ui-name" placeholder="표시될 이름 또는 닉네임을 입력하세요">
+      </div>
+      <div>
+        <label class="form-label">이메일</label>
+        <input class="form-inp" id="ui-email" type="email" placeholder="이메일 주소를 입력하세요">
+      </div>
+      <div>
+        <label class="form-label">메모 / 테스트 목적</label>
+        <textarea class="form-inp" id="ui-memo" rows="3" placeholder="이 계정의 용도나 테스트 목적을 입력하세요" style="resize:vertical;min-height:72px;line-height:1.55"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeUserInfoModal()">닫기</button>
+      <button class="btn btn-prim" onclick="saveUserInfo()">
+        <i data-lucide="save"></i> 저장
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ API KEY MODAL ═══ -->
+<div class="overlay" id="apikey-overlay" style="display:none" onclick="closeApiKeyModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <div class="modal-hdr-left">
+        <i data-lucide="key"></i>
+        <span class="modal-title">API 키 관리</span>
+      </div>
+      <button class="modal-x" onclick="closeApiKeyModal()"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span class="form-label" style="margin:0">등록 상태</span>
+        <span class="api-status-badge unregistered" id="api-status-badge">
+          <i data-lucide="circle-x"></i> API 키 미등록
+        </span>
+      </div>
+      <div>
+        <label class="form-label">API 키</label>
+        <div class="key-inp-wrap">
+          <input class="form-inp" id="api-key-inp" type="password" placeholder="sk-..." autocomplete="off">
+          <button class="key-vis-btn" id="key-vis-btn" onclick="toggleKeyVis()" title="보기/숨기기">
+            <i data-lucide="eye"></i>
+          </button>
+        </div>
+      </div>
+      <div id="conn-result-area" style="display:none"></div>
+    </div>
+    <div class="modal-foot" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;gap:7px">
+        <button class="btn btn-sec" id="api-delete-btn" onclick="deleteApiKey()" style="display:none">
+          <i data-lucide="trash-2"></i> 삭제
+        </button>
+        <button class="btn btn-sec" onclick="testApiConnection()">
+          <i data-lucide="wifi"></i> 연결 확인
+        </button>
+      </div>
+      <div style="display:flex;gap:7px">
+        <button class="btn btn-ghost" onclick="closeApiKeyModal()">닫기</button>
+        <button class="btn btn-prim" onclick="saveApiKey()">
+          <i data-lucide="save"></i> 저장
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FEEDBACK MODAL ═══ -->
+<div class="overlay" id="feedback-overlay" style="display:none" onclick="closeFeedbackModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <div class="modal-hdr-left">
+        <i data-lucide="message-circle"></i>
+        <span class="modal-title">피드백 남기기</span>
+      </div>
+      <button class="modal-x" onclick="closeFeedbackModal()"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div>
+        <label class="form-label">피드백 유형</label>
+        <div class="fb-type-grid">
+          <button class="fb-type-btn" data-type="오류" onclick="selectFbType(this)">오류</button>
+          <button class="fb-type-btn" data-type="사용성 불편" onclick="selectFbType(this)">사용성 불편</button>
+          <button class="fb-type-btn" data-type="Context 편집 문제" onclick="selectFbType(this)">Context 편집 문제</button>
+          <button class="fb-type-btn" data-type="브랜치 기능 문제" onclick="selectFbType(this)">브랜치 기능 문제</button>
+          <button class="fb-type-btn" data-type="기타" onclick="selectFbType(this)">기타</button>
+        </div>
+      </div>
+      <div>
+        <label class="form-label">피드백 내용</label>
+        <textarea class="form-inp" id="fb-content" rows="5" placeholder="불편하셨던 점이나 개선 의견을 자유롭게 입력해주세요" style="resize:vertical;min-height:110px;line-height:1.55"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeFeedbackModal()">닫기</button>
+      <button class="btn btn-prim" onclick="submitFeedback()">
+        <i data-lucide="send"></i> 제출
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────
+const BLOCKS = {};        // populated by loadPage()
+const BLOCK_VERSIONS = {}; // { id: [html, html, ...] }
+const BLOCK_CUR_VER  = {}; // { id: currentIndex }
+let selected = new Set();
+let editing = null;
+let origHTML = {};
+let panelOpen = true;
+const td = window.TurndownService ? new TurndownService() : null;
+
+if (window.marked) {
+  marked.setOptions({ gfm:true, breaks:true });
+}
+
+// refresh Lucide icons in a subtree (or whole doc if no arg)
+function ic(el) {
+  if (window.lucide) lucide.createIcons({ nodes: el ? [el] : undefined });
+}
+
+function renderMarkdown(md) {
+  if (window.marked) return marked.parse(md || '');
+  return `<p>${(md || '').replace(/\n/g, '<br>')}</p>`;
+}
+
+function htmlToMarkdown(html) {
+  if (td) return td.turndown(html || '');
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html || '';
+  return tmp.innerText || '';
+}
+
+// ─── Selection ───────────────────────────────────────────
+function selBlock(id, cb) {
+  const el = document.getElementById(id);
+  const checkbox = el.querySelector('input[type=checkbox]');
+  if (cb) {
+    if (cb.checked) selected.add(id); else selected.delete(id);
+  } else {
+    if (selected.has(id)) { selected.delete(id); checkbox.checked = false; }
+    else { selected.add(id); checkbox.checked = true; }
+  }
+  el.classList.toggle('sel', selected.has(id));
+  syncPanel();
+}
+
+function syncPanel() {
+  const n = selected.size;
+  const hb = document.getElementById('hdr-sel-badge');
+  hb.style.display = n ? 'inline' : 'none';
+  hb.textContent = n;
+
+  const empty = document.getElementById('pnl-empty');
+  const filled = document.getElementById('pnl-filled');
+  const foot = document.getElementById('pnl-foot');
+  const cnt = document.getElementById('pnl-sel-count');
+
+  if (n === 0) {
+    empty.style.display = 'flex'; filled.style.display = 'none'; foot.style.display = 'none';
+  } else {
+    empty.style.display = 'none'; filled.style.display = 'block';
+    foot.style.display = 'flex'; foot.style.flexDirection = 'column';
+    cnt.textContent = n;
+    renderSelList();
+    if (!panelOpen) togglePanel();
+  }
+}
+
+function renderSelList() {
+  const list = document.getElementById('sel-blk-list');
+  list.innerHTML = '';
+  [...selected].sort().forEach(id => {
+    const b = BLOCKS[id]; if (!b) return;
+    const d = document.createElement('div');
+    d.className = 'blk-list-item';
+    d.innerHTML = `<span class="bli-dot ${b.role}"></span>
+      <span class="bli-txt">${b.preview}</span>
+      <span class="bli-rm" onclick="deselect('${id}')"><i data-lucide="x"></i></span>`;
+    list.appendChild(d);
+    ic(d);
+  });
+}
+
+function deselect(id) {
+  selected.delete(id);
+  const el = document.getElementById(id);
+  if (el) { el.classList.remove('sel'); const cb = el.querySelector('input'); if (cb) cb.checked = false; }
+  syncPanel();
+}
+
+// ─── Panel ───────────────────────────────────────────────
+function togglePanel() {
+  panelOpen = !panelOpen;
+  document.getElementById('ctx-panel').classList.toggle('hidden', !panelOpen);
+  document.getElementById('panel-toggle-btn').classList.toggle('on', panelOpen);
+}
+
+// ─── Quick edit / instruction ────────────────────────────
+function setInstr(txt) {
+  const ta = document.getElementById('instr-ta');
+  ta.value = txt; ta.focus();
+}
+
+function refine() {
+  const instr = document.getElementById('instr-ta').value.trim();
+  const card = document.getElementById('refined-card');
+  const box = document.getElementById('refined-box');
+  card.style.display = 'block';
+  box.innerHTML = '<span class="generating"><i data-lucide="loader-2"></i> 정제 중…</span>';
+  ic(box);
+  setTimeout(() => {
+    let html = '';
+    const tag = `<div class="refined-tag"><i data-lucide="check-circle"></i>`;
+    if (instr.includes('요약') || instr.includes('핵심')) {
+      html = `${tag} AI 정제됨 · 원본 기반</div>
+        <p><strong>구조적 해저드</strong>: 동시에 같은 하드웨어(메모리 등)를 필요로 할 때 발생. IF·MEM 단계 충돌이 대표적. 해결: I-Cache / D-Cache 분리.</p>
+        <p><strong>데이터 해저드</strong>: 명령어 간 데이터 의존성(RAW > WAR > WAW). 해결: 포워딩(성능↑) 또는 스톨(간단).</p>`;
+    } else if (instr.includes('초보')) {
+      html = `${tag} AI 재작성 · 쉬운 설명</div>
+        <p>파이프라인은 여러 명령어를 공장 컨베이어 벨트처럼 동시에 처리하는 방법이에요.</p>
+        <p>문제는 두 명령어가 같은 부품을 동시에 쓰려 할 때(<strong>구조적 해저드</strong>), 또는 앞 명령어 결과를 기다려야 할 때(<strong>데이터 해저드</strong>) 발생해요.</p>`;
+    } else if (instr.includes('시험')) {
+      html = `${tag} AI 재작성 · 시험 대비</div>
+        <p>① <strong>구조적 해저드</strong> — 하드웨어 자원 충돌 → 해결: I/D Cache 분리, Stall</p>
+        <p>② <strong>데이터 해저드</strong> — RAW(가장 중요) / WAR / WAW → 해결: Forwarding(우선) > Stall</p>
+        <p>③ <strong>제어 해저드</strong> — 분기 예측 실패 → 해결: Branch Prediction, Flush</p>`;
+    } else if (instr.includes('표')) {
+      html = `${tag} AI 재작성 · 표 형식</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">
+          <tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:4px 6px;color:var(--txt2)">유형</th><th style="text-align:left;padding:4px 6px;color:var(--txt2)">원인</th><th style="text-align:left;padding:4px 6px;color:var(--txt2)">해결</th></tr>
+          <tr><td style="padding:4px 6px">구조적 해저드</td><td style="padding:4px 6px">자원 충돌</td><td style="padding:4px 6px">캐시 분리</td></tr>
+          <tr><td style="padding:4px 6px">데이터 해저드</td><td style="padding:4px 6px">데이터 의존</td><td style="padding:4px 6px">포워딩/스톨</td></tr>
+        </table>`;
+    } else {
+      html = `${tag} AI 정제됨</div>
+        <p>선택된 ${selected.size}개 블록을 <em>"${instr || '기본 편집'}"</em> 지시에 따라 정제했습니다.</p>
+        <p>구조적 해저드와 데이터 해저드의 핵심 내용이 포함되었습니다.</p>`;
+    }
+    box.innerHTML = html;
+    ic(box);
+  }, 750);
+}
+
+// ─── Apply context ────────────────────────────────────────
+function applyCtx() {
+  const instr = document.getElementById('instr-ta').value.trim();
+  let name = '선택된 블록 Context';
+  if (instr.includes('시험')) name = '시험 대비 Context';
+  else if (instr.includes('초보')) name = '초보자용 Context';
+  else if (instr.includes('요약') || instr.includes('핵심')) name = '핵심 요약 Context';
+  else if (instr.includes('표')) name = '표 정리 Context';
+  const pill = document.getElementById('ctx-pill');
+  document.getElementById('ctx-pill-label').textContent = `${name} 적용 중 · ${selected.size}개 블록`;
+  pill.style.display = 'flex';
+  ic(pill);
+  document.getElementById('chat-inp').focus();
+  toast('Context가 적용되었습니다. 다음 질문에 반영됩니다.', 'ok');
+}
+
+function clearCtx() {
+  document.getElementById('ctx-pill').style.display = 'none';
+  toast('Context 적용이 해제되었습니다', 'info');
+}
+
+// ─── Edit mode ───────────────────────────────────────────
+function editBlock(id) {
+  hideDD();
+  if (editing === id) return;
+  if (editing) cancelEdit(editing);
+  editing = id;
+  const contentEl = document.getElementById('bc' + id.slice(1));
+  const blockEl = document.getElementById(id);
+  origHTML[id] = contentEl.innerHTML;
+  blockEl.classList.add('editing-mode');
+  const text = htmlToMarkdown(contentEl.innerHTML);
+  contentEl.innerHTML = `
+    <textarea class="edit-ta" id="eta_${id}">${text}</textarea>
+    <div class="edit-btns">
+      <button class="btn btn-ghost" onclick="cancelEdit('${id}')">취소</button>
+      <button class="btn btn-sec" onclick="branchFromEdit('${id}')">
+        <i data-lucide="git-branch"></i> 브랜치로 저장
+      </button>
+      <button class="btn btn-prim" onclick="saveEdit('${id}')">
+        <i data-lucide="check"></i> 저장
+      </button>
+    </div>`;
+  ic(contentEl);
+  const ta = document.getElementById('eta_' + id);
+  ta.style.height = Math.min(ta.scrollHeight, 300) + 'px';
+  ta.focus();
+}
+
+function cancelEdit(id) {
+  const contentEl = document.getElementById('bc' + id.slice(1));
+  const blockEl = document.getElementById(id);
+  if (origHTML[id]) contentEl.innerHTML = origHTML[id];
+  blockEl.classList.remove('editing-mode');
+  delete origHTML[id];
+  editing = null;
+}
+
+function saveEdit(id) {
+  const ta = document.getElementById('eta_' + id);
+  const val = ta ? ta.value : '';
+  const contentEl = document.getElementById('bc' + id.slice(1));
+  const blockEl = document.getElementById(id);
+  const newHTML = renderMarkdown(val);
+  // push version history
+  if (!BLOCK_VERSIONS[id]) BLOCK_VERSIONS[id] = [origHTML[id] || newHTML];
+  BLOCK_VERSIONS[id].push(newHTML);
+  BLOCK_CUR_VER[id] = BLOCK_VERSIONS[id].length - 1;
+  contentEl.innerHTML = newHTML;
+  updateVerNav(id);
+  blockEl.classList.remove('editing-mode');
+  delete origHTML[id];
+  editing = null;
+  toast('블록이 수정되었습니다', 'ok');
+}
+
+function branchFromEdit(id) {
+  cancelEdit(id);
+  document.getElementById('branch-name').value = '수정본 기반 브랜치';
+  openBranchModal(id);
+}
+
+// ─── AI Edit shortcut ────────────────────────────────────
+function openAIEdit(id) {
+  hideDD();
+  if (!selected.has(id)) { selBlock(id); }
+  if (!panelOpen) togglePanel();
+  setTimeout(() => document.getElementById('instr-ta').focus(), 100);
+}
+
+// ─── Branch modal ────────────────────────────────────────
+function branchFrom(id) {
+  hideDD();
+  document.getElementById('branch-point').value = id;
+  openBranchModal(id);
+}
+
+function openBranchModal(fromId) {
+  hideDD();
+  const list = document.getElementById('modal-blk-list');
+  list.innerHTML = '';
+  Object.entries(BLOCKS).forEach(([id, b]) => {
+    const lbl = document.createElement('label');
+    lbl.className = 'modal-blk-chk';
+    const checked = selected.has(id) ? 'checked' : '';
+    lbl.innerHTML = `<input type="checkbox" ${checked} style="accent-color:var(--blue)">
+      <span class="bli-dot ${b.role}" style="width:7px;height:7px;border-radius:50%;flex-shrink:0"></span>
+      <span style="font-size:12.5px">${b.preview}</span>`;
+    list.appendChild(lbl);
+  });
+  document.getElementById('branch-overlay').style.display = 'flex';
+  ic(document.getElementById('branch-overlay'));
+}
+
+function closeBranchModal(e) {
+  if (!e || e.target === document.getElementById('branch-overlay'))
+    document.getElementById('branch-overlay').style.display = 'none';
+}
+
+function setSuggestName(n) { document.getElementById('branch-name').value = n; }
+
+function createBranch() {
+  const name = document.getElementById('branch-name').value.trim() || '새 브랜치';
+  const colors = ['#9b59b6', '#e74c3c', '#1abc9c', '#f39c12', '#3498db'];
+  const col = colors[Math.floor(Math.random() * colors.length)];
+  const after = document.getElementById('sb-branch-exam');
+  const div = document.createElement('div');
+  div.className = 'sb-item';
+  div.innerHTML = `<span class="branch-dot" style="background:${col}"></span>
+    <span class="si-label">${name}</span>
+    <span class="sb-badge" style="background:${col}">새</span>`;
+  div.onclick = () => toast(`"${name}" 브랜치로 전환`, 'info');
+  after.insertAdjacentElement('afterend', div);
+  closeBranchModal();
+  toast(`"${name}" 브랜치가 생성되었습니다`, 'ok');
+}
+
+// ─── Save context version ────────────────────────────────
+function saveCtxVer() {
+  const instr = document.getElementById('instr-ta').value.trim();
+  const label = instr ? instr.slice(0, 14) + '…' : `Context v${Math.floor(Math.random() * 90) + 10}`;
+  document.getElementById('sb-ctx-new-label').textContent = label;
+  const el = document.getElementById('sb-ctx-list');
+  el.style.display = 'flex';
+  ic(el);
+  toast('Context 버전이 저장되었습니다', 'ok');
+}
+
+function loadCtxVersion(name) {
+  toast(`"${name}" 로드됨`, 'info');
+}
+
+// ─── Page Data ───────────────────────────────────────────
+const PAGE_DATA = {
+  main: {
+    title:'파이프라이닝: 개념, 해저드, 해결책', tokens:87340, isBranch:false,
+    blocks:[
+      { id:'b1',  role:'user', time:'오전 9:15',  preview:'파이프라이닝에 대해 전체적으로 설명해줘',
+        content:`<p>파이프라이닝에 대해 전체적으로 설명해줘</p>` },
+      { id:'b2',  role:'ai',   time:'오전 9:16',  preview:'CPU 파이프라이닝은 명령어 처리를 여러 단계로 분할하는 기법...',
+        content:`<p><strong>파이프라이닝(Pipelining)</strong>은 CPU가 여러 명령어를 동시에 처리하기 위해 명령어 실행 과정을 여러 단계로 분할하는 기법입니다.</p><h3>핵심 개념</h3><p><span class="arr">→</span> 공장의 컨베이어 벨트처럼, 각 단계가 독립적으로 동시에 작동합니다.</p><ul><li><strong>목적:</strong> 하나의 명령어가 끝날 때까지 기다리지 않고, 다음 명령어를 미리 처리 시작</li><li><strong>효과:</strong> 이론적으로 N단계 파이프라인은 N배의 처리량(throughput) 향상</li><li><strong>현실:</strong> 해저드(Hazard)로 인해 이상적 성능에는 못 미침</li></ul><h3>5단계 파이프라인 구조</h3><ul><li><strong>IF</strong> (Instruction Fetch) → 명령어 가져오기</li><li><strong>ID</strong> (Instruction Decode) → 명령어 해석 + 레지스터 읽기</li><li><strong>EX</strong> (Execute) → ALU 연산</li><li><strong>MEM</strong> (Memory Access) → 메모리 접근</li><li><strong>WB</strong> (Write Back) → 결과를 레지스터에 저장</li></ul>`,
+        versions:[`<p>파이프라이닝은 CPU가 여러 명령어를 <strong>컨베이어 벨트 방식</strong>으로 동시에 처리하는 기법입니다. <strong>IF→ID→EX→MEM→WB</strong> 5단계로 나눠 각 단계가 병렬로 실행되어 처리량을 높입니다. 단, 해저드(Hazard) 발생 시 성능이 저하됩니다.</p>`] },
+      { id:'b3',  role:'user', time:'오전 9:22',  preview:'5단계 각 단계별로 자세히 설명해줘',
+        content:`<p>5단계 파이프라인 각 단계별로 더 자세히 설명해줘</p>` },
+      { id:'b4',  role:'ai',   time:'오전 9:24',  preview:'IF→ID→EX→MEM→WB 각 단계 역할 상세 설명',
+        content:`<h3>① IF (Instruction Fetch) — 명령어 인출</h3><ul><li>PC가 가리키는 주소에서 I-Cache로부터 명령어 읽어옴, PC를 PC+4로 업데이트</li></ul><h3>② ID (Instruction Decode) — 명령어 해석</h3><ul><li>opcode 분석 및 제어 신호 생성, 레지스터 파일에서 피연산자(rs, rt) 읽기</li></ul><h3>③ EX (Execute) — 실행</h3><ul><li>ALU가 산술/논리 연산 수행, 유효 주소 계산(base + offset)</li></ul><h3>④ MEM (Memory Access) — 메모리 접근</h3><ul><li>load: D-Cache에서 데이터 읽기 / store: 메모리에 데이터 쓰기</li></ul><h3>⑤ WB (Write Back) — 쓰기 완료</h3><ul><li>ALU 결과 또는 메모리 데이터를 목적 레지스터(rd)에 저장</li></ul>` },
+      { id:'b5',  role:'user', time:'오전 9:31',  preview:'파이프라인 해저드의 종류가 뭐가 있어?',
+        content:`<p>파이프라인 해저드의 종류가 뭐가 있어?</p>` },
+      { id:'b6',  role:'ai',   time:'오전 9:32',  preview:'해저드 3종류: 구조적 / 데이터 / 제어 해저드',
+        content:`<p>파이프라인 해저드(Pipeline Hazard)는 이상적인 파이프라인 실행을 방해하는 상황으로, 크게 3가지로 분류됩니다.</p><ul><li><strong>구조적 해저드 (Structural Hazard):</strong> 두 명령어가 동시에 같은 하드웨어 자원을 사용하려 할 때</li><li><strong>데이터 해저드 (Data Hazard):</strong> 명령어 간 데이터 의존성으로 올바른 값을 아직 읽을 수 없을 때</li><li><strong>제어 해저드 (Control Hazard):</strong> 분기 명령어로 인해 다음에 실행할 명령어를 알 수 없을 때</li></ul><p>각 해저드는 <strong>Stall 삽입</strong>, <strong>하드웨어 추가</strong>, 또는 <strong>소프트웨어 재배치</strong>로 해결합니다.</p>` },
+      { id:'b7',  role:'user', time:'오전 9:35',  preview:'구조적 해저드 자세히 설명해줘',
+        content:`<p>구조적 해저드 자세히 설명해줘</p>` },
+      { id:'b8',  role:'ai',   time:'오전 9:36',  preview:'구조적 해저드: IF·MEM 충돌, I/D Cache 분리로 해결',
+        content:`<p><strong>구조적 해저드(Structural Hazard)</strong>는 두 명령어가 <strong>동시에 같은 하드웨어 자원</strong>을 사용하려 할 때 발생하는 충돌입니다.</p><h3>대표 사례: 단일 메모리 포트</h3><p><span class="arr">→</span> IF 단계(명령어 읽기)와 MEM 단계(데이터 읽기/쓰기)가 동시에 메모리를 필요로 할 때</p><ul><li><strong>원인:</strong> 단일 포트 메모리 → 한 번에 하나의 주소만 접근 가능</li><li><strong>결과:</strong> 한 명령어에 1 사이클 Stall 발생</li></ul><h3>해결책</h3><ul><li><strong>I-Cache / D-Cache 분리:</strong> 명령어 전용 캐시와 데이터 전용 캐시를 물리적으로 분리 (가장 일반적)</li><li><strong>Stall 삽입:</strong> 충돌 발생 시 파이프라인에 NOP(No Operation) 삽입</li></ul>`,
+        versions:[`<p><strong>구조적 해저드</strong>: IF단계와 MEM단계가 <strong>동일 메모리 포트</strong>를 동시에 사용하려 할 때 발생합니다.</p><p><strong>해결:</strong> 명령어 캐시(I-Cache)와 데이터 캐시(D-Cache)를 물리적으로 분리(하버드 아키텍처)하거나, Stall(NOP)을 삽입합니다.</p>`] },
+      { id:'b9',  role:'user', time:'오전 9:48',  preview:'데이터 해저드도 설명해줘',
+        content:`<p>데이터 해저드도 설명해줘</p>` },
+      { id:'b10', role:'ai',   time:'오전 9:50',  preview:'데이터 해저드: RAW/WAR/WAW 유형, 포워딩/스톨/컴파일러 재배치',
+        content:`<p><strong>데이터 해저드(Data Hazard)</strong>는 명령어 간 <strong>데이터 의존성</strong>으로 인해 발생합니다.</p><h3>유형</h3><ul><li><strong>RAW (Read After Write):</strong> 이전 명령어 쓰기 완료 전에 다음 명령어가 읽으려 할 때 — 가장 흔한 케이스</li><li><strong>WAR (Write After Read):</strong> 이전 명령어 읽기 완료 전에 다음 명령어가 쓰려 할 때</li><li><strong>WAW (Write After Write):</strong> 두 명령어가 같은 레지스터에 순서대로 쓸 때</li></ul><h3>해결 방법</h3><ul><li><strong>포워딩(Forwarding / Bypassing):</strong> 실행 결과를 즉시 다음 단계로 전달 — stall 없이 처리</li><li><strong>스톨(Stall / Pipeline Bubble):</strong> 파이프라인 일시 정지 — 간단하지만 성능 저하</li><li><strong>컴파일러 스케줄링:</strong> 명령어 순서 재배치로 의존성 회피</li></ul>` },
+      { id:'b11', role:'user', time:'오전 10:02', preview:'제어 해저드도 설명해줘',
+        content:`<p>제어 해저드도 설명해줘</p>` },
+      { id:'b12', role:'ai',   time:'오전 10:04', preview:'제어 해저드: 분기 결과 불확실, 분기 예측/지연 분기로 해결',
+        content:`<p><strong>제어 해저드(Control Hazard)</strong>는 분기(branch) 명령어로 인해 <strong>다음 실행할 명령어 주소를 알 수 없을 때</strong> 발생합니다.</p><h3>발생 원인</h3><p><span class="arr">→</span> 분기 조건은 EX 단계에서야 결정되는데, 파이프라인은 IF에서 이미 다음 명령어를 fetch 중</p><ul><li><strong>분기 taken:</strong> 이미 fetch한 2~3개 명령어를 버려야 함(flush) — 최대 3 사이클 손실</li></ul><h3>해결 방법</h3><ul><li><strong>분기 예측(Branch Prediction):</strong> 정적(not-taken 가정) 또는 동적(BTB/BHT 기반, 현대 CPU 표준, 90%+ 정확도)</li><li><strong>지연 분기(Delayed Branch):</strong> 분기 뒤 슬롯에 유효 명령어 채워 낭비 없이 처리</li><li><strong>분기 조기 해결:</strong> 분기 결정을 ID 단계로 앞당겨 패널티 최소화</li></ul>` },
+      { id:'b13', role:'user', time:'오전 10:15', preview:'세 가지 해저드와 해결책을 표로 정리해줘',
+        content:`<p>세 가지 해저드와 해결책을 표로 한 번에 정리해줘</p>` },
+      { id:'b14', role:'ai',   time:'오전 10:17', preview:'파이프라인 해저드 종합 정리 표',
+        content:`<p>파이프라인 해저드 종합 정리입니다.</p><table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:8px 0"><tr style="border-bottom:1px solid var(--border2);background:var(--bg3)"><th style="text-align:left;padding:7px 10px;color:var(--txt1);font-weight:600">유형</th><th style="text-align:left;padding:7px 10px;color:var(--txt1);font-weight:600">원인</th><th style="text-align:left;padding:7px 10px;color:var(--txt1);font-weight:600">해결책</th><th style="text-align:left;padding:7px 10px;color:var(--txt1);font-weight:600">비고</th></tr><tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 10px"><strong>구조적</strong></td><td style="padding:6px 10px">하드웨어 자원 충돌</td><td style="padding:6px 10px">I/D Cache 분리, Stall</td><td style="padding:6px 10px;color:var(--txt2)">IF↔MEM 충돌 대표적</td></tr><tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 10px"><strong>데이터</strong></td><td style="padding:6px 10px">명령어 간 의존성</td><td style="padding:6px 10px">Forwarding, Stall, 컴파일러</td><td style="padding:6px 10px;color:var(--txt2)">RAW가 가장 빈번</td></tr><tr><td style="padding:6px 10px"><strong>제어</strong></td><td style="padding:6px 10px">분기 결과 불확실</td><td style="padding:6px 10px">분기 예측(동적/정적), 지연 분기</td><td style="padding:6px 10px;color:var(--txt2)">현대 CPU는 동적 예측</td></tr></table><p><strong>핵심 원칙:</strong> Stall(정확성 우선) vs Forwarding/Prediction(성능 우선) 트레이드오프.</p>` },
+    ]
+  },
+  hazard: {
+    title:'파이프라이닝 — 구조적 해저드 중심', tokens:43502, isBranch:true, branchName:'구조적 해저드 중심',
+    contextSummary: {
+      label: '구조적 해저드 중심',
+      blocks: [
+        { role:'ai', sourcePage:'main', sourceId:'b2', preview:'파이프라이닝 전체 개요 — CPU 파이프라이닝은 명령어 처리를 여러 단계로 분할...' },
+        { role:'ai', sourcePage:'main', sourceId:'b8', preview:'구조적 해저드 상세 — IF·MEM 충돌, I/D Cache 분리로 해결' },
+        { role:'ai', sourcePage:'main', sourceId:'b10', preview:'데이터 해저드 상세 — RAW/WAR/WAW 유형, 포워딩/스톨로 해결' },
+      ],
+      summary: `<p>이 브랜치는 메인 대화에서 <strong>3개의 Context 블록</strong>을 선택해 생성되었습니다. 아래 내용을 기반으로 대화가 시작됩니다.</p>
+<h3>포함된 Context</h3>
+<ul>
+  <li><strong>[AI]</strong> 파이프라이닝 전체 개요 — CPU 파이프라이닝 개념, 5단계 구조(IF·ID·EX·MEM·WB), 처리량 향상 원리</li>
+  <li><strong>[AI]</strong> 구조적 해저드 상세 — IF단계와 MEM단계의 메모리 충돌, I-Cache/D-Cache 분리 해결책</li>
+  <li><strong>[AI]</strong> 데이터 해저드 상세 — RAW/WAR/WAW 의존성 유형, 포워딩 및 스톨 해결 전략</li>
+</ul>
+<h3>브랜치 목적</h3>
+<p><span class="arr">→</span> 구조적 해저드와 데이터 해저드를 <strong>중점적으로 다루는 심화 학습</strong>을 위해 분기되었습니다. 제어 해저드는 이 브랜치에서 다루지 않습니다.</p>`,
+    },
+    blocks:[
+      { id:'b1', role:'user', time:'오전 9:30', preview:'파이프라이닝에 대해 설명해줘',
+        content:`<p>파이프라이닝에 대해 설명해줘</p>` },
+      { id:'b2', role:'ai',   time:'오전 9:31', preview:'Fetch/Data Access 동시 실행 불가, 구조적 해저드 개념 설명',
+        content:`<p>파이프라이닝에 대해 구분해서 답변해 드리겠습니다. <strong>"메모리"의 특성</strong>과 <strong>"CPU 내부 구성 요소"의 차이</strong>를 이해하는 것이 핵심입니다.</p><h3>1. Fetch와 Data Access</h3><p><span class="arr">→</span> 단일 포트 메모리에서는 <strong>"동시 실행이 불가능"</strong>합니다.</p><ul><li><strong>이유:</strong> IF단계(명령어)와 MEM단계(데이터)가 동시에 같은 메모리에 접근 → <strong>구조적 해저드(Structural Hazard)</strong></li><li><strong>해결:</strong> 현대 CPU는 <strong>명령어 전용(I-Cache)</strong>과 <strong>데이터 전용(D-Cache)</strong>으로 물리적으로 분리</li></ul><h3>2. ALU와 Registers</h3><p><span class="arr">→</span> CPU 내부 독립 부품이므로 메모리 작업과 <strong>"동시 실행이 가능"</strong>합니다.</p>` },
+      { id:'b3', role:'user', time:'오전 9:48', preview:'11번 슬라이드 설명',
+        content:`<p>11번 슬라이드 설명</p>` },
+      { id:'b4', role:'ai',   time:'오전 9:49', preview:'구조적 해저드: 같은 하드웨어 자원 충돌, 스톨/캐시 분리 해결',
+        content:`<p>11번 슬라이드는 <strong>구조적 해저드(Structural Hazard)</strong>에 대한 내용입니다.</p><h3>구조적 해저드란?</h3><p><span class="arr">→</span> 두 명령어가 <strong>동시에 같은 하드웨어 자원</strong>을 사용하려 할 때 발생하는 충돌입니다.</p><ul><li><strong>원인:</strong> 서로 다른 명령어가 같은 메모리나 ALU를 동시에 필요로 하는 경우</li><li><strong>대표 예시:</strong> IF단계와 MEM단계가 동시에 메모리를 필요로 할 때</li><li><strong>해결 방법:</strong> Stall 삽입 또는 I-Cache/D-Cache 분리</li></ul>` },
+      { id:'b5', role:'user', time:'오전 10:02', preview:'데이터 해저드도 설명해줘',
+        content:`<p>데이터 해저드도 설명해줘</p>` },
+      { id:'b6', role:'ai',   time:'오전 10:03', preview:'RAW/WAR/WAW 유형, 포워딩과 스톨로 해결',
+        content:`<p><strong>데이터 해저드(Data Hazard)</strong>는 명령어 간 <strong>데이터 의존성</strong>으로 인해 발생합니다.</p><h3>유형</h3><ul><li><strong>RAW (Read After Write):</strong> 이전 명령어가 쓰기 완료 전에 다음 명령어가 읽으려 할 때 — 가장 흔한 케이스</li><li><strong>WAR (Write After Read):</strong> 이전 명령어가 읽기 완료 전에 다음 명령어가 쓰려 할 때</li><li><strong>WAW (Write After Write):</strong> 두 명령어가 같은 레지스터에 순서대로 쓸 때</li></ul><h3>해결 방법</h3><ul><li><strong>포워딩(Forwarding):</strong> 실행 결과를 즉시 다음 단계로 전달하여 stall 없이 처리</li><li><strong>스톨(Stall):</strong> 파이프라인 일시 정지 — 간단하지만 성능 저하</li></ul>` },
+    ]
+  },
+  exam: {
+    title:'파이프라이닝 — 시험 대비 요약', tokens:21840, isBranch:true, branchName:'시험 대비 요약',
+    contextSummary: {
+      label: '시험 대비 요약',
+      blocks: [
+        { role:'ai', sourcePage:'main', sourceId:'b2', preview:'파이프라이닝 전체 개요 — CPU 파이프라이닝은 명령어 처리를 여러 단계로 분할...' },
+        { role:'ai', sourcePage:'main', sourceId:'b6', preview:'해저드 3종류 — 구조적·데이터·제어 해저드 개요 및 해결책' },
+        { role:'ai', sourcePage:'main', sourceId:'b8', preview:'구조적 해저드 상세 — IF·MEM 충돌, I/D Cache 분리로 해결' },
+        { role:'ai', sourcePage:'main', sourceId:'b10', preview:'데이터 해저드 상세 — RAW/WAR/WAW 유형, 포워딩/스톨로 해결' },
+        { role:'ai', sourcePage:'main', sourceId:'b12', preview:'제어 해저드 상세 — 분기 예측(정적/동적), 지연 분기로 해결' },
+        { role:'ai', sourcePage:'main', sourceId:'b14', preview:'해저드 종합 정리 표 — 유형·원인·해결책 비교' },
+      ],
+      summary: `<p>이 브랜치는 메인 대화에서 <strong>6개의 Context 블록</strong>을 선택해 생성되었습니다. 아래 내용을 기반으로 대화가 시작됩니다.</p>
+<h3>포함된 Context</h3>
+<ul>
+  <li><strong>[AI]</strong> 파이프라이닝 전체 개요 — 개념, 5단계 구조, 처리량 향상 원리</li>
+  <li><strong>[AI]</strong> 해저드 3종류 개요 — 구조적·데이터·제어 해저드 분류 및 해결 방향</li>
+  <li><strong>[AI]</strong> 구조적 해저드 상세 — I/D Cache 분리, Stall 삽입</li>
+  <li><strong>[AI]</strong> 데이터 해저드 상세 — RAW/WAR/WAW, 포워딩/스톨/컴파일러 재배치</li>
+  <li><strong>[AI]</strong> 제어 해저드 상세 — 분기 예측(정적·동적), 지연 분기, 분기 조기 해결</li>
+  <li><strong>[AI]</strong> 해저드 종합 정리 표 — 3가지 유형·원인·해결책 비교 요약</li>
+</ul>
+<h3>브랜치 목적</h3>
+<p><span class="arr">→</span> 파이프라이닝 전 범위를 <strong>시험 대비 핵심 위주로 압축</strong>하기 위해 분기되었습니다. 이론 전체를 빠르게 복습하고 예상 문제를 풀어볼 수 있습니다.</p>`,
+    },
+    blocks:[
+      { id:'b1', role:'user', time:'오전 10:20', preview:'시험 대비로 파이프라이닝 핵심만 정리해줘',
+        content:`<p>시험 대비로 파이프라이닝 핵심만 정리해줘</p>` },
+      { id:'b2', role:'ai',   time:'오전 10:21', preview:'파이프라이닝 시험 핵심: 5단계, 3가지 해저드, CPI',
+        content:`<p>시험에 자주 나오는 파이프라이닝 핵심만 정리했습니다.</p><h3>① 5단계 파이프라인 (반드시 암기)</h3><p><strong>IF → ID → EX → MEM → WB</strong></p><h3>② 해저드 3종류 + 해결책 (자주 출제)</h3><ul><li><strong>구조적</strong> → I/D Cache 분리, Stall</li><li><strong>데이터(RAW)</strong> → Forwarding(우선), Stall(차선)</li><li><strong>제어</strong> → 분기 예측(동적/정적), 지연 분기</li></ul><h3>③ CPI</h3><ul><li>이상적: CPI = 1.0 / 실제: CPI &gt; 1.0 (stall 추가)</li></ul>` },
+      { id:'b3', role:'user', time:'오전 10:28', preview:'시험 예상 문제 몇 개 만들어줘',
+        content:`<p>시험 예상 문제 몇 개 만들어줘</p>` },
+      { id:'b4', role:'ai',   time:'오전 10:30', preview:'예상 문제: RAW 식별, 포워딩, I/D Cache, 분기 패널티',
+        content:`<h3>Q1. 해저드 유형은?</h3><p style="font-family:monospace;background:var(--bg3);padding:8px;border-radius:6px;font-size:12px">ADD R1, R2, R3<br>SUB R4, R1, R5</p><p><span class="arr">→</span> <strong>RAW</strong> — ADD가 R1을 쓰기 전에 SUB가 R1을 읽으려 함</p><h3>Q2. 포워딩으로 해결 가능한 해저드는?</h3><p><span class="arr">→</span> <strong>데이터 해저드(RAW)</strong>. load-use 해저드는 1 stall 여전히 필요.</p><h3>Q3. I/D-Cache 분리 이유는?</h3><p><span class="arr">→</span> IF·MEM 단계의 <strong>구조적 해저드</strong> 제거</p><h3>Q4. 분기 예측 실패 시 패널티는?</h3><p><span class="arr">→</span> <strong>2 stall cycles</strong> (분기 조기 해결 시 1 cycle)</p>` },
+    ]
+  }
+};
+
+let currentPage = 'main';
+
+// ─── Version navigation ───────────────────────────────────
+function initBlockVersions(id, content, extraVersions) {
+  BLOCK_VERSIONS[id] = [content, ...(extraVersions || [])];
+  BLOCK_CUR_VER[id]  = BLOCK_VERSIONS[id].length - 1; // start at latest
+}
+
+function navVer(id, dir) {
+  const vers = BLOCK_VERSIONS[id];
+  if (!vers || vers.length <= 1) return;
+  let cur = (BLOCK_CUR_VER[id] || 0) + dir;
+  cur = Math.max(0, Math.min(vers.length - 1, cur));
+  BLOCK_CUR_VER[id] = cur;
+  const n = id.replace(/\D/g, '');
+  const el = document.getElementById('bc' + n);
+  if (el) { el.innerHTML = vers[cur]; ic(el); }
+  updateVerNav(id);
+}
+
+function updateVerNav(id) {
+  const vers = BLOCK_VERSIONS[id];
+  if (!vers) return;
+  const cur  = BLOCK_CUR_VER[id] || 0;
+  const nav  = document.getElementById('ver-nav_' + id);
+  const lbl  = document.getElementById('ver-label_' + id);
+  if (!nav) return;
+  nav.style.display = vers.length > 1 ? 'flex' : 'none';
+  if (lbl) lbl.textContent = `${cur + 1}/${vers.length}`;
+  const btns = nav.querySelectorAll('.ver-nav-btn');
+  if (btns[0]) btns[0].disabled = cur === 0;
+  if (btns[1]) btns[1].disabled = cur === vers.length - 1;
+}
+
+function jumpToContext(sourcePage, sourceId) {
+  const go = () => {
+    const el = document.getElementById(sourceId);
+    if (!el) return;
+    el.scrollIntoView({ behavior:'smooth', block:'center' });
+    el.classList.remove('ctx-jump-focus');
+    void el.offsetWidth;
+    el.classList.add('ctx-jump-focus');
+    setTimeout(() => el.classList.remove('ctx-jump-focus'), 1300);
+  };
+
+  if (!sourcePage || sourcePage === currentPage) {
+    go();
+    return;
+  }
+
+  loadPage(sourcePage);
+  setTimeout(go, 70);
+}
+
+// ─── Build block HTML ─────────────────────────────────────
+function buildBlocksHTML(blocks) {
+  return blocks.map(b => {
+    const n    = b.id.replace(/\D/g, '');
+    const isAI = b.role === 'ai';
+    const footLeft = isAI
+      ? `<button class="blk-foot-btn" onclick="copyTxt('${b.id}')" title="복사"><i data-lucide="copy"></i></button>
+         <button class="blk-foot-btn" title="좋아요" onclick="likeBlock(this)"><i data-lucide="thumbs-up"></i></button>
+         <button class="blk-foot-btn" title="싫어요" onclick="dislikeBlock(this)"><i data-lucide="thumbs-down"></i></button>
+         <button class="blk-foot-btn" title="답변 다시 시도" onclick="retryBlock('${b.id}')"><i data-lucide="rotate-cw"></i></button>`
+      : `<button class="blk-foot-btn" onclick="copyTxt('${b.id}')" title="복사"><i data-lucide="copy"></i></button>
+         <button class="blk-foot-btn" onclick="editBlock('${b.id}')" title="수정"><i data-lucide="pencil"></i></button>`;
+    return `
+    <div class="msg-block" id="${b.id}" data-role="${b.role}">
+      <div class="chk-wrap"><input type="checkbox" onchange="selBlock('${b.id}',this)"></div>
+      <div class="blk-body">
+        <div class="blk-meta"><span class="blk-role ${b.role}">${b.role === 'user' ? 'User' : 'AI'}</span><span class="blk-time">${b.time}</span></div>
+        <div class="blk-content" id="bc${n}">${b.content}</div>
+        <div class="blk-footer">
+          <div class="blk-foot-actions">${footLeft}</div>
+          <div class="ver-nav" id="ver-nav_${b.id}" style="display:none">
+            <button class="ver-nav-btn" onclick="navVer('${b.id}',-1)"><i data-lucide="chevron-left"></i></button>
+            <span class="ver-label" id="ver-label_${b.id}">1/1</span>
+            <button class="ver-nav-btn" onclick="navVer('${b.id}',1)"><i data-lucide="chevron-right"></i></button>
+          </div>
+        </div>
+      </div>
+      <div class="blk-actions">
+        <button class="blk-btn" onclick="editBlock('${b.id}')" title="직접 수정"><i data-lucide="pencil"></i></button>
+        ${isAI
+          ? `<button class="blk-btn" onclick="selBlock('${b.id}')" title="Context에 추가"><i data-lucide="square-check"></i></button>
+             <button class="blk-btn" onclick="retryBlock('${b.id}')" title="답변 다시 시도"><i data-lucide="rotate-cw"></i></button>`
+          : `<button class="blk-btn" onclick="selBlock('${b.id}')" title="Context에 추가"><i data-lucide="square-check"></i></button>`}
+        <button class="blk-btn" onclick="showDD('dd${n}',event)" title="더보기"><i data-lucide="ellipsis"></i></button>
+        <div class="dd" id="dd${n}" style="display:none">
+          <div class="dd-item" onclick="editBlock('${b.id}')"><span class="dd-icon"><i data-lucide="pencil"></i></span>직접 수정</div>
+          ${isAI ? `<div class="dd-item" onclick="openAIEdit('${b.id}')"><span class="dd-icon"><i data-lucide="sparkles"></i></span>AI 편집 지시</div>
+          <div class="dd-item" onclick="retryBlock('${b.id}')"><span class="dd-icon"><i data-lucide="rotate-cw"></i></span>답변 다시 시도</div>` : ''}
+          <div class="dd-item" onclick="branchFrom('${b.id}')"><span class="dd-icon"><i data-lucide="git-branch"></i></span>여기서 브랜치 생성</div>
+          <div class="dd-sep"></div>
+          <div class="dd-item" onclick="copyTxt('${b.id}')"><span class="dd-icon"><i data-lucide="copy"></i></span>텍스트 복사</div>
+          <div class="dd-sep"></div>
+          <div class="dd-item danger" onclick="hideDD()"><span class="dd-icon"><i data-lucide="trash-2"></i></span>삭제</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Load page ────────────────────────────────────────────
+function loadPage(pageId) {
+  const page = PAGE_DATA[pageId];
+  if (!page) return;
+  currentPage = pageId;
+
+  // clear selection + edit state
+  selected.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.classList.remove('sel'); const cb = el.querySelector('input[type=checkbox]'); if (cb) cb.checked = false; }
+  });
+  selected.clear(); editing = null; origHTML = {};
+  syncPanel();
+
+  // rebuild BLOCKS lookup
+  Object.keys(BLOCKS).forEach(k => delete BLOCKS[k]);
+  page.blocks.forEach(b => { BLOCKS[b.id] = { role: b.role, preview: b.preview }; });
+
+  // init version tracking
+  Object.keys(BLOCK_VERSIONS).forEach(k => delete BLOCK_VERSIONS[k]);
+  Object.keys(BLOCK_CUR_VER).forEach(k => delete BLOCK_CUR_VER[k]);
+
+  // inject HTML
+  const msgs = document.getElementById('messages');
+  const bannerHTML = page.isBranch
+    ? `<div class="branch-banner" id="branch-banner" style="display:flex"><i data-lucide="git-branch"></i><span id="branch-banner-text">현재 브랜치: ${page.branchName}</span></div>`
+    : `<div class="branch-banner" id="branch-banner" style="display:none"><i data-lucide="git-branch"></i><span id="branch-banner-text"></span></div>`;
+
+  let ctxSummaryHTML = '';
+  if (page.isBranch && page.contextSummary) {
+    const cs = page.contextSummary;
+    const pillsHTML = cs.blocks.map(b =>
+      `<span class="ctx-sum-pill ${b.role}" onclick="jumpToContext('${b.sourcePage || 'main'}','${b.sourceId || ''}')" title="원본 Context로 이동">${b.role === 'user' ? 'User' : 'AI'} · ${b.preview}</span>`
+    ).join('');
+    ctxSummaryHTML = `
+    <div class="msg-block ctx-sum-block" data-role="ai">
+      <div class="blk-body">
+        <div class="blk-meta">
+          <span class="blk-role ai">AI</span>
+          <span class="blk-time">브랜치 생성 시점</span>
+          <span class="ctx-sum-badge"><i data-lucide="layers"></i> Context 요약</span>
+        </div>
+        <div class="blk-content">${cs.summary}</div>
+        <div class="ctx-sum-pills">${pillsHTML}</div>
+      </div>
+    </div>`;
+  }
+
+  msgs.innerHTML = bannerHTML + ctxSummaryHTML + buildBlocksHTML(page.blocks);
+  lucide.createIcons();
+
+  // init version nav for each block (after DOM is ready)
+  page.blocks.forEach(b => {
+    initBlockVersions(b.id, b.content, b.versions || []);
+    updateVerNav(b.id);
+  });
+
+  // update header
+  document.querySelector('.chat-title').textContent  = page.title;
+  document.getElementById('ctx-pill').style.display  = 'none';
+
+  // blkIdx: start after last block
+  blkIdx = Math.max(...page.blocks.map(b => parseInt(b.id.replace(/\D/g, '')))) + 1;
+
+  // sidebar active state
+  document.querySelectorAll('.sidebar .sb-item').forEach(el => el.classList.remove('active'));
+  const sidebarId = { main:'sb-branch-main', hazard:'sb-branch-hazard', exam:'sb-branch-exam' }[pageId];
+  if (sidebarId) { const el = document.getElementById(sidebarId); if (el) el.classList.add('active'); }
+
+  msgs.scrollTop = 0;
+  toast(page.isBranch ? `"${page.branchName}" 브랜치로 이동했습니다` : '메인 대화로 돌아갑니다', page.isBranch ? 'info' : 'ok');
+}
+
+// ─── Retry block ──────────────────────────────────────────
+function retryBlock(id) {
+  hideDD();
+  const n = id.replace(/\D/g, '');
+  const bc = document.getElementById('bc' + n);
+  if (!bc) return;
+  if (!BLOCK_VERSIONS[id]) BLOCK_VERSIONS[id] = [bc.innerHTML];
+  bc.innerHTML = `<div class="generating"><i data-lucide="loader-2"></i> 다시 생성 중…</div>`;
+  ic(bc);
+  setTimeout(() => {
+    const retried = `<p>같은 질문에 대한 <strong>재생성 응답</strong>입니다.</p><p>이전 응답과 다른 관점이나 보완된 내용으로 답변드렸습니다. Context 패널에서 이 블록을 선택해 내용을 조정하거나 브랜치를 생성할 수 있습니다.</p>`;
+    BLOCK_VERSIONS[id].push(retried);
+    BLOCK_CUR_VER[id] = BLOCK_VERSIONS[id].length - 1;
+    bc.innerHTML = retried;
+    ic(bc);
+    updateVerNav(id);
+    toast('답변이 재생성되었습니다', 'ok');
+  }, 900);
+}
+
+// ─── Like / Dislike ───────────────────────────────────────
+function likeBlock(btn) {
+  const wasLiked = btn.classList.contains('liked');
+  btn.closest('.blk-foot-actions')?.querySelectorAll('.blk-foot-btn').forEach(b => b.classList.remove('liked','disliked'));
+  if (!wasLiked) btn.classList.add('liked');
+}
+function dislikeBlock(btn) {
+  const wasDis = btn.classList.contains('disliked');
+  btn.closest('.blk-foot-actions')?.querySelectorAll('.blk-foot-btn').forEach(b => b.classList.remove('liked','disliked'));
+  if (!wasDis) btn.classList.add('disliked');
+}
+
+// ─── Send message ────────────────────────────────────────
+let blkIdx = 7;
+function sendMsg() {
+  const inp = document.getElementById('chat-inp');
+  const txt = inp.value.trim();
+  if (!txt) return;
+
+  // API key check (non-blocking: show error but continue with mock)
+  const apiData = JSON.parse(localStorage.getItem('fk_api_key') || '{}');
+  if (!apiData.key) {
+    showError('API 키가 등록되어 있지 않습니다. API 키 관리 화면에서 먼저 등록해주세요.');
+  }
+
+  inp.value = ''; inp.style.height = 'auto';
+
+  const msgs = document.getElementById('messages');
+  const uid = 'b' + blkIdx++;
+  const aid = 'b' + blkIdx++;
+  const t = new Date().toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit' });
+
+  const uDiv = mkBlock(uid, 'user', t, `<p>${txt}</p>`);
+  msgs.appendChild(uDiv);
+  ic(uDiv);
+  BLOCKS[uid] = { role: 'user', preview: txt.slice(0, 60) };
+  initBlockVersions(uid, `<p>${txt}</p>`);
+
+  const aDiv = mkBlock(aid, 'ai', t, `<div class="generating"><i data-lucide="loader-2"></i> 생성 중…</div>`);
+  msgs.appendChild(aDiv);
+  ic(aDiv);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  setTimeout(() => {
+    const bc = document.getElementById('bc' + aid.slice(1));
+    const aiHTML = `<p>현재 적용된 Context를 기반으로 <strong>"${txt}"</strong>에 대해 답변드립니다.</p><p>Context 패널에서 블록을 추가·편집하거나 AI 편집 지시를 입력해 다음 응답의 맥락을 조정할 수 있습니다.</p>`;
+    bc.innerHTML = aiHTML;
+    ic(bc);
+    BLOCKS[aid] = { role: 'ai', preview: 'Context 기반으로 답변드립니다…' };
+    initBlockVersions(aid, aiHTML);
+    msgs.scrollTop = msgs.scrollHeight;
+  }, 1100);
+}
+
+function mkBlock(id, role, time, html) {
+  const n = id.slice(1);
+  const isAI = role === 'ai';
+  const d = document.createElement('div');
+  d.className = 'msg-block'; d.id = id; d.dataset.role = role;
+  const footLeft = isAI
+    ? `<button class="blk-foot-btn" onclick="copyTxt('${id}')" title="복사"><i data-lucide="copy"></i></button>
+       <button class="blk-foot-btn" title="좋아요" onclick="likeBlock(this)"><i data-lucide="thumbs-up"></i></button>
+       <button class="blk-foot-btn" title="싫어요" onclick="dislikeBlock(this)"><i data-lucide="thumbs-down"></i></button>
+       <button class="blk-foot-btn" title="답변 다시 시도" onclick="retryBlock('${id}')"><i data-lucide="rotate-cw"></i></button>`
+    : `<button class="blk-foot-btn" onclick="copyTxt('${id}')" title="복사"><i data-lucide="copy"></i></button>
+       <button class="blk-foot-btn" onclick="editBlock('${id}')" title="수정"><i data-lucide="pencil"></i></button>`;
+  d.innerHTML = `
+    <div class="chk-wrap"><input type="checkbox" onchange="selBlock('${id}',this)"></div>
+    <div class="blk-body">
+      <div class="blk-meta"><span class="blk-role ${role}">${role === 'user' ? 'User' : 'AI'}</span><span class="blk-time">${time}</span></div>
+      <div class="blk-content" id="bc${n}">${html}</div>
+      <div class="blk-footer">
+        <div class="blk-foot-actions">${footLeft}</div>
+        <div class="ver-nav" id="ver-nav_${id}" style="display:none">
+          <button class="ver-nav-btn" onclick="navVer('${id}',-1)"><i data-lucide="chevron-left"></i></button>
+          <span class="ver-label" id="ver-label_${id}">1/1</span>
+          <button class="ver-nav-btn" onclick="navVer('${id}',1)"><i data-lucide="chevron-right"></i></button>
+        </div>
+      </div>
+    </div>
+    <div class="blk-actions">
+      <button class="blk-btn" onclick="editBlock('${id}')" title="직접 수정"><i data-lucide="pencil"></i></button>
+      ${isAI
+        ? `<button class="blk-btn" onclick="selBlock('${id}')" title="Context에 추가"><i data-lucide="square-check"></i></button>
+           <button class="blk-btn" onclick="retryBlock('${id}')" title="답변 다시 시도"><i data-lucide="rotate-cw"></i></button>`
+        : `<button class="blk-btn" onclick="selBlock('${id}')" title="Context에 추가"><i data-lucide="square-check"></i></button>`
+      }
+      <button class="blk-btn" onclick="showDD('dd${n}',event)" title="더보기"><i data-lucide="ellipsis"></i></button>
+      <div class="dd" id="dd${n}" style="display:none">
+        <div class="dd-item" onclick="editBlock('${id}')"><span class="dd-icon"><i data-lucide="pencil"></i></span>직접 수정</div>
+        ${isAI ? `<div class="dd-item" onclick="openAIEdit('${id}')"><span class="dd-icon"><i data-lucide="sparkles"></i></span>AI 편집 지시</div>
+        <div class="dd-item" onclick="retryBlock('${id}')"><span class="dd-icon"><i data-lucide="rotate-cw"></i></span>답변 다시 시도</div>` : ''}
+        <div class="dd-item" onclick="branchFrom('${id}')"><span class="dd-icon"><i data-lucide="git-branch"></i></span>여기서 브랜치 생성</div>
+        <div class="dd-sep"></div>
+        <div class="dd-item" onclick="copyTxt('${id}')"><span class="dd-icon"><i data-lucide="copy"></i></span>텍스트 복사</div>
+        <div class="dd-sep"></div>
+        <div class="dd-item danger" onclick="hideDD()"><span class="dd-icon"><i data-lucide="trash-2"></i></span>삭제</div>
+      </div>
+    </div>`;
+  return d;
+}
+
+// ─── Dropdown ────────────────────────────────────────────
+function showDD(id, e) {
+  e.stopPropagation();
+  const dd = document.getElementById(id);
+  const vis = dd.style.display !== 'none';
+  hideDD();
+  if (!vis) { dd.style.display = 'block'; ic(dd); }
+}
+function hideDD() { document.querySelectorAll('.dd').forEach(d => d.style.display = 'none'); }
+document.addEventListener('click', hideDD);
+
+// ─── Helpers ─────────────────────────────────────────────
+function copyTxt(id) {
+  hideDD();
+  const bc = document.getElementById('bc' + id.slice(1));
+  if (bc && navigator.clipboard) navigator.clipboard.writeText(bc.innerText).catch(() => {});
+  toast('클립보드에 복사되었습니다', 'ok');
+}
+
+function autoResize(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+}
+
+function handleKey(e) {
+  if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); sendMsg(); }
+}
+
+// toast: type = 'ok' | 'info' | 'warn'
+const TOAST_ICONS = { ok: 'check-circle', info: 'info', warn: 'alert-triangle', branch: 'git-branch', save: 'save' };
+let toastTimer;
+function toast(msg, type = 'ok') {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  clearTimeout(toastTimer);
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  const iconName = TOAST_ICONS[type] || 'check-circle';
+  el.innerHTML = `<i data-lucide="${iconName}"></i><span>${msg}</span>`;
+  document.body.appendChild(el);
+  ic(el);
+  toastTimer = setTimeout(() => el.remove(), 2600);
+}
+
+// ─── Models ──────────────────────────────────────────────
+const MODELS = [
+  { id:'gpt-5-5',      name:'GPT-5.5',       desc:'최신 플래그십 멀티모달 모델',   color:'#4caf7d', tag:'최신',  tagCls:'fast'   },
+  { id:'gpt-5-5-mini', name:'GPT-5.5 mini',  desc:'빠르고 경제적인 일상 모델',     color:'#4caf7d', tag:'빠름',  tagCls:'fast'   },
+  { id:'gpt-5-5-o',    name:'GPT-5.5-o',     desc:'강화된 고급 추론 특화 모델',    color:'#f0a03e', tag:'추론',  tagCls:'reason' },
+  { id:'gpt-4o',       name:'GPT-4o',         desc:'검증된 멀티모달 모델',          color:'#4f8ef7', tag:'',      tagCls:''       },
+  { id:'gpt-4o-mini',  name:'GPT-4o mini',   desc:'빠르고 경제적인 GPT-4o',       color:'#4f8ef7', tag:'',      tagCls:''       },
+];
+let currentModel = MODELS[0];
+
+function renderModelOptions() {
+  const dd = document.getElementById('model-dropdown');
+  dd.innerHTML = MODELS.map(m => `
+    <div class="model-option ${m.id === currentModel.id ? 'active' : ''}" onclick="selectModel('${m.id}')">
+      <span class="model-opt-dot" style="background:${m.color}"></span>
+      <div class="model-opt-info">
+        <div class="model-opt-name">${m.name}</div>
+        <div class="model-opt-desc">${m.desc}</div>
+      </div>
+      ${m.tag ? `<span class="model-opt-tag ${m.tagCls}">${m.tag}</span>` : ''}
+    </div>`).join('');
+}
+
+function toggleModelDD(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('model-dropdown');
+  const open = dd.style.display !== 'none';
+  dd.style.display = open ? 'none' : 'block';
+  if (!open) renderModelOptions();
+}
+
+function selectModel(id) {
+  currentModel = MODELS.find(m => m.id === id);
+  document.getElementById('inp-model-name').textContent = currentModel.name;
+  document.getElementById('model-dropdown').style.display = 'none';
+  toast(`모델: ${currentModel.name}`, 'info');
+}
+
+// ─── Web search toggle ────────────────────────────────────
+let webOn = false;
+function toggleWeb() {
+  webOn = !webOn;
+  document.getElementById('web-btn').classList.toggle('on', webOn);
+  toast(webOn ? '웹 검색 켜짐' : '웹 검색 꺼짐', webOn ? 'ok' : 'info');
+}
+
+// ─── Attach popup ─────────────────────────────────────────
+function toggleAttachPopup(e) {
+  e.stopPropagation();
+  const popup = document.getElementById('attach-popup');
+  const open = popup.style.display !== 'none';
+  popup.style.display = open ? 'none' : 'block';
+  if (!open) ic(popup);
+}
+function hideAttachPopup() { document.getElementById('attach-popup').style.display = 'none'; }
+
+// ─── File handling ────────────────────────────────────────
+const attachments = [];
+function handleFile(inp, type) {
+  const files = Array.from(inp.files);
+  files.forEach(f => {
+    const id = Date.now() + Math.random();
+    attachments.push({ id, name: f.name, type });
+    renderChip({ id, name: f.name, type });
+  });
+  inp.value = '';
+}
+
+function renderChip({ id, name, type }) {
+  const row = document.getElementById('attach-row');
+  const ext = name.split('.').pop().toUpperCase();
+  const isPdf = ext === 'PDF';
+  const isImg = type === 'img';
+  const iconName = isPdf ? 'file-text' : isImg ? 'image' : 'paperclip';
+  const iconBg = isPdf ? 'pdf' : isImg ? 'img' : 'file';
+
+  const chip = document.createElement('div');
+  chip.className = 'attach-chip';
+  chip.dataset.id = id;
+  chip.innerHTML = `
+    <span class="attach-chip-icon ${iconBg}"><i data-lucide="${iconName}"></i></span>
+    <div class="attach-chip-info">
+      <div class="attach-chip-name">${name}</div>
+      <div class="attach-chip-type">${ext}</div>
+    </div>
+    <span class="attach-chip-rm" onclick="removeChip(${id})"><i data-lucide="x"></i></span>`;
+  row.appendChild(chip);
+  ic(chip);
+}
+
+function removeChip(id) {
+  const idx = attachments.findIndex(a => a.id === id);
+  if (idx > -1) attachments.splice(idx, 1);
+  const chip = document.querySelector(`.attach-chip[data-id="${id}"]`);
+  if (chip) chip.remove();
+}
+
+// close dropdowns when clicking outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#inp-model-wrap'))
+    document.getElementById('model-dropdown').style.display = 'none';
+  if (!e.target.closest('.attach-btn') && !e.target.closest('.attach-popup'))
+    hideAttachPopup();
+});
+
+// ─── Sidebar: new chat / search / profile ────────────────
+function newChat() {
+  // clear selection, reset context pill
+  selected.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.classList.remove('sel'); const cb = el.querySelector('input'); if (cb) cb.checked = false; }
+  });
+  selected.clear();
+  syncPanel();
+  document.getElementById('ctx-pill').style.display = 'none';
+  document.getElementById('chat-inp').focus();
+  toast('새 채팅을 시작합니다', 'ok');
+}
+
+function openChat(el) {
+  document.querySelectorAll('#recent-chats .sb-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+  const name = el.dataset.chat || '대화';
+  document.querySelector('.chat-title').textContent = name;
+  toast(`"${name}" 열기`, 'info');
+}
+
+function filterChats(query) {
+  const items = document.querySelectorAll('#recent-chats .sb-item');
+  items.forEach(item => {
+    const label = item.dataset.chat || '';
+    item.style.display = label.includes(query) ? '' : 'none';
+  });
+}
+
+let popupOpen = false;
+function togglePopup() {
+  popupOpen = !popupOpen;
+  const popup = document.getElementById('sb-popup');
+  popup.style.display = popupOpen ? 'block' : 'none';
+  if (popupOpen) { ic(popup); }
+}
+
+// close popup when clicking outside
+document.addEventListener('click', (e) => {
+  if (popupOpen && !e.target.closest('.sb-footer')) {
+    popupOpen = false;
+    document.getElementById('sb-popup').style.display = 'none';
+  }
+});
+
+// ─── Init ────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  loadPage('main');
+  initGoogleAuth();
+});
+
+// ═══════════════════════════════════════════════════════════
+// ─── Settings Feature JS ────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+const LS_USER = 'fk_user_info';
+const LS_API  = 'fk_api_key';
+const LS_FB   = 'fk_feedbacks';
+
+// ─── Error Banner ─────────────────────────────────────────
+function showError(msg) {
+  const banner = document.getElementById('error-banner');
+  const msgEl  = document.getElementById('error-banner-msg');
+  msgEl.textContent = msg;
+  banner.style.display = 'flex';
+  ic(banner);
+}
+function clearError() {
+  document.getElementById('error-banner').style.display = 'none';
+}
+
+// ─── User Info ────────────────────────────────────────────
+function openUserInfoModal() {
+  const data = JSON.parse(localStorage.getItem(LS_USER) || '{}');
+  document.getElementById('ui-name').value  = data.name  || '';
+  document.getElementById('ui-email').value = data.email || '';
+  document.getElementById('ui-memo').value  = data.memo  || '';
+  const overlay = document.getElementById('userinfo-overlay');
+  overlay.style.display = 'flex';
+  ic(overlay);
+}
+function closeUserInfoModal(e) {
+  if (!e || e.target === document.getElementById('userinfo-overlay'))
+    document.getElementById('userinfo-overlay').style.display = 'none';
+}
+function saveUserInfo() {
+  const name  = document.getElementById('ui-name').value.trim();
+  const email = document.getElementById('ui-email').value.trim();
+  const memo  = document.getElementById('ui-memo').value.trim();
+  localStorage.setItem(LS_USER, JSON.stringify({ name, email, memo }));
+  refreshProfileUI();
+  closeUserInfoModal();
+  toast('사용자 정보가 저장되었습니다', 'ok');
+}
+function refreshProfileUI() {
+  const authData = JSON.parse(localStorage.getItem(LS_AUTH) || '{}');
+  const userData = JSON.parse(localStorage.getItem(LS_USER) || '{}');
+  const displayName  = userData.name  || authData.name  || '사용자';
+  const displayEmail = userData.email || authData.email || 'FlowKit';
+  const picture      = authData.picture || '';
+  const initial      = (displayName).charAt(0).toUpperCase();
+  const avatarInner  = picture
+    ? `<img src="${picture}" alt="${displayName}">`
+    : initial;
+  // sidebar profile button
+  const sbName = document.querySelector('.sb-profile-name');
+  const sbPlan = document.querySelector('.sb-profile-plan');
+  const sbAv   = document.querySelector('.sb-avatar');
+  if (sbName) sbName.textContent = displayName;
+  if (sbPlan) sbPlan.textContent = displayEmail;
+  if (sbAv)   sbAv.innerHTML     = avatarInner;
+  // popup header
+  const popName  = document.getElementById('pop-uname');
+  const popEmail = document.getElementById('pop-uemail');
+  const popAv    = document.getElementById('pop-avatar');
+  if (popName)  popName.textContent  = displayName;
+  if (popEmail) popEmail.textContent = displayEmail;
+  if (popAv)    popAv.innerHTML      = picture
+    ? `<img src="${picture}" alt="${displayName}">`
+    : initial;
+}
+
+// ─── API Key ──────────────────────────────────────────────
+let keyVisible = false;
+function openApiKeyModal() {
+  const data = JSON.parse(localStorage.getItem(LS_API) || '{}');
+  const inp = document.getElementById('api-key-inp');
+  inp.value = data.key || '';
+  inp.type = 'password';
+  keyVisible = false;
+  updateKeyVisBtn();
+  updateApiStatusBadge();
+  const delBtn = document.getElementById('api-delete-btn');
+  if (delBtn) delBtn.style.display = data.key ? 'inline-flex' : 'none';
+  document.getElementById('conn-result-area').style.display = 'none';
+  const overlay = document.getElementById('apikey-overlay');
+  overlay.style.display = 'flex';
+  ic(overlay);
+}
+function closeApiKeyModal(e) {
+  if (!e || e.target === document.getElementById('apikey-overlay'))
+    document.getElementById('apikey-overlay').style.display = 'none';
+}
+function toggleKeyVis() {
+  keyVisible = !keyVisible;
+  document.getElementById('api-key-inp').type = keyVisible ? 'text' : 'password';
+  updateKeyVisBtn();
+}
+function updateKeyVisBtn() {
+  const btn = document.getElementById('key-vis-btn');
+  if (!btn) return;
+  btn.innerHTML = keyVisible
+    ? '<i data-lucide="eye-off"></i>'
+    : '<i data-lucide="eye"></i>';
+  ic(btn);
+}
+function updateApiStatusBadge() {
+  const data  = JSON.parse(localStorage.getItem(LS_API) || '{}');
+  const badge = document.getElementById('api-status-badge');
+  if (!badge) return;
+  if (data.key) {
+    badge.className = 'api-status-badge registered';
+    badge.innerHTML = '<i data-lucide="check-circle-2"></i> API 키 등록됨';
+  } else {
+    badge.className = 'api-status-badge unregistered';
+    badge.innerHTML = '<i data-lucide="circle-x"></i> API 키 미등록';
+  }
+  ic(badge);
+}
+function saveApiKey() {
+  const key = document.getElementById('api-key-inp').value.trim();
+  if (!key) {
+    showError('API 키를 입력해주세요.');
+    return;
+  }
+  localStorage.setItem(LS_API, JSON.stringify({ key }));
+  updateApiStatusBadge();
+  const delBtn = document.getElementById('api-delete-btn');
+  if (delBtn) delBtn.style.display = 'inline-flex';
+  closeApiKeyModal();
+  clearError();
+  toast('API 키가 저장되었습니다', 'ok');
+}
+function deleteApiKey() {
+  localStorage.removeItem(LS_API);
+  document.getElementById('api-key-inp').value = '';
+  updateApiStatusBadge();
+  const delBtn = document.getElementById('api-delete-btn');
+  if (delBtn) delBtn.style.display = 'none';
+  document.getElementById('conn-result-area').style.display = 'none';
+  toast('API 키가 삭제되었습니다', 'warn');
+}
+
+// ─── API Connection Test ──────────────────────────────────
+function testApiConnection() {
+  const data = JSON.parse(localStorage.getItem(LS_API) || '{}');
+  const area = document.getElementById('conn-result-area');
+  area.style.display = 'block';
+
+  if (!data.key) {
+    area.innerHTML = `<div class="conn-result fail"><i data-lucide="alert-circle"></i><div class="conn-result-txt">API 키를 먼저 입력하세요.<div class="conn-result-sub">API 키가 비어 있습니다.</div></div></div>`;
+    ic(area);
+    return;
+  }
+
+  area.innerHTML = `<div class="conn-result testing"><i data-lucide="loader-2" style="animation:spin 1s linear infinite"></i><div class="conn-result-txt">연결 확인 중…</div></div>`;
+  ic(area);
+
+  setTimeout(() => {
+    const key = data.key;
+    let success = false;
+    let failReason = '';
+
+    if (!key || key.length < 8) {
+      failReason = 'API 키 형식이 올바르지 않습니다.';
+    } else if (key.startsWith('sk-')) {
+      // sk- prefix: treat as valid (mock always succeeds)
+      success = true;
+    } else {
+      // other formats: mock random result
+      success = (key.length >= 20);
+      if (!success) failReason = 'API 키 형식이 올바르지 않습니다.';
+      else {
+        // Simulate possible failure
+        const r = Math.random();
+        if (r < 0.25) { success = false; failReason = 'API 요청에 실패했습니다. API 키를 다시 확인해주세요.'; }
+      }
+    }
+
+    const now = new Date().toLocaleString('ko', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    if (success) {
+      area.innerHTML = `<div class="conn-result success"><i data-lucide="check-circle-2"></i><div class="conn-result-txt">연결 성공<div class="conn-result-sub">확인 시간: ${now}</div></div></div>`;
+    } else {
+      area.innerHTML = `<div class="conn-result fail"><i data-lucide="x-circle"></i><div class="conn-result-txt">연결 실패<div class="conn-result-sub">${failReason}</div></div></div>`;
+    }
+    ic(area);
+  }, 1300);
+}
+
+// ─── Feedback ─────────────────────────────────────────────
+let selectedFbType = '';
+function openFeedbackModal() {
+  selectedFbType = '';
+  document.querySelectorAll('.fb-type-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('fb-content').value = '';
+  const overlay = document.getElementById('feedback-overlay');
+  overlay.style.display = 'flex';
+  ic(overlay);
+}
+function closeFeedbackModal(e) {
+  if (!e || e.target === document.getElementById('feedback-overlay'))
+    document.getElementById('feedback-overlay').style.display = 'none';
+}
+function selectFbType(btn) {
+  document.querySelectorAll('.fb-type-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selectedFbType = btn.dataset.type;
+}
+function submitFeedback() {
+  const content = document.getElementById('fb-content').value.trim();
+  if (!selectedFbType) { toast('피드백 유형을 선택해주세요', 'warn'); return; }
+  if (!content)        { toast('피드백 내용을 입력해주세요', 'warn'); return; }
+  const userData  = JSON.parse(localStorage.getItem(LS_USER) || '{}');
+  const feedbacks = JSON.parse(localStorage.getItem(LS_FB)   || '[]');
+  feedbacks.push({
+    type:      selectedFbType,
+    content,
+    timestamp: new Date().toISOString(),
+    userName:  userData.name  || '',
+    userEmail: userData.email || '',
+  });
+  localStorage.setItem(LS_FB, JSON.stringify(feedbacks));
+  closeFeedbackModal();
+  toast('피드백이 저장되었습니다', 'ok');
+}
+
+// ─── Mock Google Login (UI 시안용) ───────────────────────
+
+const MOCK_USER = {
+  name:    '장르요',
+  email:   'jangryo@gmail.com',
+  picture: '',
+};
+
+function initGoogleAuth() {
+  const screen = document.getElementById('login-screen');
+  screen.style.display = 'flex';
+  ic(screen);
+}
+
+function mockGoogleLogin() {
+  document.getElementById('login-screen').style.display = 'none';
+  refreshProfileUI();
+  toast(`${MOCK_USER.name}님, 환영합니다!`, 'ok');
+}
+
+function signOut() {
+  if (popupOpen) {
+    popupOpen = false;
+    document.getElementById('sb-popup').style.display = 'none';
+  }
+  document.getElementById('login-screen').style.display = 'flex';
+  toast('로그아웃 되었습니다', 'warn');
+}
+</script>
+</body>
+</html>
