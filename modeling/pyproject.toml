@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flowkit-modeling"
+version = "0.1.0"
+description = "FlowKit AI 모델링 — Context 정제, 제목 생성, 답변 생성"
+requires-python = ">=3.14"
+dependencies = [
+    "langchain>=1.3,<2",
+    "langchain-core>=1.5,<2",
+    "langchain-google-genai>=4.3,<5",
+    "langgraph>=1.2,<2",
+    "pydantic>=2.7,<3",
+]
+
+# 패키지 폴더가 곧 프로젝트 루트다 (modeling/ 안에 __init__.py 가 있다).
+[tool.setuptools]
+packages = ["modeling", "modeling.chains", "modeling.prompts"]
+
+[tool.setuptools.package-dir]
+modeling = "."
+"modeling.chains" = "chains"
+"modeling.prompts" = "prompts"

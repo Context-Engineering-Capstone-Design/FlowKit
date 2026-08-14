@@ -34,3 +34,6 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+# 편집 가능 설치 산출물
+*.egg-link
