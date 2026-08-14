@@ -1,4 +1,6 @@
 import { Layers } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { renderGoogleButton } from '@/lib/googleSignIn'
 import { useAuthStore } from '@/store/authStore'
 
 const FEATURES = ['블록 선택', 'Context 정제', '브랜치 생성', '버전 관리']
@@ -51,27 +53,36 @@ export function LoginScreen() {
   )
 }
 
-// Google 로그인 버튼 — 실제 로그인은 Google 클라이언트 ID 설정 후 동작한다
+// Google 로그인 버튼 — 구글이 제공하는 공식 버튼을 그린다
 function GoogleLoginButton() {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
-  const configured = Boolean(clientId)
+  const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle)
+  const holder = useRef<HTMLDivElement>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!clientId || !holder.current) return
+    renderGoogleButton(holder.current, clientId, (idToken) => {
+      void loginWithGoogle(idToken)
+    }).catch((e: Error) => setLoadError(e.message))
+  }, [clientId, loginWithGoogle])
+
+  if (!clientId) {
+    return (
+      <p className="mt-7 rounded-lg bg-bg-2 p-3 text-[11.5px] leading-relaxed text-orange">
+        Google 클라이언트 ID가 없어 로그인할 수 없습니다.
+        <br />
+        <span className="text-txt-2">
+          frontend/.env의 VITE_GOOGLE_CLIENT_ID를 채워주세요.
+        </span>
+      </p>
+    )
+  }
 
   return (
     <div className="mt-7">
-      <button
-        type="button"
-        disabled={!configured}
-        className="w-full rounded-lg bg-bg-3 py-3 text-[13px] font-semibold transition hover:bg-bg-4 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        Google로 계속하기
-      </button>
-      {!configured && (
-        <p className="mt-2 text-[11px] leading-relaxed text-orange">
-          Google 클라이언트 ID가 설정되지 않았습니다.
-          <br />
-          frontend/.env의 VITE_GOOGLE_CLIENT_ID를 채워주세요.
-        </p>
-      )}
+      <div ref={holder} className="flex justify-center" />
+      {loadError && <p className="mt-2 text-[11.5px] text-red">{loadError}</p>}
     </div>
   )
 }
