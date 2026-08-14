@@ -6,7 +6,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from modeling.config import REFINE_TEMPERATURE
 from modeling.llm import get_chat_model
 from modeling.prompts import refine as prompt
 from modeling.types import RefineResult, RefineTarget
@@ -15,7 +14,7 @@ _ROLE_LABEL = {"user": "사용자 질문", "assistant": "AI 답변"}
 
 
 def build_refine_chain(model: BaseChatModel | None = None):
-    llm = model or get_chat_model(temperature=REFINE_TEMPERATURE)
+    llm = model or get_chat_model()
     template = ChatPromptTemplate.from_messages(
         [("system", prompt.SYSTEM), ("human", prompt.HUMAN)]
     )

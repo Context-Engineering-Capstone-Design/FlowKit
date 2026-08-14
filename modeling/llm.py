@@ -19,9 +19,7 @@ class MissingApiKeyError(RuntimeError):
 
 
 @lru_cache
-def get_chat_model(
-    temperature: float = 0.3, model: str = DEFAULT_MODEL
-) -> BaseChatModel:
+def get_chat_model(model: str = DEFAULT_MODEL) -> BaseChatModel:
     api_key = os.getenv("GOOGLE_API_KEY", "").strip()
     if not api_key:
         raise MissingApiKeyError(
@@ -33,6 +31,5 @@ def get_chat_model(
     return ChatGoogleGenerativeAI(
         model=model,
         google_api_key=api_key,
-        temperature=temperature,
         timeout=REQUEST_TIMEOUT_SECONDS,
     )

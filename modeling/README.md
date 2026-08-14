@@ -46,6 +46,21 @@ modeling/
 
 DB 모델을 참조하지 않고 위 데이터 구조로만 주고받는다. 그래서 백엔드 없이도 단독 실행이 된다.
 
+## 모델
+
+`gemini-3.6-flash` 를 쓴다. `gemini-2.5-flash` 는 신규 사용자에게 더 이상 열리지 않아 404 가 난다.
+
+이 모델은 온도(temperature) 같은 샘플링 값을 고정으로 쓰므로 지정하지 않는다. 넘겨도 무시되고 경고만 남는다.
+
+사용 가능한 모델은 아래로 확인한다.
+
+```python
+from google import genai
+client = genai.Client(api_key="...")
+for m in client.models.list():
+    print(m.name)
+```
+
 ## 하는 일
 
 | 기능 | 함수 | 관련 명세 |

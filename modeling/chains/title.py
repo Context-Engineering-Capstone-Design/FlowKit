@@ -6,13 +6,13 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from modeling.config import MAX_TITLE_LENGTH, TITLE_TEMPERATURE
+from modeling.config import MAX_TITLE_LENGTH
 from modeling.llm import get_chat_model
 from modeling.prompts import title as prompt
 
 
 def build_title_chain(model: BaseChatModel | None = None):
-    llm = model or get_chat_model(temperature=TITLE_TEMPERATURE)
+    llm = model or get_chat_model()
     template = ChatPromptTemplate.from_messages(
         [("system", prompt.SYSTEM), ("human", prompt.HUMAN)]
     ).partial(max_length=str(MAX_TITLE_LENGTH))

@@ -6,7 +6,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 
-from modeling.config import ANSWER_TEMPERATURE
 from modeling.llm import get_chat_model
 from modeling.prompts import answer as prompt
 from modeling.types import AnswerRequest
@@ -41,6 +40,6 @@ def generate_answer(
     if not request.user_prompt.strip():
         raise ValueError("질문이 비어 있습니다.")
 
-    llm = model or get_chat_model(temperature=ANSWER_TEMPERATURE)
+    llm = model or get_chat_model()
     chain = llm | StrOutputParser()
     return chain.invoke(build_messages(request)).strip()
