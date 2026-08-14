@@ -1,0 +1,37 @@
+@import 'tailwindcss';
+
+/* UI 시안(기획 문서/FlowKit_0520.html)의 다크 테마 값을 토큰으로 옮겼다.
+   시안을 화면으로 옮길 때 색을 직접 쓰지 말고 이 토큰을 쓴다. */
+@theme {
+  --color-bg-0: #0d0d0d;
+  --color-bg-1: #151515;
+  --color-bg-2: #1c1c1c;
+  --color-bg-3: #242424;
+
+  --color-border-subtle: #262626;
+  --color-border-strong: #333333;
+
+  --color-txt-0: #ededed;
+  --color-txt-1: #b4b4b4;
+  --color-txt-2: #7d7d7d;
+
+  --color-accent: #4a9eff;
+  --color-accent-soft: #1e3a5f;
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-danger: #f85149;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg-0);
+  color: var(--color-txt-0);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo',
+    'Segoe UI', sans-serif;
+}
