@@ -1,5 +1,6 @@
 import { Check, SlidersHorizontal, X } from 'lucide-react'
 import { useState } from 'react'
+import { toPreview } from '@/lib/preview'
 import { useChatStore } from '@/store/chatStore'
 
 const QUICK_EDITS = [
@@ -260,15 +261,6 @@ function PanelFooter() {
       </button>
     </div>
   )
-}
-
-/** 목록에 한 줄로 보여줄 때 쓰는 미리보기. 마크다운 기호가 그대로 보이면 읽기 어렵다. */
-function toPreview(content: string): string {
-  return content
-    .replace(/```[\s\S]*?```/g, ' 코드 ')
-    .replace(/[#>*_`~|-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { BranchModal } from '@/components/BranchModal'
 import { ChatArea } from '@/components/ChatArea'
 import { ContextPanel } from '@/components/ContextPanel'
 import { LoginScreen } from '@/components/LoginScreen'
@@ -30,6 +31,7 @@ export default function App() {
 // 3단 작업 화면 — 좌측 대화·브랜치, 중앙 채팅, 우측 Context 편집 (NFR-001)
 function Workspace() {
   const [panelOpen, setPanelOpen] = useState(true)
+  const [branchModalOpen, setBranchModalOpen] = useState(false)
   const loadChats = useChatStore((s) => s.loadChats)
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
 
@@ -48,8 +50,12 @@ function Workspace() {
       <ChatArea
         panelOpen={panelOpen}
         onTogglePanel={() => setPanelOpen((v) => !v)}
+        onCreateBranch={() => setBranchModalOpen(true)}
       />
       {panelOpen && <ContextPanel onClose={() => setPanelOpen(false)} />}
+      {branchModalOpen && (
+        <BranchModal onClose={() => setBranchModalOpen(false)} />
+      )}
     </div>
   )
 }

@@ -15,6 +15,9 @@ export function MessageBlockItem({ block, refine }: Props) {
   const toggleBlock = useChatStore((s) => s.toggleBlock)
   const regenerate = useChatStore((s) => s.regenerate)
   const view = useChatStore((s) => s.inlineView[block.blockId] ?? 'refined')
+  const highlighted = useChatStore(
+    (s) => s.highlightedBlockId === block.blockId,
+  )
 
   const isUser = block.role === 'user'
   const pending = refine?.status === 'pending'
@@ -22,10 +25,13 @@ export function MessageBlockItem({ block, refine }: Props) {
 
   return (
     <div
+      id={`block-${block.blockId}`}
       className={`group relative border-l-[3px] py-2.5 pl-11 pr-5 transition ${
         selected
           ? 'border-sel-line bg-sel-bg'
-          : 'border-transparent hover:bg-white/[0.025]'
+          : highlighted
+            ? 'border-green bg-green-dim'
+            : 'border-transparent hover:bg-white/[0.025]'
       }`}
     >
       <input

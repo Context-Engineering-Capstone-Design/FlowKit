@@ -1,15 +1,17 @@
-import { ArrowUp, PanelRight, X } from 'lucide-react'
+import { ArrowUp, GitBranch, PanelRight, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { MessageBlockItem } from '@/components/MessageBlockItem'
+import { SourceContextBanner } from '@/components/SourceContextBanner'
 import { useChatStore } from '@/store/chatStore'
 
 interface Props {
   panelOpen: boolean
   onTogglePanel: () => void
+  onCreateBranch: () => void
 }
 
 // 중앙 채팅 영역 — 메시지 블록 목록과 입력창
-export function ChatArea({ panelOpen, onTogglePanel }: Props) {
+export function ChatArea({ panelOpen, onTogglePanel, onCreateBranch }: Props) {
   const chatTitle = useChatStore((s) => s.chatTitle)
   const chatId = useChatStore((s) => s.chatId)
   const blocks = useChatStore((s) => s.blocks)
@@ -32,6 +34,17 @@ export function ChatArea({ panelOpen, onTogglePanel }: Props) {
         <span className="truncate text-[13.5px] font-semibold">
           {chatId ? chatTitle : 'FlowKit'}
         </span>
+        <div className="flex items-center gap-1.5">
+        {chatId && (
+          <button
+            type="button"
+            onClick={onCreateBranch}
+            className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[12px] text-txt-2 transition hover:text-txt-0"
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+            브랜치 생성
+          </button>
+        )}
         <button
           type="button"
           onClick={onTogglePanel}
@@ -49,9 +62,11 @@ export function ChatArea({ panelOpen, onTogglePanel }: Props) {
             </span>
           )}
         </button>
+        </div>
       </header>
 
       <ErrorBanner />
+      <SourceContextBanner />
 
       <div className="flex-1 overflow-y-auto pb-4">
         {!chatId && <EmptyState />}

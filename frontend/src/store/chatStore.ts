@@ -33,6 +33,7 @@ interface ChatState {
 
   isSending: boolean
   isRefining: boolean
+  isCreatingBranch: boolean
   error: string | null
 
   loadChats: (keyword?: string) => Promise<void>
@@ -49,6 +50,14 @@ interface ChatState {
   approveAll: () => Promise<void>
   closeRefine: () => Promise<void>
   setInlineView: (blockId: string, view: 'original' | 'refined') => void
+  createBranch: (
+    name: string,
+    baseBlockId: string,
+    contextBlockIds: string[],
+  ) => Promise<boolean>
+  /** Context pill 을 눌렀을 때 원본 블록 위치로 이동한다 (REQ-012) */
+  jumpToSource: (item: SourceContextItem) => Promise<void>
+  highlightedBlockId: string | null
   applyContext: () => void
   clearAppliedContext: () => void
   dismissError: () => void
@@ -69,6 +78,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   inlineView: {},
   isSending: false,
   isRefining: false,
+  isCreatingBranch: false,
+  highlightedBlockId: null,
   error: null,
 
   async loadChats(keyword) {
@@ -259,6 +270,52 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
     set({ refineJob: null, inlineView: {} })
+  },
+
+  async createBranch(name, baseBlockId, contextBlockIds) {
+    const { chatId, branchId } = get()
+    if (!chatId || !branchId) return false
+
+    set({ isCreatingBranch: true, error: null })
+    try {
+      const created = await chatApi.createBranch(chatId, {
+        branchName: name,
+        baseBranchId: branchId,
+        baseMessageBlockId: baseBlockId,
+        contextBlockIds,
+      })
+      // 만든 브랜치로 바로 들어간다. 목록만 갱신하면 어디로 갔는지 알기 어렵다
+      set({ branches: await chatApi.fetchBranches(chatId) })
+      await get().switchBranch(created.branchId)
+      return true
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+      return false
+    } finally {
+      set({ isCreatingBranch: false })
+    }
+  },
+
+  async jumpToSource(item) {
+    const { chatId, branchId } = get()
+    if (!chatId) return
+
+    // 원본이 다른 브랜치에 있으면 그 브랜치로 먼저 옮긴다
+    if (item.sourceBranchId && item.sourceBranchId !== branchId) {
+      await get().switchBranch(item.sourceBranchId)
+    }
+    set({ highlightedBlockId: item.sourceMessageBlockId })
+
+    document
+      .getElementById(`block-${item.sourceMessageBlockId}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+    // 강조는 잠깐만 남긴다. 계속 켜두면 어디를 보라는 건지 흐려진다
+    setTimeout(() => {
+      if (get().highlightedBlockId === item.sourceMessageBlockId) {
+        set({ highlightedBlockId: null })
+      }
+    }, 2000)
   },
 
   setInlineView(blockId, view) {
