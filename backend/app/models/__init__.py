@@ -11,6 +11,7 @@ from app.models.chat import (
 from app.models.context import AppliedContextItem, AppliedContextLog
 from app.models.feedback import AiResponseFeedback, AiResponseRating
 from app.models.service_feedback import FeedbackType, ServiceFeedback
+from app.models.observability import ClientErrorLog, ErrorLog
 from app.models.message import (
     MessageBlock,
     MessageBlockVersion,
@@ -57,6 +58,8 @@ __all__ = [
     "AiResponseRating",
     "ServiceFeedback",
     "FeedbackType",
+    "ErrorLog",
+    "ClientErrorLog",
     "UserApiKey",
     "ApiKeyConnectionStatus",
 ]
