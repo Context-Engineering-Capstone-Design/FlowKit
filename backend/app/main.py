@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.exceptions import AppError, app_error_handler
+import uuid
 from app.routers import auth, chat, conversation, input_assist, message, refine, user_setting
 from app.settings import get_settings
 
@@ -20,6 +22,13 @@ app.add_middleware(
 )
 
 app.add_exception_handler(AppError, app_error_handler)
+
+@app.middleware("http")
+async def trace_request(request: Request, call_next):
+    request.state.trace_id = str(uuid.uuid4())
+    response = await call_next(request)
+    response.headers["X-Trace-Id"] = request.state.trace_id
+    return response
 
 app.include_router(auth.router)
 app.include_router(chat.router)

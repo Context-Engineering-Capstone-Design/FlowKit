@@ -220,12 +220,15 @@ class AiJobNotRetryableError(AppError):
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-    return JSONResponse(
+    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
+    response = JSONResponse(
         status_code=exc.status_code,
         content={
             "errorCode": exc.error_code,
             "message": exc.message,
             "detail": exc.detail,
-            "traceId": str(uuid.uuid4()),
+            "traceId": trace_id,
         },
     )
+    response.headers["X-Trace-Id"] = trace_id
+    return response
