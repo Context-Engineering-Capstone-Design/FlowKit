@@ -18,6 +18,7 @@ export default function App() {
   const check = useAuthStore((s) => s.check)
   const clearSession = useAuthStore((s) => s.clearSession)
   const closeSettings = useSettingsStore((s) => s.closeModal)
+  const clearDraft = useChatStore((s) => s.clearDraft)
 
   useEffect(() => {
     void check()
@@ -27,10 +28,11 @@ export default function App() {
     function expireSession() {
       clearSession()
       closeSettings()
+      clearDraft()
     }
     window.addEventListener(AUTH_EXPIRED_EVENT, expireSession)
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, expireSession)
-  }, [clearSession, closeSettings])
+  }, [clearSession, closeSettings, clearDraft])
 
   if (isChecking) {
     return (

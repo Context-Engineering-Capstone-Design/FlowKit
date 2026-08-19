@@ -1,4 +1,5 @@
 from app.models.base import Base
+from app.models.attachment import Attachment, AttachmentStatus, MessageAttachment
 from app.models.chat import (
     Branch,
     BranchSourceContext,
@@ -26,6 +27,9 @@ from app.models.user_setting import ApiKeyConnectionStatus, UserApiKey
 
 __all__ = [
     "Base",
+    "Attachment",
+    "AttachmentStatus",
+    "MessageAttachment",
     "User",
     "AuthSession",
     "Chat",

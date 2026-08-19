@@ -37,3 +37,6 @@ Desktop.ini
 
 # 편집 가능 설치 산출물
 *.egg-link
+
+# 로컬 첨부 원본 저장소
+.flowkit-attachments/

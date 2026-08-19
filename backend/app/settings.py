@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,6 +28,11 @@ class Settings(BaseSettings):
     api_key_encryption_key: str = ""
 
     cors_origins: list[str] = ["http://localhost:5173"]
+
+    attachment_storage_dir: Path = Path(".flowkit-attachments")
+    attachment_max_file_size: int = 10 * 1024 * 1024
+    attachment_max_per_message: int = 5
+    attachment_temporary_hours: int = 24
 
     @field_validator("jwt_secret")
     @classmethod

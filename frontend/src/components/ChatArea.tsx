@@ -1,7 +1,11 @@
 import { ArrowUp, GitBranch, PanelRight, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
+import { AttachmentItem } from '@/components/AttachmentItem'
+import { AttachmentMenu } from '@/components/AttachmentMenu'
+import { ModelSelector } from '@/components/ModelSelector'
 import { MessageBlockItem } from '@/components/MessageBlockItem'
 import { SourceContextBanner } from '@/components/SourceContextBanner'
+import { WebSearchToggle } from '@/components/WebSearchToggle'
 import { useChatStore } from '@/store/chatStore'
 
 interface Props {
@@ -120,12 +124,24 @@ function ErrorBanner() {
 
 // 입력창 — 적용 중인 Context 표시와 질문 전송
 function Composer() {
-  const [text, setText] = useState('')
+  const text = useChatStore((s) => s.draftText)
+  const setText = useChatStore((s) => s.setDraftText)
   const chatId = useChatStore((s) => s.chatId)
   const isSending = useChatStore((s) => s.isSending)
   const appliedCount = useChatStore((s) => s.appliedBlockIds.length)
   const clearApplied = useChatStore((s) => s.clearAppliedContext)
   const sendMessage = useChatStore((s) => s.sendMessage)
+  const attachments = useChatStore((s) => s.draftAttachments)
+  const addFiles = useChatStore((s) => s.addFiles)
+  const removeAttachment = useChatStore((s) => s.removeAttachment)
+  const retryAttachment = useChatStore((s) => s.retryAttachment)
+  const models = useChatStore((s) => s.models)
+  const selectedModelId = useChatStore((s) => s.selectedModelId)
+  const setSelectedModel = useChatStore((s) => s.setSelectedModel)
+  const webSearchEnabled = useChatStore((s) => s.webSearchEnabled)
+  const setWebSearchEnabled = useChatStore((s) => s.setWebSearchEnabled)
+  const isModelListLoading = useChatStore((s) => s.isModelListLoading)
+  const loadInputAssist = useChatStore((s) => s.loadInputAssist)
   const focusSignal = useChatStore((s) => s.focusSignal)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -133,12 +149,15 @@ function Composer() {
     textareaRef.current?.focus()
   }, [focusSignal])
 
-  const disabled = !chatId || isSending || !text.trim()
+  useEffect(() => { void loadInputAssist() }, [loadInputAssist])
+
+  const selectedModel = models.find((model) => model.modelId === selectedModelId)
+  const uploading = attachments.some((item) => item.status === 'uploading')
+  const disabled = !chatId || isSending || !text.trim() || uploading
 
   async function submit() {
     if (disabled) return
     const prompt = text
-    setText('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     await sendMessage(prompt)
   }
@@ -155,6 +174,11 @@ function Composer() {
       )}
 
       <div className="rounded-2xl bg-bg-2 p-3">
+        {attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {attachments.map((attachment) => <AttachmentItem key={attachment.localId} attachment={attachment} onRemove={() => void removeAttachment(attachment.localId)} onRetry={() => void retryAttachment(attachment.localId)} />)}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
@@ -175,7 +199,12 @@ function Composer() {
           disabled={!chatId}
           className="max-h-40 w-full resize-none bg-transparent text-[13.5px] text-txt-0 outline-none placeholder:text-txt-3"
         />
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <AttachmentMenu disabled={!chatId || isSending || selectedModel?.supportsAttachment === false} onSelect={(files) => void addFiles(files)} />
+            <WebSearchToggle enabled={webSearchEnabled} disabled={!selectedModel?.supportsWebSearch} reason={selectedModel?.supportsWebSearch ? undefined : '선택한 모델은 웹 검색을 지원하지 않습니다.'} onChange={setWebSearchEnabled} />
+            <ModelSelector models={models} selectedId={selectedModelId} loading={isModelListLoading} onChange={setSelectedModel} />
+          </div>
           <button
             type="button"
             onClick={() => void submit()}

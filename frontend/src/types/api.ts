@@ -136,7 +136,16 @@ export interface SendMessageResponse {
   appliedContext: AppliedContextOut[]
   chatTitle: string
   titleGenerated: boolean
+  selectedModel: string
+  webSearchEnabled: boolean
+  attachments: AttachmentResponse[]
+  searchSources: SearchSource[]
 }
+
+export interface ModelOption { modelId: string; displayName: string; provider: string; supportsWebSearch: boolean; supportsAttachment: boolean; isDefault: boolean; isAvailable: boolean }
+export interface AttachmentResponse { attachmentId: string; fileName: string; mimeType: string; fileSize: number; status: 'temporary' | 'attached' | 'expired'; expiresAt: string | null }
+export interface SearchSource { title: string; url: string }
+export interface DraftAttachment { localId: string; attachmentId: string | null; file: File; fileName: string; mimeType: string; localUrl: string | null; status: 'uploading' | 'uploaded' | 'failed'; error: string | null }
 
 export type AiResponseRating = 'like' | 'dislike'
 

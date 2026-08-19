@@ -15,10 +15,11 @@ export async function sendMessage(
   branchId: string,
   userPrompt: string,
   contextBlockIds: string[] = [],
+  options: { selectedModelId: string | null; webSearchEnabled: boolean; attachmentIds: string[] } = { selectedModelId: null, webSearchEnabled: false, attachmentIds: [] },
 ): Promise<SendMessageResponse> {
   const { data } = await api.post<SendMessageResponse>(
     `/api/chats/${chatId}/branches/${branchId}/messages`,
-    { userPrompt, contextBlockIds },
+    { userPrompt, contextBlockIds, ...options },
   )
   return data
 }

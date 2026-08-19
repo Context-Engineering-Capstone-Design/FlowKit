@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.exceptions import AppError, app_error_handler
-from app.routers import auth, chat, conversation, message, refine, user_setting
+from app.routers import auth, chat, conversation, input_assist, message, refine, user_setting
 from app.settings import get_settings
 
 settings = get_settings()
@@ -27,6 +27,7 @@ app.include_router(message.router)
 app.include_router(refine.router)
 app.include_router(conversation.router)
 app.include_router(user_setting.router)
+app.include_router(input_assist.router)
 
 
 @app.get("/health")

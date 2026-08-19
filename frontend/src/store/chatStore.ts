@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import * as chatApi from '@/api/chat'
 import { errorCode, toErrorMessage } from '@/api/client'
 import * as convApi from '@/api/conversation'
+import * as inputAssistApi from '@/api/inputAssist'
 import { useSettingsStore } from '@/store/settingsStore'
 import type {
   AiResponseRating,
@@ -12,6 +13,8 @@ import type {
   RefineJob,
   SourceContextItem,
   VersionItem,
+  DraftAttachment,
+  ModelOption,
 } from '@/types/api'
 
 interface ChatState {
@@ -44,6 +47,13 @@ interface ChatState {
   /** 값이 바뀔 때마다 입력창에 포커스를 옮긴다 (REQ-004) */
   focusSignal: number
 
+  draftText: string
+  selectedModelId: string | null
+  webSearchEnabled: boolean
+  draftAttachments: DraftAttachment[]
+  models: ModelOption[]
+  isModelListLoading: boolean
+
   loadChats: (keyword?: string) => Promise<void>
   newChat: () => Promise<void>
   openChat: (chatId: string, branchId?: string) => Promise<void>
@@ -72,6 +82,15 @@ interface ChatState {
   applyContext: () => void
   clearAppliedContext: () => void
   dismissError: () => void
+  loadInputAssist: () => Promise<void>
+  setDraftText: (text: string) => void
+  setSelectedModel: (modelId: string) => void
+  setWebSearchEnabled: (enabled: boolean) => void
+  addFiles: (files: File[]) => Promise<void>
+  removeAttachment: (localId: string) => Promise<void>
+  retryAttachment: (localId: string) => Promise<void>
+  uploadAttachment: (localId: string) => Promise<void>
+  clearDraft: () => void
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -95,6 +114,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   highlightedBlockId: null,
   error: null,
   focusSignal: 0,
+  draftText: '',
+  selectedModelId: null,
+  webSearchEnabled: false,
+  draftAttachments: [],
+  models: [],
+  isModelListLoading: false,
 
   async loadChats(keyword) {
     try {
@@ -106,7 +131,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   async newChat() {
+    if (!confirmDraftDiscard(get())) return
     try {
+      get().clearDraft()
       applyDetail(set, await chatApi.createChat())
       set((s) => ({ focusSignal: s.focusSignal + 1 }))
       await get().loadChats()
@@ -115,8 +142,80 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  async openChat(chatId, branchId) {
+  async loadInputAssist() {
+    if (get().isModelListLoading || get().models.length) return
+    set({ isModelListLoading: true })
     try {
+      const models = await inputAssistApi.fetchModels()
+      const selected = get().selectedModelId
+      set({
+        models,
+        selectedModelId: selected && models.some((m) => m.modelId === selected)
+          ? selected
+          : (models.find((m) => m.isDefault)?.modelId ?? selected),
+      })
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+    } finally {
+      set({ isModelListLoading: false })
+    }
+  },
+
+  setDraftText(text) { set({ draftText: text }) },
+
+  setSelectedModel(modelId) {
+    const model = get().models.find((item) => item.modelId === modelId)
+    set({ selectedModelId: modelId, webSearchEnabled: model?.supportsWebSearch ? get().webSearchEnabled : false })
+  },
+
+  setWebSearchEnabled(enabled) { set({ webSearchEnabled: enabled }) },
+
+  async addFiles(files) {
+    const { chatId } = get()
+    if (!chatId) return
+    const entries = files.map((file) => ({
+      localId: crypto.randomUUID(), attachmentId: null, file, fileName: file.name,
+      mimeType: file.type, localUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+      status: 'uploading' as const, error: null,
+    }))
+    set((s) => ({ draftAttachments: [...s.draftAttachments, ...entries] }))
+    await Promise.all(entries.map((entry) => get().uploadAttachment(entry.localId)))
+  },
+
+  async retryAttachment(localId) { await get().uploadAttachment(localId) },
+
+  async uploadAttachment(localId) {
+    const { chatId, draftAttachments } = get()
+    const entry = draftAttachments.find((item) => item.localId === localId)
+    if (!chatId || !entry) return
+    set((s) => ({ draftAttachments: s.draftAttachments.map((item) => item.localId === localId ? { ...item, status: 'uploading', error: null } : item) }))
+    try {
+      const saved = await inputAssistApi.uploadAttachment(chatId, entry.file)
+      set((s) => ({ draftAttachments: s.draftAttachments.map((item) => item.localId === localId ? { ...item, attachmentId: saved.attachmentId, mimeType: saved.mimeType, status: 'uploaded', error: null } : item) }))
+    } catch (e) {
+      set((s) => ({ draftAttachments: s.draftAttachments.map((item) => item.localId === localId ? { ...item, status: 'failed', error: toErrorMessage(e) } : item) }))
+    }
+  },
+
+  async removeAttachment(localId) {
+    const entry = get().draftAttachments.find((item) => item.localId === localId)
+    if (!entry) return
+    set((s) => ({ draftAttachments: s.draftAttachments.filter((item) => item.localId !== localId) }))
+    if (entry.localUrl) URL.revokeObjectURL(entry.localUrl)
+    if (!entry.attachmentId || !get().chatId) return
+    try { await inputAssistApi.deleteAttachment(get().chatId!, entry.attachmentId) }
+    catch (e) { set({ error: `${entry.fileName} 파일 삭제에 실패했습니다. ${toErrorMessage(e)}` }) }
+  },
+
+  clearDraft() {
+    for (const item of get().draftAttachments) if (item.localUrl) URL.revokeObjectURL(item.localUrl)
+    set({ draftText: '', draftAttachments: [] })
+  },
+
+  async openChat(chatId, branchId) {
+    if (get().chatId !== chatId && !confirmDraftDiscard(get())) return
+    try {
+      if (get().chatId !== chatId) get().clearDraft()
       const detail = await chatApi.fetchChat(chatId, branchId)
       applyDetail(set, detail)
       await refreshFeedbacks(
@@ -133,7 +232,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async switchBranch(branchId) {
     const { chatId } = get()
     if (!chatId) return
+    if (get().branchId !== branchId && !confirmDraftDiscard(get())) return
     try {
+      if (get().branchId !== branchId) get().clearDraft()
       const detail = await chatApi.fetchBranch(chatId, branchId)
       set({
         branchId: detail.branchMeta.branchId,
@@ -178,8 +279,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   async sendMessage(prompt) {
-    const { chatId, branchId, appliedBlockIds } = get()
+    const { chatId, branchId, appliedBlockIds, selectedModelId, webSearchEnabled, draftAttachments } = get()
     if (!chatId || !branchId || !prompt.trim()) return
+    if (draftAttachments.some((item) => item.status === 'uploading')) {
+      set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.' })
+      return
+    }
+    if (draftAttachments.some((item) => item.status === 'failed')) {
+      set({ error: '업로드에 실패한 파일을 제거하거나 다시 시도해주세요.' })
+      return
+    }
 
     set({ isSending: true, error: null })
     try {
@@ -188,6 +297,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         branchId,
         prompt,
         appliedBlockIds,
+        { selectedModelId, webSearchEnabled, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []) },
       )
       set((s) => ({
         blocks: [...s.blocks, res.userBlock, res.assistantBlock],
@@ -197,6 +307,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         appliedBlockIds: [],
         selectedBlockIds: [],
       }))
+      get().clearDraft()
       if (res.titleGenerated) await get().loadChats()
     } catch (e) {
       if (openApiKeyWhenMissing(e)) {
@@ -461,6 +572,8 @@ function applyDetail(
     ratings: {},
     versionsByBlock: {},
     error: null,
+    draftText: '',
+    draftAttachments: [],
   })
 }
 
@@ -491,4 +604,9 @@ function openApiKeyWhenMissing(error: unknown): boolean {
     .getState()
     .openApiKey('AI 기능을 사용하려면 먼저 Google AI API 키를 등록해주세요.')
   return true
+}
+
+function confirmDraftDiscard(state: ChatState): boolean {
+  if (!state.draftText.trim() && state.draftAttachments.length === 0) return true
+  return window.confirm('전송하지 않은 입력과 첨부 파일이 있습니다. 이동하면 입력 내용이 사라집니다.')
 }

@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.message import BlockResponse
+from app.schemas.input_assist import AttachmentOut, SearchSourceOut
 
 
 class SendMessageRequest(BaseModel):
@@ -15,6 +16,9 @@ class SendMessageRequest(BaseModel):
     context_block_ids: list[uuid.UUID] = Field(
         default_factory=list, alias="contextBlockIds"
     )
+    selected_model_id: str | None = Field(None, alias="selectedModelId")
+    web_search_enabled: bool = Field(False, alias="webSearchEnabled")
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list, alias="attachmentIds")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -35,6 +39,10 @@ class SendMessageResponse(BaseModel):
     )
     chat_title: str = Field(..., serialization_alias="chatTitle")
     title_generated: bool = Field(..., serialization_alias="titleGenerated")
+    selected_model: str = Field(..., serialization_alias="selectedModel")
+    web_search_enabled: bool = Field(..., serialization_alias="webSearchEnabled")
+    attachments: list[AttachmentOut]
+    search_sources: list[SearchSourceOut] = Field(..., serialization_alias="searchSources")
 
     model_config = ConfigDict(populate_by_name=True)
 

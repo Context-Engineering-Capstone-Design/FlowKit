@@ -135,6 +135,60 @@ class ProviderNotConfiguredError(AppError):
     message = "지원하지 않는 AI Provider입니다."
 
 
+class ModelNotSupportedError(AppError):
+    status_code = 400
+    error_code = "MODEL_NOT_SUPPORTED"
+    message = "지원하지 않는 모델입니다."
+
+
+class WebSearchNotSupportedError(AppError):
+    status_code = 400
+    error_code = "WEB_SEARCH_NOT_SUPPORTED"
+    message = "선택한 모델은 웹 검색을 지원하지 않습니다."
+
+
+class AttachmentNotFoundError(AppError):
+    status_code = 404
+    error_code = "ATTACHMENT_NOT_FOUND"
+    message = "첨부 파일을 찾을 수 없습니다."
+
+
+class AttachmentInvalidTypeError(AppError):
+    status_code = 400
+    error_code = "ATTACHMENT_INVALID_TYPE"
+    message = "지원하지 않는 파일 형식입니다."
+
+
+class AttachmentTooLargeError(AppError):
+    status_code = 400
+    error_code = "ATTACHMENT_TOO_LARGE"
+    message = "파일 크기가 제한을 초과했습니다."
+
+
+class AttachmentLimitExceededError(AppError):
+    status_code = 400
+    error_code = "ATTACHMENT_LIMIT_EXCEEDED"
+    message = "메시지당 첨부 파일 수 제한을 초과했습니다."
+
+
+class AttachmentAlreadyUsedError(AppError):
+    status_code = 409
+    error_code = "ATTACHMENT_ALREADY_USED"
+    message = "이미 전송에 사용한 첨부 파일은 삭제할 수 없습니다."
+
+
+class AttachmentAccessDeniedError(AppError):
+    status_code = 403
+    error_code = "ATTACHMENT_ACCESS_DENIED"
+    message = "해당 첨부 파일에 접근할 권한이 없습니다."
+
+
+class AttachmentReadError(AppError):
+    status_code = 400
+    error_code = "ATTACHMENT_READ_FAILED"
+    message = "첨부 파일을 읽지 못했습니다."
+
+
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,

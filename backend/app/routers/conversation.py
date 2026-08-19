@@ -15,6 +15,7 @@ from app.schemas.conversation import (
     SendMessageResponse,
 )
 from app.schemas.message import BlockResponse
+from app.schemas.input_assist import AttachmentOut, SearchSourceOut
 from app.services import ai_response_service, branch_service, chat_service
 
 router = APIRouter(
@@ -42,7 +43,8 @@ def send_message(
     """
     chat, branch = _load(db, user, chat_id, branch_id)
     result = ai_response_service.send_message(
-        db, user, chat, branch, payload.user_prompt, payload.context_block_ids
+        db, user, chat, branch, payload.user_prompt, payload.context_block_ids,
+        payload.selected_model_id, payload.web_search_enabled, payload.attachment_ids,
     )
     return SendMessageResponse(
         user_block=BlockResponse.of(result.user_block),
@@ -55,6 +57,17 @@ def send_message(
         ],
         chat_title=chat.title,
         title_generated=result.title_generated,
+        selected_model=result.selected_model,
+        web_search_enabled=result.web_search_enabled,
+        attachments=[_attachment_out(item) for item in result.attachments],
+        search_sources=[SearchSourceOut(title=item.title, url=item.url) for item in result.search_sources],
+    )
+
+
+def _attachment_out(item) -> AttachmentOut:
+    return AttachmentOut(
+        attachment_id=item.id, file_name=item.file_name, mime_type=item.mime_type,
+        file_size=item.file_size, status=item.status.value, expires_at=item.expires_at,
     )
 
 

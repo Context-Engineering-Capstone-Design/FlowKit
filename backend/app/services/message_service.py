@@ -44,6 +44,7 @@ def create_block(
     role: MessageRole,
     content: str,
     source_type: VersionSourceType = VersionSourceType.ORIGINAL,
+    commit: bool = True,
 ) -> MessageBlock:
     """메시지 블록과 최초 버전을 함께 만든다 (BE-MSG-001)."""
     text = (content or "").strip()
@@ -69,8 +70,9 @@ def create_block(
 
     block.current_version_id = version.id
     chat.last_activity_at = datetime.now(UTC)
-    db.commit()
-    db.refresh(block)
+    if commit:
+        db.commit()
+        db.refresh(block)
     return block
 
 

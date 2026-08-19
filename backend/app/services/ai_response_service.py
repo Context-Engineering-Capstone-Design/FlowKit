@@ -27,6 +27,7 @@ from app.services import (
     context_service,
     message_service,
     user_setting_service,
+    input_assist_service,
 )
 
 
@@ -48,6 +49,10 @@ class SendResult:
     assistant_block: MessageBlock
     context_items: list[context_service.ContextItem]
     title_generated: bool
+    selected_model: str
+    web_search_enabled: bool
+    attachments: list
+    search_sources: list
 
 
 def send_message(
@@ -57,6 +62,9 @@ def send_message(
     branch: Branch,
     user_prompt: str,
     context_block_ids: list[uuid.UUID] | None = None,
+    selected_model_id: str | None = None,
+    web_search_enabled: bool = False,
+    attachment_ids: list[uuid.UUID] | None = None,
     answerer=None,
     titler=None,
 ) -> SendResult:
@@ -67,6 +75,13 @@ def send_message(
     prompt = (user_prompt or "").strip()
     if not prompt:
         raise ValidationError("질문을 입력해주세요.")
+
+    attachments = input_assist_service.get_attachments_for_message(
+        db, user, chat, attachment_ids or []
+    )
+    model = input_assist_service.validate_options(
+        selected_model_id, web_search_enabled, bool(attachments)
+    )
 
     # 키가 없으면 질문을 저장하기 전에 막는다(BE-USERSET-006).
     api_key = user_setting_service.require_api_key(db, user)
@@ -86,14 +101,16 @@ def send_message(
     if context_items:
         prior_flow = []
 
-    user_block = message_service.create_block(
-        db, chat, branch, MessageRole.USER, prompt
-    )
+    user_block = message_service.create_block(db, chat, branch, MessageRole.USER, prompt, commit=False)
     context_service.save_log(db, chat, branch, user_block.id, context_items)
+    input_assist_service.attach_to_message(db, user_block, attachments)
     db.commit()
 
     try:
-        answer = _generate(prompt, prior_flow, context_items, api_key, answerer)
+        answer, search_sources = _generate(
+            prompt, prior_flow, context_items, api_key, model.model_id,
+            web_search_enabled, input_assist_service.to_modeling_attachments(attachments), answerer,
+        )
     except Exception as exc:
         # 질문은 남겨 둔다. 지워 버리면 사용자가 다시 입력해야 한다.
         db.commit()
@@ -112,6 +129,10 @@ def send_message(
         assistant_block=assistant_block,
         context_items=context_items,
         title_generated=title_generated,
+        selected_model=model.model_id,
+        web_search_enabled=web_search_enabled,
+        attachments=attachments,
+        search_sources=search_sources,
     )
 
 
@@ -153,7 +174,7 @@ def regenerate(
     history = preceding[:last_user_index]
 
     try:
-        answer = _generate(prompt, history, [], api_key, answerer)
+        answer, _ = _generate(prompt, history, [], api_key, answerer=answerer)
     except Exception as exc:
         raise AiResponseFailedError() from exc
 
@@ -223,8 +244,11 @@ def _generate(
     flow: list[message_service.ActiveTurn],
     context_items: list[context_service.ContextItem],
     api_key: str,
+    model_id: str | None = None,
+    web_search_enabled: bool = False,
+    attachments=None,
     answerer=None,
-) -> str:
+) -> tuple[str, list]:
     from modeling import generate_answer
     from modeling.types import AnswerRequest, ChatTurn
 
@@ -233,6 +257,9 @@ def _generate(
         user_prompt=prompt,
         message_flow=[ChatTurn(role=t.role.value, content=t.content) for t in flow],
         applied_context=[item.content for item in context_items],
+        model_id=model_id,
+        web_search_enabled=web_search_enabled,
+        attachments=attachments or [],
     )
     # 모델링은 답변 본문과 검색 근거를 함께 돌려준다. 근거 저장은 아직 없어
     # 본문만 쓴다. 테스트가 문자열을 돌려주는 가짜 함수를 넣는 경우도 받는다.
@@ -240,7 +267,7 @@ def _generate(
     answer = (getattr(result, "text", result) or "").strip()
     if not answer:
         raise ValueError("답변이 비어 있습니다.")
-    return answer
+    return answer, list(getattr(result, "search_sources", []) or [])
 
 
 def _try_generate_title(
