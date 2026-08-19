@@ -689,6 +689,13 @@ body.resizing { cursor:col-resize !important; user-select:none !important; }
 .rt-reject:hover { background:var(--bg4); color:var(--txt1); }
 .rt-reject.active { background:rgba(255,107,107,.12); color:var(--red); border-color:rgba(255,107,107,.35); }
 
+/* 거절 확정 표시 (승인·거절 버튼 대신 표시) */
+.rt-status-txt {
+  padding:4px 12px; border-radius:7px; font-size:11.5px; font-weight:600;
+  background:rgba(255,107,107,.12); color:var(--red);
+  border:1px solid rgba(255,107,107,.35); flex-shrink:0;
+}
+
 /* 블록 좌측 상태선 */
 .msg-block.inline-approved { border-left-color:var(--green) !important; }
 .msg-block.inline-rejected  { border-left-color:rgba(255,107,107,.6) !important; }
@@ -1410,7 +1417,7 @@ function renderBlockRefinePreview() {
   var list = document.getElementById('brf-list');
   if (!list) return;
 
-  var pendingCount = blockRefineResults.filter(function(r) { return r.status !== 'approved'; }).length;
+  var pendingCount = blockRefineResults.filter(function(r) { return r.status === 'pending'; }).length;
   var allApproveBtn = document.querySelector('.brf-all-approve');
   var allRejectBtn  = document.querySelector('.brf-all-reject');
   if (allApproveBtn) allApproveBtn.style.display = pendingCount > 0 ? '' : 'none';
@@ -1419,8 +1426,6 @@ function renderBlockRefinePreview() {
   list.innerHTML = blockRefineResults.filter(function(r) { return r.status !== 'approved'; }).map(function(r) {
     var statusLabel = { pending:'대기', rejected:'거절됨' }[r.status];
     var roleLabel   = r.role === 'user' ? 'User' : 'AI';
-    var approveActive = r.status === 'approved' ? 'active' : '';
-    var rejectActive  = r.status === 'rejected'  ? 'active' : '';
 
     var tmp = document.createElement('div');
     tmp.innerHTML = r.originalContent;
@@ -1430,11 +1435,16 @@ function renderBlockRefinePreview() {
     tmp2.innerHTML = r.refinedContent;
     var refText = (tmp2.innerText || tmp2.textContent || '').trim().slice(0, 160);
 
+    // 승인·거절은 대기 상태에서만 가능하므로 대기 항목에만 버튼을 렌더링한다
+    var decideBtns = r.status === 'pending'
+      ? '<button class="brf-approve-btn" onclick="approveBlockRefine(\'' + r.blockId + '\')">'
+        +   '<i data-lucide="check"></i> 승인</button>'
+        + '<button class="brf-reject-btn" onclick="rejectBlockRefine(\'' + r.blockId + '\')">'
+        +   '<i data-lucide="x"></i> 거절</button>'
+      : '';
+
     var btnsHtml = '<div class="brf-btns">'
-      + '<button class="brf-approve-btn ' + approveActive + '" onclick="approveBlockRefine(\'' + r.blockId + '\')">'
-      +   '<i data-lucide="check"></i> 승인</button>'
-      + '<button class="brf-reject-btn ' + rejectActive + '" onclick="rejectBlockRefine(\'' + r.blockId + '\')">'
-      +   '<i data-lucide="x"></i> 거절</button>'
+      + decideBtns
       + '<button class="brf-jump-btn" onclick="jumpToContext(null,\'' + r.blockId + '\')">'
       +   '<i data-lucide="arrow-right"></i> 원본 위치</button>'
       + '</div>';
@@ -1528,10 +1538,16 @@ function renderInlineDiffs() {
     else                              blockEl.classList.add('inline-pending');
 
     // 툴바 생성
-    var approveActive = r.status === 'approved' ? 'active' : '';
-    var rejectActive  = r.status === 'rejected'  ? 'active' : '';
     var refinedActive  = viewing === 'refined'  ? 'active refined'  : '';
     var originalActive = viewing === 'original' ? 'active original' : '';
+
+    // 승인·거절은 대기 상태에서만 가능하므로 대기 항목에만 버튼을 렌더링한다
+    var decideBtns = r.status === 'pending'
+      ? '<button class="rt-approve" onclick="inlineApprove(\'' + r.blockId + '\')">'
+        +   '<i data-lucide="check"></i> 승인</button>'
+        + '<button class="rt-reject" onclick="inlineReject(\'' + r.blockId + '\')">'
+        +   '<i data-lucide="x"></i> 거절</button>'
+      : '<span class="rt-status-txt">거절됨</span>';
 
     var toolbar = document.createElement('div');
     toolbar.className = 'refine-toolbar';
@@ -1543,10 +1559,7 @@ function renderInlineDiffs() {
       +   '<button class="rt-toggle-btn ' + originalActive + '" onclick="rtToggleView(\'' + r.blockId + '\',\'original\')">원본</button>'
       + '</div>'
       + '<span class="rt-spacer"></span>'
-      + '<button class="rt-approve ' + approveActive + '" onclick="inlineApprove(\'' + r.blockId + '\')">'
-      +   '<i data-lucide="check"></i> 승인</button>'
-      + '<button class="rt-reject ' + rejectActive + '" onclick="inlineReject(\'' + r.blockId + '\')">'
-      +   '<i data-lucide="x"></i> 거절</button>';
+      + decideBtns;
 
     // blk-footer 바로 앞에 삽입
     var blkBody   = blockEl.querySelector('.blk-body');
@@ -1612,116 +1625,85 @@ function _applyBlockNow(r) {
   }
 }
 
-function _revertBlockNow(r) {
-  var n = r.blockId.replace(/\D/g, '');
-  var bc = document.getElementById('bc' + n);
-  if (!bc) return;
-  if (BLOCK_VERSIONS[r.blockId] && BLOCK_VERSIONS[r.blockId].length > 1) {
-    BLOCK_VERSIONS[r.blockId].pop();
-    BLOCK_CUR_VER[r.blockId] = BLOCK_VERSIONS[r.blockId].length - 1;
-  }
-  bc.innerHTML = r.originalContent;
-  ic(bc);
-  updateVerNav(r.blockId);
-  // renderInlineDiffs가 다시 미리보기를 설정할 수 있도록 viewState 초기화
-  inlineViewState[r.blockId] = 'refined';
-}
-
 // ── 인라인 승인/거절 ─────────────────────────────────────────────
+// 승인은 대기 상태에서만 가능하다. 승인 후 되돌리기는 블록 버전 이동으로 처리한다
 function inlineApprove(blockId) {
   var r = blockRefineResults.find(function(x) { return x.blockId === blockId; });
-  if (!r) return;
-  var wasApproved = r.status === 'approved';
-  if (wasApproved) {
-    r.status = 'pending';
-    _revertBlockNow(r);
-    toast(blockId + ' 승인 취소됨', 'info');
-  } else {
-    r.status = 'approved';
-    _applyBlockNow(r);
-    toast(blockId + ' 승인 및 적용됨', 'ok');
-  }
+  if (!r || r.status !== 'pending') return;
+  r.status = 'approved';
+  _applyBlockNow(r);
+  toast(blockId + ' 승인 및 적용됨', 'ok');
   renderBlockRefinePreview();
 }
 
+// 거절도 대기 상태에서만 가능하다. 거절한 항목은 다시 정제를 실행해야 한다
 function inlineReject(blockId) {
   var r = blockRefineResults.find(function(x) { return x.blockId === blockId; });
-  if (!r) return;
-  var wasRejected = r.status === 'rejected';
-  r.status = wasRejected ? 'pending' : 'rejected';
+  if (!r || r.status !== 'pending') return;
+  r.status = 'rejected';
   renderBlockRefinePreview();
-  toast(wasRejected ? blockId + ' 거절 취소됨' : blockId + ' 거절됨', wasRejected ? 'info' : 'warn');
+  toast(blockId + ' 거절됨', 'warn');
 }
 
 // ── 개별 승인/거절 (사이드 패널용) ───────────────────────────────
 function approveBlockRefine(blockId) {
   var r = blockRefineResults.find(function(x) { return x.blockId === blockId; });
-  if (!r) return;
-  var wasApproved = r.status === 'approved';
-  if (wasApproved) {
-    r.status = 'pending';
-    _revertBlockNow(r);
-    toast(blockId + ' 승인 취소됨', 'info');
-    renderBlockRefinePreview();
+  if (!r || r.status !== 'pending') return;
+  r.status = 'approved';
+  _applyBlockNow(r);
+  toast(blockId + ' 승인 및 적용됨', 'ok');
+  var el = document.getElementById('brf-item-' + blockId);
+  if (el) {
+    el.classList.add('slide-out');
+    setTimeout(function() { renderBlockRefinePreview(); }, 330);
   } else {
-    r.status = 'approved';
-    _applyBlockNow(r);
-    toast(blockId + ' 승인 및 적용됨', 'ok');
-    var el = document.getElementById('brf-item-' + blockId);
-    if (el) {
-      el.classList.add('slide-out');
-      setTimeout(function() { renderBlockRefinePreview(); }, 330);
-    } else {
-      renderBlockRefinePreview();
-    }
+    renderBlockRefinePreview();
   }
 }
 
 function rejectBlockRefine(blockId) {
   var r = blockRefineResults.find(function(x) { return x.blockId === blockId; });
-  if (!r) return;
-  var wasRejected = r.status === 'rejected';
-  r.status = wasRejected ? 'pending' : 'rejected';
+  if (!r || r.status !== 'pending') return;
+  r.status = 'rejected';
   renderBlockRefinePreview();
-  toast(wasRejected ? blockId + ' 거절 취소됨' : blockId + ' 거절됨', wasRejected ? 'info' : 'warn');
+  toast(blockId + ' 거절됨', 'warn');
 }
 
 // ── 전체 승인/거절 ────────────────────────────────────────────────
+// 전체 승인은 대기 항목만 대상으로 한다. 이미 거절한 항목은 건드리지 않는다
 function approveAllBlockRefines() {
-  var total = blockRefineResults.length;
-  blockRefineResults.forEach(function(r) {
-    if (r.status !== 'approved') {
-      r.status = 'approved';
-      _applyBlockNow(r);
-    }
-  });
-  toast('전체 ' + total + '개 블록 승인 및 적용됨', 'ok');
+  var targets = blockRefineResults.filter(function(r) { return r.status === 'pending'; });
+  if (targets.length === 0) return;
 
-  // 아이템 순차 슬라이드 아웃
-  var items = document.querySelectorAll('#brf-list .brf-item');
+  targets.forEach(function(r) {
+    r.status = 'approved';
+    _applyBlockNow(r);
+  });
+  toast('대기 중이던 ' + targets.length + '개 블록 승인 및 적용됨', 'ok');
+
+  // 승인된 항목만 순차 슬라이드 아웃
   var stagger = 55;
+  var items = targets.map(function(r) {
+    return document.getElementById('brf-item-' + r.blockId);
+  }).filter(Boolean);
   items.forEach(function(el, i) {
     setTimeout(function() { el.classList.add('slide-out'); }, i * stagger);
   });
 
-  // 아이템 애니메이션 종료 후 카드 전체 페이드 아웃
-  var card = document.getElementById('block-refine-card');
-  var cardDelay = items.length * stagger + 330;
+  // 애니메이션 종료 후 다시 렌더. 남은 거절 항목이 없으면 renderBlockRefinePreview가 카드를 닫는다
   setTimeout(function() {
-    if (!card) return;
-    card.classList.add('brf-card-out');
-    setTimeout(function() {
-      card.style.display = 'none';
-      card.classList.remove('brf-card-out');
-      blockRefineResults = [];
-    }, 290);
-  }, cardDelay);
+    renderBlockRefinePreview();
+  }, items.length * stagger + 330);
 }
 
+// 전체 거절도 대기 항목만 대상으로 한다
 function rejectAllBlockRefines() {
-  blockRefineResults.forEach(function(r) { r.status = 'rejected'; });
+  var targets = blockRefineResults.filter(function(r) { return r.status === 'pending'; });
+  if (targets.length === 0) return;
+
+  targets.forEach(function(r) { r.status = 'rejected'; });
   renderBlockRefinePreview();
-  toast('전체 ' + blockRefineResults.length + '개 블록 거절됨', 'warn');
+  toast('대기 중이던 ' + targets.length + '개 블록 거절됨', 'warn');
 }
 
 // ── 취소 (미리보기 초기화) ─────────────────────────────────────────
@@ -2570,6 +2552,7 @@ window.addEventListener('DOMContentLoaded', () => {
 // ─── Settings Feature JS ────────────────────────────────
 // ═══════════════════════════════════════════════════════════
 
+const LS_AUTH = 'fk_auth';
 const LS_USER = 'fk_user_info';
 const LS_API  = 'fk_api_key';
 const LS_FB   = 'fk_feedbacks';
@@ -2806,6 +2789,7 @@ function initGoogleAuth() {
 }
 
 function mockGoogleLogin() {
+  localStorage.setItem(LS_AUTH, JSON.stringify(MOCK_USER));
   document.getElementById('login-screen').style.display = 'none';
   refreshProfileUI();
   toast(`${MOCK_USER.name}님, 환영합니다!`, 'ok');
