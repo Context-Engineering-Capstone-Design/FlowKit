@@ -3,11 +3,13 @@ import {
   KeyRound,
   LogOut,
   UserRound,
+  MessageSquare,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useChatStore } from '@/store/chatStore'
+import { FeedbackModal } from '@/components/FeedbackModal'
 
 // 프로필 메뉴 — 현재 사용자 정보와 계정·API 키·로그아웃 동작을 연결한다
 export function ProfileMenu() {
@@ -17,6 +19,7 @@ export function ProfileMenu() {
   const openApiKey = useSettingsStore((state) => state.openApiKey)
   const resetSession = useChatStore((state) => state.resetSession)
   const [isOpen, setIsOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const holderRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -46,7 +49,7 @@ export function ProfileMenu() {
   }
 
   return (
-    <div ref={holderRef} className="relative border-t border-line">
+    <><div ref={holderRef} className="relative border-t border-line">
       {isOpen && (
         <div className="absolute bottom-full left-2 right-2 z-40 mb-2 overflow-hidden rounded-xl border border-line bg-bg-2 p-1.5 shadow-2xl shadow-black/40">
           <div className="border-b border-line px-2.5 py-2.5">
@@ -60,6 +63,7 @@ export function ProfileMenu() {
             label="사용자 정보"
             onClick={() => run(openProfile)}
           />
+          <MenuButton icon={<MessageSquare className="h-3.5 w-3.5" />} label="피드백 남기기" onClick={() => run(() => setFeedbackOpen(true))} />
           <MenuButton
             icon={<KeyRound className="h-3.5 w-3.5" />}
             label="API 키 관리"
@@ -107,7 +111,7 @@ export function ProfileMenu() {
           }`}
         />
       </button>
-    </div>
+    </div>{feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}</>
   )
 }
 
