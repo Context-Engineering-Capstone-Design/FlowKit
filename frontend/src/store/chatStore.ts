@@ -63,6 +63,7 @@ interface ChatState {
   /** 패널을 닫았다 열어도 유지되는 Context 정제 지시문. */
   contextInstruction: string
   contextInstructionFocusSignal: number
+  contextPanelSignal: number
   branchDraft: { baseBlockId: string; editedBaseContent?: string } | null
 
   loadChats: (keyword?: string) => Promise<void>
@@ -115,6 +116,7 @@ interface ChatState {
   focusContextInstruction: () => void
   openBranchModal: (baseBlockId: string, editedBaseContent?: string) => void
   closeBranchModal: () => void
+  openContextEditor: (blockId: string) => void
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -151,6 +153,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   failedJobsByBlockId: {},
   contextInstruction: '',
   contextInstructionFocusSignal: 0,
+  contextPanelSignal: 0,
   branchDraft: null,
 
   async loadChats(keyword) {
@@ -228,6 +231,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       failedJobsByBlockId: {},
       contextInstruction: '',
       contextInstructionFocusSignal: 0,
+      contextPanelSignal: 0,
       branchDraft: null,
     })
   },
@@ -257,6 +261,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   focusContextInstruction() { set((s) => ({ contextInstructionFocusSignal: s.contextInstructionFocusSignal + 1 })) },
   openBranchModal(baseBlockId, editedBaseContent) { set({ branchDraft: { baseBlockId, editedBaseContent } }) },
   closeBranchModal() { set({ branchDraft: null }) },
+  openContextEditor(blockId) {
+    set((s) => ({
+      selectedBlockIds: s.selectedBlockIds.includes(blockId)
+        ? s.selectedBlockIds
+        : [...s.selectedBlockIds, blockId],
+      contextPanelSignal: s.contextPanelSignal + 1,
+      contextInstructionFocusSignal: s.contextInstructionFocusSignal + 1,
+    }))
+  },
 
   setSelectedModel(modelId) {
     const model = get().models.find((item) => item.modelId === modelId)

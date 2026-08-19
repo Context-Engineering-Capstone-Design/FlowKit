@@ -25,6 +25,7 @@ export function MessageBlockItem({ block, refine }: Props) {
   const loadVersions = useChatStore((s) => s.loadVersions)
   const setActiveVersion = useChatStore((s) => s.setActiveVersion)
   const openBranchModal = useChatStore((s) => s.openBranchModal)
+  const openContextEditor = useChatStore((s) => s.openContextEditor)
   const view = useChatStore((s) => s.inlineView[block.blockId] ?? 'refined')
   const highlighted = useChatStore(
     (s) => s.highlightedBlockId === block.blockId,
@@ -179,6 +180,7 @@ export function MessageBlockItem({ block, refine }: Props) {
           )}
           <button type="button" onClick={() => void navigator.clipboard?.writeText(block.content)} title="복사" className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"><Copy className="h-3.5 w-3.5" /></button>
           {!editing && <button type="button" onClick={() => { setDraft(block.content); setEditing(true) }} title="수정" className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"><Pencil className="h-3.5 w-3.5" /></button>}
+          <button type="button" onClick={() => openContextEditor(block.blockId)} title="Context 편집 시작" className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1">Context</button>
           <button type="button" onClick={() => openBranchModal(block.blockId)} title="여기서 브랜치 생성" className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1">분기</button>
         </div>
       )}

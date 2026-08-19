@@ -56,12 +56,14 @@ export default function App() {
 // 3단 작업 화면 — 좌측 대화·브랜치, 중앙 채팅, 우측 Context 편집 (NFR-001)
 function Workspace() {
   const [panelOpen, setPanelOpen] = useState(true)
+  const [panelWidth, setPanelWidth] = useState(() => Number(sessionStorage.getItem('flowkit_context_panel_width')) || 310)
   const openDefaultChat = useChatStore((s) => s.openDefaultChat)
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
   const blocks = useChatStore((s) => s.blocks)
   const branchDraft = useChatStore((s) => s.branchDraft)
   const openBranchModal = useChatStore((s) => s.openBranchModal)
   const closeBranchModal = useChatStore((s) => s.closeBranchModal)
+  const contextPanelSignal = useChatStore((s) => s.contextPanelSignal)
 
   useEffect(() => {
     void openDefaultChat()
@@ -72,6 +74,16 @@ function Workspace() {
     if (selectedCount > 0) setPanelOpen(true)
   }, [selectedCount])
 
+  useEffect(() => {
+    if (contextPanelSignal) setPanelOpen(true)
+  }, [contextPanelSignal])
+
+  function resizePanel(clientX: number) {
+    const next = Math.min(480, Math.max(260, window.innerWidth - clientX))
+    setPanelWidth(next)
+    sessionStorage.setItem('flowkit_context_panel_width', String(next))
+  }
+
   return (
     <div className="flex h-full">
       <Sidebar />
@@ -80,7 +92,12 @@ function Workspace() {
         onTogglePanel={() => setPanelOpen((v) => !v)}
         onCreateBranch={() => openBranchModal(blocks.at(-1)?.blockId ?? '')}
       />
-      {panelOpen && <ContextPanel onClose={() => setPanelOpen(false)} />}
+      {panelOpen && <ContextPanel onClose={() => setPanelOpen(false)} width={panelWidth} onResizeStart={() => {
+        function move(event: PointerEvent) { resizePanel(event.clientX) }
+        function end() { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end) }
+        window.addEventListener('pointermove', move)
+        window.addEventListener('pointerup', end)
+      }} />}
       {branchDraft && (
         <BranchModal
           onClose={closeBranchModal}

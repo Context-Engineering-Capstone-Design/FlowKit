@@ -21,10 +21,12 @@ const QUICK_EDITS = [
 
 interface Props {
   onClose: () => void
+  width: number
+  onResizeStart: () => void
 }
 
 // 우측 Context 편집 패널 — 선택한 블록 확인, 편집 지시 입력, 정제 결과 검토
-export function ContextPanel({ onClose }: Props) {
+export function ContextPanel({ onClose, width, onResizeStart }: Props) {
   const blocks = useChatStore((s) => s.blocks)
   const selectedIds = useChatStore((s) => s.selectedBlockIds)
   const refineJob = useChatStore((s) => s.refineJob)
@@ -32,7 +34,8 @@ export function ContextPanel({ onClose }: Props) {
   const selected = blocks.filter((b) => selectedIds.includes(b.blockId))
 
   return (
-    <aside className="flex w-[310px] shrink-0 flex-col overflow-hidden bg-bg-1">
+    <aside style={{ width }} className="relative flex shrink-0 flex-col overflow-hidden bg-bg-1 shadow-2xl max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:w-[min(90vw,380px)]">
+      <div aria-label="Context 패널 너비 조절" onPointerDown={onResizeStart} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize hover:bg-blue lg:block" />
       <header className="flex items-center justify-between px-4 py-3.5">
         <span className="flex items-center gap-2 text-[13px] font-semibold">
           <SlidersHorizontal className="h-3.5 w-3.5 text-txt-2" />
