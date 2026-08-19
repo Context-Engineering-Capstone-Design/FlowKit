@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -29,6 +30,12 @@ from app.models import (
 
 MAX_BRANCH_NAME_LENGTH = 100
 PREVIEW_LENGTH = 80
+
+
+@dataclass(frozen=True)
+class CreateBranchResult:
+    branch: Branch
+    source_context_id: uuid.UUID
 
 # 데이터가 잘못돼 부모 관계가 순환하더라도 무한 재귀로 서버가 죽지 않게 한다
 _MAX_ANCESTOR_DEPTH = 100
@@ -123,7 +130,7 @@ def create_branch(
     base_message_block_id: uuid.UUID,
     context_block_ids: list[uuid.UUID],
     edited_base_content: str | None = None,
-) -> Branch:
+) -> CreateBranchResult:
     """선택 Context 기반 브랜치 생성 (BE-BRANCH-003, 004, 005)."""
     name = (branch_name or "").strip()
     if not name:
@@ -207,7 +214,7 @@ def create_branch(
         chat.last_activity_at = datetime.now(UTC)
         db.commit()
         db.refresh(branch)
-        return branch
+        return CreateBranchResult(branch=branch, source_context_id=source_context.id)
     except Exception:
         db.rollback()
         raise

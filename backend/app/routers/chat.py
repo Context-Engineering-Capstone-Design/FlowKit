@@ -175,7 +175,7 @@ def create_branch(
 ) -> CreateBranchResponse:
     """BE-BRANCH-003, 004, 005: 선택 Context 기반 브랜치 생성."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
-    branch = branch_service.create_branch(
+    result = branch_service.create_branch(
         db,
         user,
         chat,
@@ -185,9 +185,11 @@ def create_branch(
         context_block_ids=payload.context_block_ids,
         edited_base_content=payload.edited_base_content,
     )
+    branch = result.branch
     meta = BranchMeta.of(branch)
     return CreateBranchResponse(
         **meta.model_dump(),
+        source_context_ref_id=result.source_context_id,
         action_meta=ActionMeta(
             action_type="branch_create",
             success_code="BRANCH_CREATED",

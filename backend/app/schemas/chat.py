@@ -68,7 +68,7 @@ class BranchListItem(BranchMeta):
 
 class MessageBlockOut(BaseModel):
     block_id: uuid.UUID = Field(..., serialization_alias="blockId")
-    role: str
+    role: Literal["user", "assistant"]
     content: str
     current_version_id: uuid.UUID | None = Field(
         None, serialization_alias="currentVersionId"
@@ -167,4 +167,7 @@ class CreateBranchRequest(BaseModel):
 
 
 class CreateBranchResponse(BranchMeta):
+    source_context_ref_id: uuid.UUID = Field(
+        ..., serialization_alias="sourceContextRefId"
+    )
     action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")

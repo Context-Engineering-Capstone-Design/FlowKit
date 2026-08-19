@@ -49,6 +49,7 @@ def test_settings_returns_profile_and_empty_key_status(client, auth):
             "email": "setting@example.com",
             "profileImage": None,
             "memo": None,
+            "plan": "free",
         },
         "apiKeyStatus": {
             "hasApiKey": False,

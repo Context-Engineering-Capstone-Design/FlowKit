@@ -27,6 +27,8 @@ class UserProfile(BaseModel):
     email: EmailStr
     profile_image: str | None = Field(None, serialization_alias="profileImage")
     memo: str | None = None
+    # 등급·과금 체계가 아직 없어 모든 사용자에게 고정값을 돌려준다 (BE-AUTH-007).
+    plan: str = "free"
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

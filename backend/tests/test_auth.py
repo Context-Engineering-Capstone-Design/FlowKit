@@ -200,6 +200,7 @@ def test_me_returns_profile(client, stub_google):
     )
     assert res.status_code == 200
     assert res.json()["email"] == GOOGLE_USER.email
+    assert res.json()["plan"] == "free"
 
 
 # ── BE-AUTH-008: 프로필 수정 ────────────────────────────────────────────────
