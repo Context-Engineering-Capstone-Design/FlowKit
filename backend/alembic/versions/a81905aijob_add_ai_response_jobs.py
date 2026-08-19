@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "a81905aijob"
 down_revision: str | None = "a81904addatt"
@@ -15,8 +16,16 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
-    kind = sa.Enum("generate", "regenerate", name="ai_response_job_type")
-    status = sa.Enum("requested", "completed", "failed", name="ai_response_job_status")
+    kind = postgresql.ENUM(
+        "generate", "regenerate", name="ai_response_job_type", create_type=False
+    )
+    status = postgresql.ENUM(
+        "requested",
+        "completed",
+        "failed",
+        name="ai_response_job_status",
+        create_type=False,
+    )
     kind.create(op.get_bind(), checkfirst=True); status.create(op.get_bind(), checkfirst=True)
     op.create_table("ai_response_jobs",
         sa.Column("id", sa.Uuid(), nullable=False), sa.Column("user_id", sa.Uuid(), nullable=False),

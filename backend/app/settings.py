@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     attachment_max_file_size: int = 10 * 1024 * 1024
     attachment_max_per_message: int = 5
     attachment_temporary_hours: int = 24
+
+    # 프로세스별 클라이언트 오류 수집 제한. 운영 프록시의 전역 제한과 함께 사용한다.
+    client_error_rate_limit: int = Field(default=20, ge=1, le=1_000)
+    client_error_rate_window_seconds: int = Field(default=60, ge=1, le=3_600)
+    client_error_stored_message_chars: int = Field(default=500, ge=100, le=2_000)
 
     @field_validator("jwt_secret")
     @classmethod

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
@@ -24,6 +25,13 @@ from app.services import branch_service, message_service, user_setting_service
 
 MAX_INSTRUCTION_LENGTH = 2_000
 MAX_BLOCKS_PER_JOB = 20
+
+
+@dataclass(frozen=True)
+class BulkRefineFailure:
+    resource_id: uuid.UUID
+    error_code: str
+    message: str
 
 
 class RefineJobNotFoundError(AppError):
@@ -248,7 +256,7 @@ def get_result(
 
 def approve_all(
     db: Session, chat: Chat, branch: Branch, job: BlockRefineJob
-) -> tuple[list[BlockRefineResult], list[dict]]:
+) -> tuple[list[BlockRefineResult], list[BulkRefineFailure]]:
     """대기 중인 결과를 한 번에 승인한다 (BE-REFINE-007).
 
     하나가 실패해도 나머지는 반영한다. 실패 항목은 따로 알려 FE가 표시할 수 있게 한다.
@@ -260,13 +268,25 @@ def approve_all(
         try:
             approved.append(approve(db, chat, branch, result))
         except AppError as exc:
-            failed.append({"resultId": str(result.id), "reason": exc.message})
+            db.rollback()
+            failed.append(
+                BulkRefineFailure(result.id, exc.error_code, exc.message)
+            )
+        except Exception:
+            db.rollback()
+            failed.append(
+                BulkRefineFailure(
+                    result.id,
+                    "REFINE_ITEM_FAILED",
+                    "항목을 승인하지 못했습니다.",
+                )
+            )
     return approved, failed
 
 
 def reject_all(
     db: Session, job: BlockRefineJob
-) -> tuple[list[BlockRefineResult], list[dict]]:
+) -> tuple[list[BlockRefineResult], list[BulkRefineFailure]]:
     """대기 중인 결과를 한 번에 거절한다 (BE-REFINE-008)."""
     rejected, failed = [], []
     for result in list_results(db, job):
@@ -275,7 +295,19 @@ def reject_all(
         try:
             rejected.append(reject(db, result))
         except AppError as exc:
-            failed.append({"resultId": str(result.id), "reason": exc.message})
+            db.rollback()
+            failed.append(
+                BulkRefineFailure(result.id, exc.error_code, exc.message)
+            )
+        except Exception:
+            db.rollback()
+            failed.append(
+                BulkRefineFailure(
+                    result.id,
+                    "REFINE_ITEM_FAILED",
+                    "항목을 거절하지 못했습니다.",
+                )
+            )
     return rejected, failed
 
 

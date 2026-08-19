@@ -12,9 +12,9 @@ from typing import Any
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
 
-from app.db import SessionLocal
-from app.models import ErrorLog
+from app.services import error_log_service
 
 
 class AppError(Exception):
@@ -71,6 +71,12 @@ class ValidationError(AppError):
     status_code = 400
     error_code = "VALIDATION_ERROR"
     message = "입력값이 올바르지 않습니다."
+
+
+class ClientErrorRateLimitExceededError(AppError):
+    status_code = 429
+    error_code = "CLIENT_ERROR_RATE_LIMITED"
+    message = "오류 보고 요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
 
 
 class ChatNotFoundError(AppError):
@@ -224,52 +230,95 @@ class AiJobNotRetryableError(AppError):
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
-    response = JSONResponse(
+    trace_id = _trace_id(request)
+    if exc.status_code >= 500:
+        error_log_service.record_server_error(
+            request,
+            trace_id=trace_id,
+            error_code=exc.error_code,
+            message=exc.message,
+            status_code=exc.status_code,
+            exception=exc,
+        )
+    return _error_response(
+        trace_id=trace_id,
         status_code=exc.status_code,
+        error_code=exc.error_code,
+        message=exc.message,
+        detail=exc.detail,
+    )
+
+
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return _error_response(
+        trace_id=_trace_id(request),
+        status_code=422,
+        error_code="VALIDATION_ERROR",
+        message="입력값이 올바르지 않습니다.",
+    )
+
+
+async def http_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    trace_id = _trace_id(request)
+    error_code, message = {
+        404: ("NOT_FOUND", "요청한 경로를 찾을 수 없습니다."),
+        405: ("METHOD_NOT_ALLOWED", "지원하지 않는 요청 방식입니다."),
+    }.get(exc.status_code, ("HTTP_ERROR", "요청을 처리하지 못했습니다."))
+    if exc.status_code >= 500:
+        error_log_service.record_server_error(
+            request,
+            trace_id=trace_id,
+            error_code=error_code,
+            message=message,
+            status_code=exc.status_code,
+            exception=exc,
+        )
+    return _error_response(
+        trace_id=trace_id,
+        status_code=exc.status_code,
+        error_code=error_code,
+        message=message,
+    )
+
+
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    trace_id = _trace_id(request)
+    error_log_service.record_server_error(
+        request,
+        trace_id=trace_id,
+        error_code="INTERNAL_ERROR",
+        message="Unhandled server exception",
+        status_code=500,
+        exception=exc,
+    )
+    return _error_response(
+        trace_id=trace_id,
+        status_code=500,
+        error_code="INTERNAL_ERROR",
+        message="서버 오류가 발생했습니다.",
+    )
+
+
+def _trace_id(request: Request) -> str:
+    return getattr(request.state, "trace_id", str(uuid.uuid4()))
+
+
+def _error_response(
+    *,
+    trace_id: str,
+    status_code: int,
+    error_code: str,
+    message: str,
+    detail: Any = None,
+) -> JSONResponse:
+    response = JSONResponse(
+        status_code=status_code,
         content={
-            "errorCode": exc.error_code,
-            "message": exc.message,
-            "detail": exc.detail,
+            "errorCode": error_code,
+            "message": message,
+            "detail": detail,
             "traceId": trace_id,
         },
     )
     response.headers["X-Trace-Id"] = trace_id
     return response
-
-
-async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
-    response = JSONResponse(status_code=422, content={"errorCode": "VALIDATION_ERROR", "message": "입력값이 올바르지 않습니다.", "detail": None, "traceId": trace_id})
-    response.headers["X-Trace-Id"] = trace_id
-    return response
-
-
-async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
-    _record_unexpected_error(request, trace_id, exc)
-    response = JSONResponse(status_code=500, content={"errorCode": "INTERNAL_ERROR", "message": "서버 오류가 발생했습니다.", "detail": None, "traceId": trace_id})
-    response.headers["X-Trace-Id"] = trace_id
-    return response
-
-
-def _record_unexpected_error(request: Request, trace_id: str, exc: Exception) -> None:
-    """오류 기록 실패가 원래 요청의 오류 응답을 가리지 않게 한다."""
-    try:
-        with SessionLocal() as db:
-            db.add(
-                ErrorLog(
-                    trace_id=trace_id,
-                    user_id=getattr(request.state, "user_id", None),
-                    request_path=request.url.path[:300],
-                    method=request.method,
-                    error_code="INTERNAL_ERROR",
-                    message="Unhandled server exception",
-                    exception_type=type(exc).__name__[:100],
-                    status_code=500,
-                )
-            )
-            db.commit()
-    except Exception:
-        # 관찰성 저장소 자체의 장애는 사용자 응답에 노출하지 않는다.
-        pass

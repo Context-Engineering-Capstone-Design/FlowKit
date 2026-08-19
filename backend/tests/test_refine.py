@@ -308,6 +308,12 @@ def test_approve_all_applies_every_pending_result(client, auth, chat, blocks, fa
 
     assert len(res["processed"]) == 3
     assert res["failed"] == []
+    assert res["actionMeta"] == {
+        "actionType": "bulk_refine_approve",
+        "successCode": "SUCCESS",
+        "message": "3개 정제 결과를 반영했습니다.",
+        "affectedResourceId": job["refineJobId"],
+    }
 
     detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
     assert [b["content"] for b in detail.json()["messageBlocks"]] == [
@@ -342,12 +348,54 @@ def test_reject_all_changes_nothing_in_conversation(client, auth, chat, blocks, 
     ).json()
 
     assert len(res["processed"]) == 3
+    assert res["actionMeta"]["actionType"] == "bulk_refine_reject"
+    assert res["actionMeta"]["successCode"] == "SUCCESS"
     detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
     assert [b["content"] for b in detail.json()["messageBlocks"]] == [
         "원본0",
         "원본1",
         "원본2",
     ]
+
+
+def test_approve_all_returns_safe_formal_failure_and_continues(
+    client, auth, chat, blocks, fake_ai, monkeypatch
+):
+    from app.services import refine_service
+
+    job = run_refine(client, auth, chat, blocks)
+    failed_id = job["results"][0]["resultId"]
+    original_approve = refine_service.approve
+
+    def fail_one(db, current_chat, branch, result):
+        if str(result.id) == failed_id:
+            raise RuntimeError("Bearer internal-secret user@example.com")
+        return original_approve(db, current_chat, branch, result)
+
+    monkeypatch.setattr(refine_service, "approve", fail_one)
+    response = client.post(
+        f"{jobs_url(chat)}/{job['refineJobId']}/approve-all", headers=auth
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["processed"]) == 2
+    assert body["failed"] == [
+        {
+            "resourceId": failed_id,
+            "errorCode": "REFINE_ITEM_FAILED",
+            "message": "항목을 승인하지 못했습니다.",
+            "resultId": failed_id,
+            "reason": "항목을 승인하지 못했습니다.",
+        }
+    ]
+    assert body["actionMeta"] == {
+        "actionType": "bulk_refine_approve",
+        "successCode": "PARTIAL_SUCCESS",
+        "message": "3개 중 2개를 처리했습니다.",
+        "affectedResourceId": job["refineJobId"],
+    }
+    assert "internal-secret" not in response.text
 
 
 # ── BE-REFINE-010: 미승인 정리 ────────────────────────────────────────────

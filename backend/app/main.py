@@ -1,13 +1,30 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException
 
-from app.exceptions import AppError, app_error_handler, unexpected_error_handler, validation_error_handler
-import uuid
-from app.routers import auth, chat, conversation, input_assist, message, observability, refine, user_setting
+from app.exceptions import (
+    AppError,
+    app_error_handler,
+    http_error_handler,
+    unexpected_error_handler,
+    validation_error_handler,
+)
+from app.routers import (
+    auth,
+    chat,
+    conversation,
+    input_assist,
+    message,
+    observability,
+    refine,
+    user_setting,
+)
 from app.settings import get_settings
 
 settings = get_settings()
@@ -24,7 +41,9 @@ app.add_middleware(
 
 app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
+app.add_exception_handler(HTTPException, http_error_handler)
 app.add_exception_handler(Exception, unexpected_error_handler)
+
 
 @app.middleware("http")
 async def trace_request(request: Request, call_next):

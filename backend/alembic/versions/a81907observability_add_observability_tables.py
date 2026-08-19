@@ -10,6 +10,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "a81907observability"
 down_revision: tuple[str, str] = ("a81905aijob", "f5e6a91f7c20")
@@ -18,7 +19,15 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    feedback_type = sa.Enum("error", "usability", "context", "branch", "other", name="feedback_type")
+    feedback_type = postgresql.ENUM(
+        "error",
+        "usability",
+        "context",
+        "branch",
+        "other",
+        name="feedback_type",
+        create_type=False,
+    )
     feedback_type.create(op.get_bind(), checkfirst=True)
     op.create_table(
         "error_logs",

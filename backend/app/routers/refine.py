@@ -8,7 +8,9 @@ from fastapi import APIRouter
 
 from app.deps import CurrentUser, DbSession
 from app.models import BlockRefineJob, BlockRefineResult
+from app.schemas.notification import ActionMeta
 from app.schemas.refine import (
+    BulkRefineFailure,
     BulkRefineResponse,
     CleanupResponse,
     RefineJobResponse,
@@ -50,6 +52,42 @@ def _job_response(db, job: BlockRefineJob) -> RefineJobResponse:
         status=job.status.value,
         instruction_text=job.instruction_text,
         results=[_result_out(r, job) for r in refine_service.list_results(db, job)],
+    )
+
+
+def _bulk_response(
+    *,
+    action_type: str,
+    success_message: str,
+    job: BlockRefineJob,
+    processed: list[BlockRefineResult],
+    failed: list[refine_service.BulkRefineFailure],
+) -> BulkRefineResponse:
+    total = len(processed) + len(failed)
+    if failed:
+        success_code = "PARTIAL_SUCCESS"
+        message = f"{total}개 중 {len(processed)}개를 처리했습니다."
+    else:
+        success_code = "SUCCESS"
+        message = success_message
+    return BulkRefineResponse(
+        processed=[_result_out(result, job) for result in processed],
+        failed=[
+            BulkRefineFailure(
+                resource_id=item.resource_id,
+                error_code=item.error_code,
+                message=item.message,
+                result_id=item.resource_id,
+                reason=item.message,
+            )
+            for item in failed
+        ],
+        action_meta=ActionMeta(
+            action_type=action_type,
+            success_code=success_code,
+            message=message,
+            affected_resource_id=job.id,
+        ),
     )
 
 
@@ -127,8 +165,12 @@ def approve_all(
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     approved, failed = refine_service.approve_all(db, chat, branch, job)
-    return BulkRefineResponse(
-        processed=[_result_out(r, job) for r in approved], failed=failed
+    return _bulk_response(
+        action_type="bulk_refine_approve",
+        success_message=f"{len(approved)}개 정제 결과를 반영했습니다.",
+        job=job,
+        processed=approved,
+        failed=failed,
     )
 
 
@@ -144,8 +186,12 @@ def reject_all(
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     rejected, failed = refine_service.reject_all(db, job)
-    return BulkRefineResponse(
-        processed=[_result_out(r, job) for r in rejected], failed=failed
+    return _bulk_response(
+        action_type="bulk_refine_reject",
+        success_message=f"{len(rejected)}개 정제 결과를 거절했습니다.",
+        job=job,
+        processed=rejected,
+        failed=failed,
     )
 
 

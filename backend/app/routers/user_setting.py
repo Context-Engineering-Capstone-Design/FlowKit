@@ -4,15 +4,15 @@ from fastapi import APIRouter
 
 from app.deps import CurrentUser, DbSession
 from app.schemas.auth import UserProfile
+from app.schemas.notification import ActionMeta
+from app.schemas.service_feedback import FeedbackRequest, FeedbackResponse
 from app.schemas.user_setting import (
     ApiKeyStatus,
     DeleteApiKeyResponse,
     SaveApiKeyRequest,
     UserSettingResponse,
 )
-from app.schemas.service_feedback import FeedbackRequest, FeedbackResponse
-from app.models import FeedbackType, ServiceFeedback
-from app.services import user_setting_service
+from app.services import service_feedback_service, user_setting_service
 
 router = APIRouter(prefix="/api/settings", tags=["UserSetting"])
 
@@ -79,16 +79,19 @@ def check_api_key(
     record = user_setting_service.check_api_key_connection(db, user, provider)
     return _api_key_status(record)
 
+
 @router.post("/feedback", response_model=FeedbackResponse, status_code=201)
-def submit_feedback(payload: FeedbackRequest, user: CurrentUser, db: DbSession) -> FeedbackResponse:
-    content = payload.content.strip()
-    if not content or len(content) > 2000:
-        from app.exceptions import ValidationError
-        raise ValidationError("피드백은 1~2,000자로 입력해주세요.")
-    try: kind = FeedbackType(payload.feedback_type)
-    except ValueError as exc:
-        from app.exceptions import ValidationError
-        raise ValidationError("지원하지 않는 피드백 유형입니다.") from exc
-    item = ServiceFeedback(user_id=user.id, feedback_type=kind, content=content, context_info=payload.context_info)
-    db.add(item); db.commit(); db.refresh(item)
-    return FeedbackResponse(feedback_id=item.id, submitted_at=item.created_at)
+def submit_feedback(
+    payload: FeedbackRequest, user: CurrentUser, db: DbSession
+) -> FeedbackResponse:
+    item = service_feedback_service.submit(db, user, payload)
+    return FeedbackResponse(
+        feedback_id=item.id,
+        submitted_at=item.created_at,
+        action_meta=ActionMeta(
+            action_type="service_feedback_submit",
+            success_code="SERVICE_FEEDBACK_SUBMITTED",
+            message="피드백을 제출했습니다.",
+            affected_resource_id=item.id,
+        ),
+    )

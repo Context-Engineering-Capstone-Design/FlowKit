@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.notification import ActionMeta
+
 
 class RunRefineRequest(BaseModel):
     selected_block_ids: list[uuid.UUID] = Field(..., alias="selectedBlockIds")
@@ -40,11 +42,25 @@ class RefineJobResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class BulkRefineFailure(BaseModel):
+    """내부 예외 대신 리소스와 안전한 오류 코드·문구를 제공한다."""
+
+    resource_id: uuid.UUID = Field(..., serialization_alias="resourceId")
+    error_code: str = Field(..., serialization_alias="errorCode")
+    message: str
+    # 기존 화면 계약을 유지하는 호환 필드다.
+    result_id: uuid.UUID = Field(..., serialization_alias="resultId")
+    reason: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class BulkRefineResponse(BaseModel):
     """일부만 실패할 수 있어 성공·실패를 나눠 돌려준다 (BE-NOTIFY-004)."""
 
     processed: list[RefineResultOut]
-    failed: list[dict]
+    failed: list[BulkRefineFailure]
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 
     model_config = ConfigDict(populate_by_name=True)
 

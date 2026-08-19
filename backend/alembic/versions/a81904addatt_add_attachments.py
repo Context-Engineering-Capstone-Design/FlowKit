@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "a81904addatt"
 down_revision: str | None = "0c50d3ec01f2"
@@ -19,7 +20,13 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    status = sa.Enum("temporary", "attached", "expired", name="attachment_status")
+    status = postgresql.ENUM(
+        "temporary",
+        "attached",
+        "expired",
+        name="attachment_status",
+        create_type=False,
+    )
     status.create(op.get_bind(), checkfirst=True)
     op.create_table(
         "attachments",
