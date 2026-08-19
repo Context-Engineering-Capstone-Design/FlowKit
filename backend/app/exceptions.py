@@ -10,6 +10,7 @@ import uuid
 from typing import Any
 
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -230,5 +231,19 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
             "traceId": trace_id,
         },
     )
+    response.headers["X-Trace-Id"] = trace_id
+    return response
+
+
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
+    response = JSONResponse(status_code=422, content={"errorCode": "VALIDATION_ERROR", "message": "입력값이 올바르지 않습니다.", "detail": None, "traceId": trace_id})
+    response.headers["X-Trace-Id"] = trace_id
+    return response
+
+
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
+    response = JSONResponse(status_code=500, content={"errorCode": "INTERNAL_ERROR", "message": "서버 오류가 발생했습니다.", "detail": None, "traceId": trace_id})
     response.headers["X-Trace-Id"] = trace_id
     return response
