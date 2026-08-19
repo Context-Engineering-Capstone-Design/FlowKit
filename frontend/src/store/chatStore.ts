@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import * as chatApi from '@/api/chat'
-import { errorCode, toErrorMessage } from '@/api/client'
+import { errorCode, errorDetail, toErrorMessage } from '@/api/client'
 import * as convApi from '@/api/conversation'
 import * as inputAssistApi from '@/api/inputAssist'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -15,6 +15,7 @@ import type {
   VersionItem,
   DraftAttachment,
   ModelOption,
+  AiResponseFailureDetail,
 } from '@/types/api'
 
 interface ChatState {
@@ -53,6 +54,8 @@ interface ChatState {
   draftAttachments: DraftAttachment[]
   models: ModelOption[]
   isModelListLoading: boolean
+  pendingByBlockId: Record<string, boolean>
+  failedJobsByBlockId: Record<string, string>
 
   loadChats: (keyword?: string) => Promise<void>
   newChat: () => Promise<void>
@@ -91,6 +94,7 @@ interface ChatState {
   retryAttachment: (localId: string) => Promise<void>
   uploadAttachment: (localId: string) => Promise<void>
   clearDraft: () => void
+  retryAiResponseJob: (jobId: string) => Promise<void>
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -120,6 +124,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   draftAttachments: [],
   models: [],
   isModelListLoading: false,
+  pendingByBlockId: {},
+  failedJobsByBlockId: {},
 
   async loadChats(keyword) {
     try {
@@ -242,6 +248,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         sourceContext: detail.sourceContextInfo,
         // 브랜치가 바뀌면 이전 브랜치의 선택은 의미가 없다
         selectedBlockIds: [],
+        failedJobsByBlockId: {},
         appliedBlockIds: [],
         refineJob: null,
         inlineView: {},
@@ -306,6 +313,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // 같은 맥락에 묶여, 사용자가 의도하지 않은 답이 나온다.
         appliedBlockIds: [],
         selectedBlockIds: [],
+        failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([id]) => id !== res.userBlock.blockId)),
       }))
       get().clearDraft()
       if (res.titleGenerated) await get().loadChats()
@@ -314,8 +322,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ error: null })
       } else {
         // 모델 호출 중 실패했다면 질문은 서버에 남아 있으므로 화면을 다시 맞춘다
-        set({ error: toErrorMessage(e) })
+        const detail = errorDetail<AiResponseFailureDetail>(e)
         await get().openChat(chatId, branchId)
+        set((s) => ({ error: toErrorMessage(e), failedJobsByBlockId: detail?.retryable ? { ...s.failedJobsByBlockId, [detail.userMessageBlockId]: detail.aiResponseJobId } : s.failedJobsByBlockId }))
       }
     } finally {
       set({ isSending: false })
@@ -325,7 +334,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async regenerate(blockId) {
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
-    set({ isSending: true })
+    set((s) => ({ isSending: true, pendingByBlockId: { ...s.pendingByBlockId, [blockId]: true } }))
     try {
       const block = await convApi.regenerate(chatId, branchId, blockId)
       set((s) => ({
@@ -338,8 +347,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (openApiKeyWhenMissing(e)) set({ error: null })
       else set({ error: toErrorMessage(e) })
     } finally {
-      set({ isSending: false })
+      set((s) => { const pendingByBlockId = { ...s.pendingByBlockId }; delete pendingByBlockId[blockId]; return { isSending: false, pendingByBlockId } })
     }
+  },
+
+  async retryAiResponseJob(jobId) {
+    const { chatId, branchId } = get()
+    if (!chatId || !branchId) return
+    set({ isSending: true, error: null })
+    try {
+      const result = await convApi.retryAiResponseJob(chatId, branchId, jobId)
+      set((s) => ({ blocks: [...s.blocks, result.assistantBlock], chatTitle: result.chatTitle,
+        failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([, id]) => id !== jobId)) }))
+      await get().loadChats()
+    } catch (e) { set({ error: toErrorMessage(e) }) }
+    finally { set({ isSending: false }) }
   },
 
   async setFeedback(blockId, rating) {
@@ -574,6 +596,8 @@ function applyDetail(
     error: null,
     draftText: '',
     draftAttachments: [],
+    pendingByBlockId: {},
+    failedJobsByBlockId: {},
   })
 }
 

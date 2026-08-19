@@ -161,6 +161,17 @@ def to_modeling_attachments(attachments: list[Attachment]):
     return converted
 
 
+def get_attached_for_snapshot(db: Session, user: User, chat: Chat, attachment_ids: list[str]) -> list[Attachment]:
+    try:
+        ids = [uuid.UUID(item) for item in attachment_ids]
+    except (TypeError, ValueError) as exc:
+        raise AttachmentReadError() from exc
+    items = [_owned_attachment(db, user, chat, item_id) for item_id in ids]
+    if any(item.status is not AttachmentStatus.ATTACHED for item in items):
+        raise AttachmentReadError("첨부 파일 상태가 올바르지 않습니다.")
+    return items
+
+
 def cleanup_expired(db: Session) -> int:
     now = datetime.now(UTC)
     items = list(db.scalars(select(Attachment).where(

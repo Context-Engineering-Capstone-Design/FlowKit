@@ -195,6 +195,30 @@ class AttachmentReadError(AppError):
     message = "첨부 파일을 읽지 못했습니다."
 
 
+class AiInputSnapshotNotFoundError(AppError):
+    status_code = 404
+    error_code = "AI_INPUT_SNAPSHOT_NOT_FOUND"
+    message = "답변 생성 조건을 찾을 수 없습니다."
+
+
+class AiInputSnapshotIncompleteError(AppError):
+    status_code = 409
+    error_code = "AI_INPUT_SNAPSHOT_INCOMPLETE"
+    message = "답변 생성에 사용한 일부 입력을 복원할 수 없습니다."
+
+
+class AiJobNotFoundError(AppError):
+    status_code = 404
+    error_code = "AI_JOB_NOT_FOUND"
+    message = "AI 작업을 찾을 수 없습니다."
+
+
+class AiJobNotRetryableError(AppError):
+    status_code = 409
+    error_code = "AI_JOB_NOT_RETRYABLE"
+    message = "이 작업은 다시 시도할 수 없습니다."
+
+
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,

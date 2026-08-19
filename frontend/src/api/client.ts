@@ -99,3 +99,8 @@ export function errorCode(error: unknown): string | null {
   }
   return null
 }
+
+export function errorDetail<T>(error: unknown): T | null {
+  if (axios.isAxiosError<ApiError>(error)) return (error.response?.data?.detail as T | undefined) ?? null
+  return null
+}

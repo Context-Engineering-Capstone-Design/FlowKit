@@ -337,7 +337,10 @@ def test_provider_failure_response_does_not_expose_api_key(
     )
 
     assert response.status_code == 502
-    assert response.json()["detail"] is None
+    detail = response.json()["detail"]
+    assert detail["retryable"] is True
+    assert "aiResponseJobId" in detail
+    assert RAW_KEY not in str(detail)
     assert RAW_KEY not in response.text
 
 

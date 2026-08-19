@@ -2,6 +2,7 @@ import { api } from './client'
 import type {
   AiResponseRating,
   BlockResponse,
+  RegenerateResponse,
   BulkRefineResult,
   FeedbackResponse,
   RefineJob,
@@ -28,10 +29,15 @@ export async function regenerate(
   chatId: string,
   branchId: string,
   blockId: string,
-): Promise<BlockResponse> {
-  const { data } = await api.post<BlockResponse>(
+): Promise<RegenerateResponse> {
+  const { data } = await api.post<RegenerateResponse>(
     `/api/chats/${chatId}/branches/${branchId}/blocks/${blockId}/regenerate`,
   )
+  return data
+}
+
+export async function retryAiResponseJob(chatId: string, branchId: string, jobId: string): Promise<SendMessageResponse> {
+  const { data } = await api.post<SendMessageResponse>(`/api/chats/${chatId}/branches/${branchId}/ai-response-jobs/${jobId}/retry`)
   return data
 }
 

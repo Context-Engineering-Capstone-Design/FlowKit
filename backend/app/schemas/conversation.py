@@ -43,6 +43,8 @@ class SendMessageResponse(BaseModel):
     web_search_enabled: bool = Field(..., serialization_alias="webSearchEnabled")
     attachments: list[AttachmentOut]
     search_sources: list[SearchSourceOut] = Field(..., serialization_alias="searchSources")
+    ai_response_job_id: uuid.UUID = Field(..., serialization_alias="aiResponseJobId")
+    job_status: str = Field(..., serialization_alias="jobStatus")
 
     model_config = ConfigDict(populate_by_name=True)
 

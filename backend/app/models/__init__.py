@@ -1,4 +1,5 @@
 from app.models.base import Base
+from app.models.ai_response import AiResponseJob, AiResponseJobStatus, AiResponseJobType
 from app.models.attachment import Attachment, AttachmentStatus, MessageAttachment
 from app.models.chat import (
     Branch,
@@ -27,6 +28,9 @@ from app.models.user_setting import ApiKeyConnectionStatus, UserApiKey
 
 __all__ = [
     "Base",
+    "AiResponseJob",
+    "AiResponseJobStatus",
+    "AiResponseJobType",
     "Attachment",
     "AttachmentStatus",
     "MessageAttachment",

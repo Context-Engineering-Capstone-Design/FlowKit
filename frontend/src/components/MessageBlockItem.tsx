@@ -15,6 +15,9 @@ export function MessageBlockItem({ block, refine }: Props) {
   const applied = useChatStore((s) => s.appliedBlockIds.includes(block.blockId))
   const toggleBlock = useChatStore((s) => s.toggleBlock)
   const regenerate = useChatStore((s) => s.regenerate)
+  const pendingAi = useChatStore((s) => s.pendingByBlockId[block.blockId])
+  const failedJobId = useChatStore((s) => s.failedJobsByBlockId[block.blockId])
+  const retryAiResponseJob = useChatStore((s) => s.retryAiResponseJob)
   const rating = useChatStore((s) => s.ratings[block.blockId])
   const setFeedback = useChatStore((s) => s.setFeedback)
   const versions = useChatStore((s) => s.versionsByBlock[block.blockId])
@@ -104,6 +107,9 @@ export function MessageBlockItem({ block, refine }: Props) {
         <ReactMarkdown>{shown}</ReactMarkdown>
       </div>
 
+      {isUser && failedJobId && <div className="mt-2 flex items-center gap-2 text-[11px] text-red"><span>답변 생성에 실패했습니다.</span><button type="button" onClick={() => void retryAiResponseJob(failedJobId)} className="rounded border border-red/40 px-1.5 py-0.5 hover:bg-red/10">다시 시도</button></div>}
+      {!isUser && pendingAi && <div className="mt-2 text-[11px] text-txt-2">답변을 다시 생성하는 중…</div>}
+
       {pending && <InlineRefineBar result={refine} />}
 
       {!pending && (
@@ -160,8 +166,9 @@ export function MessageBlockItem({ block, refine }: Props) {
               <button
                 type="button"
                 onClick={() => void regenerate(block.blockId)}
+                disabled={pendingAi}
                 title="답변 다시 시도"
-                className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
+                className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1 disabled:opacity-40"
               >
                 <RotateCw className="h-3.5 w-3.5" />
               </button>

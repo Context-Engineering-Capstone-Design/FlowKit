@@ -372,6 +372,37 @@ def test_regenerate_reuses_the_original_question(client, auth, chat, captured):
     assert [t.content for t in request.message_flow] == ["첫 질문", "답변(1)"]
 
 
+def test_regenerate_reuses_context_and_original_snapshot(client, auth, chat, captured):
+    first = send(client, auth, chat, "기준 내용")
+    second = send(client, auth, chat, "Context로 답해줘", [first["assistantBlock"]["blockId"]])
+    client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}"
+        f"/blocks/{second['assistantBlock']['blockId']}/regenerate", headers=auth,
+    )
+    original, regenerated = captured[1], captured[2]
+    assert regenerated.user_prompt == original.user_prompt
+    assert regenerated.applied_context == original.applied_context
+    assert regenerated.message_flow == original.message_flow
+
+
+def test_failed_job_can_retry_without_duplicate_question(client, auth, chat, monkeypatch):
+    import modeling
+    calls = [0]
+    def flaky(_request, **_kwargs):
+        calls[0] += 1
+        if calls[0] == 1:
+            raise RuntimeError("temporary")
+        return "복구 답변"
+    monkeypatch.setattr(modeling, "generate_answer", flaky)
+    failed = client.post(msg_url(chat), json={"userPrompt": "복구할 질문"}, headers=auth)
+    assert failed.status_code == 502
+    job_id = failed.json()["detail"]["aiResponseJobId"]
+    retried = client.post(f"{msg_url(chat).removesuffix('/messages')}/ai-response-jobs/{job_id}/retry", headers=auth)
+    assert retried.status_code == 201
+    detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth).json()
+    assert [block["content"] for block in detail["messageBlocks"]] == ["복구할 질문", "복구 답변"]
+
+
 def test_regenerate_rejects_user_block(client, auth, chat, captured):
     first = send(client, auth, chat, "질문")
 

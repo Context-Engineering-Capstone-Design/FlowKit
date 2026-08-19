@@ -16,6 +16,7 @@ from app.schemas.conversation import (
 )
 from app.schemas.message import BlockResponse
 from app.schemas.input_assist import AttachmentOut, SearchSourceOut
+from app.schemas.ai_response import RegenerateResponse
 from app.services import ai_response_service, branch_service, chat_service
 
 router = APIRouter(
@@ -61,6 +62,8 @@ def send_message(
         web_search_enabled=result.web_search_enabled,
         attachments=[_attachment_out(item) for item in result.attachments],
         search_sources=[SearchSourceOut(title=item.title, url=item.url) for item in result.search_sources],
+        ai_response_job_id=result.job.id,
+        job_status=result.job.status.value,
     )
 
 
@@ -71,18 +74,32 @@ def _attachment_out(item) -> AttachmentOut:
     )
 
 
-@router.post("/blocks/{block_id}/regenerate", response_model=BlockResponse)
+@router.post("/blocks/{block_id}/regenerate", response_model=RegenerateResponse)
 def regenerate(
     chat_id: uuid.UUID,
     branch_id: uuid.UUID,
     block_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
-) -> BlockResponse:
+) -> RegenerateResponse:
     """BE-AIRESP-003: 답변을 다시 생성해 같은 블록의 새 버전으로 추가한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
-    block = ai_response_service.regenerate(db, user, chat, branch, block_id)
-    return BlockResponse.of(block)
+    result = ai_response_service.regenerate(db, user, chat, branch, block_id)
+    return RegenerateResponse(**BlockResponse.of(result.block).model_dump(), ai_response_job_id=result.job.id, job_status=result.job.status.value)
+
+
+@router.post("/ai-response-jobs/{job_id}/retry", response_model=SendMessageResponse, status_code=201)
+def retry_ai_response_job(chat_id: uuid.UUID, branch_id: uuid.UUID, job_id: uuid.UUID, user: CurrentUser, db: DbSession) -> SendMessageResponse:
+    chat, branch = _load(db, user, chat_id, branch_id)
+    result = ai_response_service.retry_failed_job(db, user, chat, branch, job_id)
+    return SendMessageResponse(
+        user_block=BlockResponse.of(result.user_block), assistant_block=BlockResponse.of(result.assistant_block),
+        applied_context=[AppliedContextOut(block_id=i.block_id, version_id=i.version_id, order_index=i.order_index) for i in result.context_items],
+        chat_title=chat.title, title_generated=False, selected_model=result.selected_model,
+        web_search_enabled=result.web_search_enabled, attachments=[_attachment_out(i) for i in result.attachments],
+        search_sources=[SearchSourceOut(title=i.title, url=i.url) for i in result.search_sources],
+        ai_response_job_id=result.job.id, job_status=result.job.status.value,
+    )
 
 
 @router.get("/blocks/{block_id}/feedback", response_model=FeedbackResponse)
