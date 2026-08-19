@@ -143,5 +143,6 @@ class CreateBranchRequest(BaseModel):
     context_block_ids: list[uuid.UUID] = Field(
         default_factory=list, alias="contextBlockIds"
     )
+    edited_base_content: str | None = Field(None, alias="editedBaseContent")
 
     model_config = ConfigDict(populate_by_name=True)

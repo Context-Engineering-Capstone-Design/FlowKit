@@ -184,6 +184,7 @@ function RefinePreview() {
   const approve = useChatStore((s) => s.approveResult)
   const reject = useChatStore((s) => s.rejectResult)
   const approveAll = useChatStore((s) => s.approveAll)
+  const rejectAll = useChatStore((s) => s.rejectAll)
   const closeRefine = useChatStore((s) => s.closeRefine)
 
   // 방금 승인되어 밀려 나가는 중인 항목. 애니메이션이 끝나야 목록에서 완전히 빠진다 (REQ-039)
@@ -322,6 +323,9 @@ function RefinePreview() {
           >
             전체 승인
           </button>
+        )}
+        {pending.length > 0 && (
+          <button type="button" onClick={() => void rejectAll()} className="flex-1 rounded-lg bg-bg-3 py-2 text-[12px] text-txt-1 transition hover:text-txt-0">전체 거절</button>
         )}
         <button
           type="button"

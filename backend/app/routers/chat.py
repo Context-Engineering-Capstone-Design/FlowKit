@@ -143,5 +143,6 @@ def create_branch(
         base_branch_id=payload.base_branch_id,
         base_message_block_id=payload.base_message_block_id,
         context_block_ids=payload.context_block_ids,
+        edited_base_content=payload.edited_base_content,
     )
     return BranchMeta.of(branch)

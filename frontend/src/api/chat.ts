@@ -64,6 +64,7 @@ export async function createBranch(
     baseBranchId: string
     baseMessageBlockId: string
     contextBlockIds: string[]
+    editedBaseContent?: string
   },
 ): Promise<BranchMeta> {
   const { data } = await api.post<BranchMeta>(

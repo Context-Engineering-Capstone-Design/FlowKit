@@ -150,6 +150,11 @@ export async function approveAll(
   return data
 }
 
+export async function rejectAll(chatId: string, branchId: string, jobId: string): Promise<BulkRefineResult> {
+  const { data } = await api.post<BulkRefineResult>(`/api/chats/${chatId}/branches/${branchId}/refine-jobs/${jobId}/reject-all`)
+  return data
+}
+
 export async function cleanupJob(chatId: string, branchId: string, jobId: string) {
   const { data } = await api.post(
     `/api/chats/${chatId}/branches/${branchId}/refine-jobs/${jobId}/cleanup`,

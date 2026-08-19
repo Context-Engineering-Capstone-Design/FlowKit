@@ -68,16 +68,19 @@ interface ChatState {
   setFeedback: (blockId: string, rating: AiResponseRating) => Promise<void>
   loadVersions: (blockId: string) => Promise<void>
   setActiveVersion: (blockId: string, versionId: string) => Promise<void>
+  editBlock: (blockId: string, content: string) => Promise<boolean>
   runRefine: (instruction: string) => Promise<void>
   approveResult: (resultId: string) => Promise<void>
   rejectResult: (resultId: string) => Promise<void>
   approveAll: () => Promise<void>
+  rejectAll: () => Promise<void>
   closeRefine: () => Promise<void>
   setInlineView: (blockId: string, view: 'original' | 'refined') => void
   createBranch: (
     name: string,
     baseBlockId: string,
     contextBlockIds: string[],
+    editedBaseContent?: string,
   ) => Promise<boolean>
   /** Context pill 을 눌렀을 때 원본 블록 위치로 이동한다 (REQ-012) */
   jumpToSource: (item: SourceContextItem) => Promise<void>
@@ -414,6 +417,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  async editBlock(blockId, content) {
+    const { chatId, branchId } = get()
+    if (!chatId || !branchId || !content.trim()) return false
+    try {
+      const block = await convApi.editBlock(chatId, branchId, blockId, content)
+      set((s) => ({ blocks: s.blocks.map((item) => item.blockId === blockId ? { ...item, ...block } : item) }))
+      await get().loadVersions(blockId)
+      return true
+    } catch (e) { set({ error: toErrorMessage(e) }); return false }
+  },
+
   async runRefine(instruction) {
     const { chatId, branchId, selectedBlockIds } = get()
     if (!chatId || !branchId || selectedBlockIds.length === 0) return
@@ -508,6 +522,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  async rejectAll() {
+    const { chatId, branchId, refineJob } = get()
+    if (!chatId || !branchId || !refineJob) return
+    try {
+      const { processed, failed } = await convApi.rejectAll(chatId, branchId, refineJob.refineJobId)
+      const byId = new Map(processed.map((item) => [item.resultId, item]))
+      set((s) => ({ refineJob: s.refineJob && { ...s.refineJob, results: s.refineJob.results.map((item) => byId.get(item.resultId) ?? item) }, error: failed.length ? `${failed.length}개 항목을 거절하지 못했습니다.` : s.error }))
+    } catch (e) { set({ error: toErrorMessage(e) }) }
+  },
+
   async closeRefine() {
     const { chatId, branchId, refineJob } = get()
     if (chatId && branchId && refineJob) {
@@ -521,7 +545,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ refineJob: null, inlineView: {} })
   },
 
-  async createBranch(name, baseBlockId, contextBlockIds) {
+  async createBranch(name, baseBlockId, contextBlockIds, editedBaseContent) {
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return false
 
@@ -532,6 +556,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         baseBranchId: branchId,
         baseMessageBlockId: baseBlockId,
         contextBlockIds,
+        editedBaseContent,
       })
       // 만든 브랜치로 바로 들어간다. 목록만 갱신하면 어디로 갔는지 알기 어렵다
       set({ branches: await chatApi.fetchBranches(chatId) })

@@ -409,3 +409,21 @@ def test_branch_from_other_chat_is_not_found(client, auth, chat, monkeypatch):
     )
     assert res.status_code == 404
     assert res.json()["errorCode"] == "BRANCH_NOT_FOUND"
+
+
+def test_edited_branch_keeps_original_block_unchanged(client, auth, chat_with_blocks):
+    chat, blocks = chat_with_blocks
+    chat_id = chat["chatMeta"]["chatId"]
+    created = client.post(
+        f"/api/chats/{chat_id}/branches",
+        json={
+            "branchName": "수정본 분기", "baseBranchId": chat["branchMeta"]["branchId"],
+            "baseMessageBlockId": str(blocks[1].id), "contextBlockIds": [],
+            "editedBaseContent": "새 브랜치에서만 보이는 수정본",
+        }, headers=auth,
+    )
+    assert created.status_code == 201, created.text
+    main = client.get(f"/api/chats/{chat_id}", headers=auth).json()
+    assert main["messageBlocks"][1]["content"] == "메인 블록 1"
+    child = client.get(f"/api/chats/{chat_id}/branches/{created.json()['branchId']}", headers=auth).json()
+    assert [b["content"] for b in child["messageBlocks"]] == ["메인 블록 0", "새 브랜치에서만 보이는 수정본"]

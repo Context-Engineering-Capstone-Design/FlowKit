@@ -99,7 +99,10 @@ def resolve_blocks(db: Session, branch: Branch) -> list[MessageBlock]:
                 flow = flow + _own_blocks(db, child)
         inherited = flow
 
-    return inherited + _own_blocks(db, branch)
+    own = _own_blocks(db, branch)
+    # 수정본 기반 분기는 같은 순번의 자체 블록으로 상속 블록을 대체한다.
+    own_orders = {block.order_index for block in own}
+    return [block for block in inherited if block.order_index not in own_orders] + own
 
 
 def next_order_index(db: Session, branch: Branch) -> int:
@@ -119,6 +122,7 @@ def create_branch(
     base_branch_id: uuid.UUID,
     base_message_block_id: uuid.UUID,
     context_block_ids: list[uuid.UUID],
+    edited_base_content: str | None = None,
 ) -> Branch:
     """선택 Context 기반 브랜치 생성 (BE-BRANCH-003, 004, 005)."""
     name = (branch_name or "").strip()
@@ -142,6 +146,10 @@ def create_branch(
     if base_message_block_id not in visible:
         raise MessageBlockNotFoundError("분기 지점 메시지를 찾을 수 없습니다.")
 
+    edited = (edited_base_content or "").strip()
+    if len(edited) > 100_000:
+        raise ValidationError("수정한 내용이 너무 깁니다.")
+
     missing = [str(cid) for cid in context_block_ids if cid not in visible]
     if missing:
         raise MessageBlockNotFoundError(
@@ -157,6 +165,17 @@ def create_branch(
     )
     db.add(branch)
     db.flush()
+
+    if edited:
+        from app.models import MessageBlockVersion, VersionSourceType
+        base = visible[base_message_block_id]
+        copy = MessageBlock(chat_id=chat.id, branch_id=branch.id, role=base.role, order_index=base.order_index)
+        db.add(copy)
+        db.flush()
+        version = MessageBlockVersion(block_id=copy.id, version_no=1, content=edited, source_type=VersionSourceType.USER_EDIT)
+        db.add(version)
+        db.flush()
+        copy.current_version_id = version.id
 
     source_context = BranchSourceContext(
         branch_id=branch.id, source_branch_id=base_branch.id

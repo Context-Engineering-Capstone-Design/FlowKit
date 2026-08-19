@@ -12,10 +12,12 @@ const NAME_SUGGESTIONS = [
 
 interface Props {
   onClose: () => void
+  initialBaseBlockId?: string
+  editedBaseContent?: string
 }
 
 // 브랜치 생성 모달 — 이름, 분기 지점, 포함할 Context 블록을 정한다 (REQ-009, REQ-010)
-export function BranchModal({ onClose }: Props) {
+export function BranchModal({ onClose, initialBaseBlockId, editedBaseContent }: Props) {
   const blocks = useChatStore((s) => s.blocks)
   const selectedBlockIds = useChatStore((s) => s.selectedBlockIds)
   const createBranch = useChatStore((s) => s.createBranch)
@@ -24,7 +26,7 @@ export function BranchModal({ onClose }: Props) {
   const [name, setName] = useState('')
   // 분기 지점 기본값은 마지막 블록 — 지금까지의 대화를 모두 이어받는다
   const [baseBlockId, setBaseBlockId] = useState(
-    blocks.at(-1)?.blockId ?? '',
+    initialBaseBlockId ?? blocks.at(-1)?.blockId ?? '',
   )
   const [contextIds, setContextIds] = useState<string[]>(selectedBlockIds)
 
@@ -46,7 +48,7 @@ export function BranchModal({ onClose }: Props) {
     const valid = contextIds.filter((id) =>
       selectable.some((b) => b.blockId === id),
     )
-    const ok = await createBranch(name, baseBlockId, valid)
+    const ok = await createBranch(name, baseBlockId, valid, editedBaseContent)
     if (ok) onClose()
   }
 
