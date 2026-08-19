@@ -80,6 +80,7 @@ test -f .env || cp .env.example .env
 | `DATABASE_URL` | PostgreSQL 연결 주소 |
 | `REDIS_URL` | Redis 연결 주소. 현재 기능에서는 사용하지 않음 |
 | `GOOGLE_CLIENT_ID` | Google 로그인 토큰 검증 |
+| `DEV_LOGIN_ENABLED` | Cursor 내장 브라우저용 로컬 로그인. 기본값 `false` |
 | `JWT_SECRET` | 로그인 토큰 서명. 32자 이상 사용 |
 | `API_KEY_ENCRYPTION_KEY` | 사용자가 등록한 Gemini 키 암호화 |
 
@@ -130,6 +131,7 @@ test -f .env || cp .env.example .env
 ```env
 VITE_API_BASE_URL=http://127.0.0.1:8000
 VITE_GOOGLE_CLIENT_ID=
+VITE_DEV_LOGIN_ENABLED=false
 ```
 
 Google 로그인을 사용하려면 `VITE_GOOGLE_CLIENT_ID`와 백엔드의 `GOOGLE_CLIENT_ID`에 같은 OAuth 클라이언트 ID를 넣는다.
@@ -142,6 +144,26 @@ npm run dev
 ```
 
 브라우저에서 `http://localhost:5173`을 연다.
+
+### Cursor 내부 브라우저에서 로그인
+
+Google OAuth는 임베디드 브라우저에서 제한될 수 있다. Cursor 내부 브라우저로 로컬 화면을 검증할 때만 다음 값을 각각 설정한다.
+
+`backend/.env`:
+
+```env
+DEV_LOGIN_ENABLED=true
+```
+
+`frontend/.env`:
+
+```env
+VITE_DEV_LOGIN_ENABLED=true
+```
+
+두 서버를 다시 실행하면 로그인 화면에 `로컬 개발 로그인` 버튼이 표시된다. 백엔드는 해당 기능이 켜져 있어도 로컬 주소에서 들어온 요청만 허용한다.
+
+이 설정은 Google 인증을 검증하지 않는 개발용 우회 기능이다. 배포 환경에서는 두 값을 넣지 않거나 반드시 `false`로 둔다.
 
 ## 5. AI 모델링만 단독 검증
 
