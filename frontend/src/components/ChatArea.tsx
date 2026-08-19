@@ -126,6 +126,12 @@ function Composer() {
   const appliedCount = useChatStore((s) => s.appliedBlockIds.length)
   const clearApplied = useChatStore((s) => s.clearAppliedContext)
   const sendMessage = useChatStore((s) => s.sendMessage)
+  const focusSignal = useChatStore((s) => s.focusSignal)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    textareaRef.current?.focus()
+  }, [focusSignal])
 
   const disabled = !chatId || isSending || !text.trim()
 
@@ -133,6 +139,7 @@ function Composer() {
     if (disabled) return
     const prompt = text
     setText('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
     await sendMessage(prompt)
   }
 
@@ -149,8 +156,14 @@ function Composer() {
 
       <div className="rounded-2xl bg-bg-2 p-3">
         <textarea
+          ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value)
+            const ta = e.target
+            ta.style.height = 'auto'
+            ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()

@@ -2,8 +2,10 @@ import { api } from './client'
 import type {
   AiResponseRating,
   BlockResponse,
+  BulkRefineResult,
   FeedbackResponse,
   RefineJob,
+  RefineResultItem,
   SendMessageResponse,
   VersionItem,
 } from '@/types/api'
@@ -111,8 +113,8 @@ export async function approveResult(
   branchId: string,
   jobId: string,
   resultId: string,
-) {
-  const { data } = await api.post(
+): Promise<RefineResultItem> {
+  const { data } = await api.post<RefineResultItem>(
     `/api/chats/${chatId}/branches/${branchId}/refine-jobs/${jobId}/results/${resultId}/approve`,
   )
   return data
@@ -123,15 +125,19 @@ export async function rejectResult(
   branchId: string,
   jobId: string,
   resultId: string,
-) {
-  const { data } = await api.post(
+): Promise<RefineResultItem> {
+  const { data } = await api.post<RefineResultItem>(
     `/api/chats/${chatId}/branches/${branchId}/refine-jobs/${jobId}/results/${resultId}/reject`,
   )
   return data
 }
 
-export async function approveAll(chatId: string, branchId: string, jobId: string) {
-  const { data } = await api.post(
+export async function approveAll(
+  chatId: string,
+  branchId: string,
+  jobId: string,
+): Promise<BulkRefineResult> {
+  const { data } = await api.post<BulkRefineResult>(
     `/api/chats/${chatId}/branches/${branchId}/refine-jobs/${jobId}/approve-all`,
   )
   return data

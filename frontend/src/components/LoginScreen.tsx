@@ -44,10 +44,6 @@ export function LoginScreen() {
         <GoogleLoginButton />
 
         {error && <p className="mt-3 text-[12px] text-red">{error}</p>}
-
-        <p className="mt-4 text-[11px] text-txt-3">
-          계정 정보는 이 기기에만 저장됩니다
-        </p>
       </div>
     </div>
   )

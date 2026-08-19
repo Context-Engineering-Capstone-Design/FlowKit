@@ -1,8 +1,8 @@
 import { Check, ChevronLeft, ChevronRight, RotateCw, ThumbsDown, ThumbsUp, X } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useChatStore } from '@/store/chatStore'
-import type { MessageBlock, RefineResultItem } from '@/types/api'
+import type { MessageBlock, RefineResultItem, RefineStatus } from '@/types/api'
 
 interface Props {
   block: MessageBlock
@@ -27,24 +27,46 @@ export function MessageBlockItem({ block, refine }: Props) {
 
   const isUser = block.role === 'user'
   const pending = refine?.status === 'pending'
+  const rejected = refine?.status === 'rejected'
   const shown = pending && view === 'refined' ? refine.refinedContent : block.content
   const currentVersionIndex = versions?.findIndex((version) => version.isCurrent) ?? -1
+  const time = new Date(block.createdAt).toLocaleTimeString('ko', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 
   useEffect(() => {
-    if (!isUser && (block.versionNo ?? 0) > 1 && !versions) {
+    if ((block.versionNo ?? 0) > 1 && !versions) {
       void loadVersions(block.blockId)
     }
-  }, [block.blockId, block.versionNo, isUser, loadVersions, versions])
+  }, [block.blockId, block.versionNo, loadVersions, versions])
+
+  // 정제 결과가 대기 → 승인으로 바뀐 순간 잠깐 강조한다 (FE-REFINE-005)
+  const [flash, setFlash] = useState(false)
+  const prevRefineStatus = useRef<RefineStatus | undefined>(refine?.status)
+  useEffect(() => {
+    const was = prevRefineStatus.current
+    prevRefineStatus.current = refine?.status
+    if (was === 'pending' && refine?.status === 'approved') {
+      setFlash(true)
+      const timer = setTimeout(() => setFlash(false), 900)
+      return () => clearTimeout(timer)
+    }
+  }, [refine?.status])
 
   return (
     <div
       id={`block-${block.blockId}`}
-      className={`group relative border-l-[3px] py-2.5 pl-11 pr-5 transition ${
+      className={`group relative border-l-[3px] py-2.5 pl-11 pr-5 transition ${flash ? 'approve-flash' : ''} ${
         selected
           ? 'border-sel-line bg-sel-bg'
           : highlighted
             ? 'border-green bg-green-dim'
-            : 'border-transparent hover:bg-white/[0.025]'
+            : pending
+              ? 'border-blue'
+              : rejected
+                ? 'border-line-strong'
+                : 'border-transparent hover:bg-white/[0.025]'
       }`}
     >
       <input
@@ -75,6 +97,7 @@ export function MessageBlockItem({ block, refine }: Props) {
             Context 적용 중
           </span>
         )}
+        <span className="text-[11px] text-txt-3">{time}</span>
       </div>
 
       <div className="markdown text-[13.5px] leading-relaxed text-txt-1">
@@ -83,7 +106,7 @@ export function MessageBlockItem({ block, refine }: Props) {
 
       {pending && <InlineRefineBar result={refine} />}
 
-      {!isUser && !pending && (
+      {!pending && (
         <div className="mt-2 flex gap-1 opacity-0 transition group-hover:opacity-100">
           {versions && versions.length > 1 && currentVersionIndex >= 0 && (
             <div className="mr-1 flex items-center rounded border border-line text-[10px] text-txt-2">
@@ -91,7 +114,7 @@ export function MessageBlockItem({ block, refine }: Props) {
                 type="button"
                 disabled={currentVersionIndex === 0}
                 onClick={() => void setActiveVersion(block.blockId, versions[currentVersionIndex - 1].versionId)}
-                title="이전 답변 버전"
+                title="이전 버전"
                 className="rounded p-1 transition hover:bg-bg-3 disabled:cursor-default disabled:opacity-30"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
@@ -103,43 +126,47 @@ export function MessageBlockItem({ block, refine }: Props) {
                 type="button"
                 disabled={currentVersionIndex === versions.length - 1}
                 onClick={() => void setActiveVersion(block.blockId, versions[currentVersionIndex + 1].versionId)}
-                title="다음 답변 버전"
+                title="다음 버전"
                 className="rounded p-1 transition hover:bg-bg-3 disabled:cursor-default disabled:opacity-30"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => void setFeedback(block.blockId, 'like')}
-            title="좋아요"
-            aria-pressed={rating === 'like'}
-            className={`rounded p-1 transition hover:bg-bg-3 ${
-              rating === 'like' ? 'bg-blue-dim text-blue' : 'text-txt-3 hover:text-txt-1'
-            }`}
-          >
-            <ThumbsUp className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => void setFeedback(block.blockId, 'dislike')}
-            title="싫어요"
-            aria-pressed={rating === 'dislike'}
-            className={`rounded p-1 transition hover:bg-bg-3 ${
-              rating === 'dislike' ? 'bg-blue-dim text-blue' : 'text-txt-3 hover:text-txt-1'
-            }`}
-          >
-            <ThumbsDown className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => void regenerate(block.blockId)}
-            title="답변 다시 시도"
-            className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
-          >
-            <RotateCw className="h-3.5 w-3.5" />
-          </button>
+          {!isUser && (
+            <>
+              <button
+                type="button"
+                onClick={() => void setFeedback(block.blockId, 'like')}
+                title="좋아요"
+                aria-pressed={rating === 'like'}
+                className={`rounded p-1 transition hover:bg-bg-3 ${
+                  rating === 'like' ? 'bg-blue-dim text-blue' : 'text-txt-3 hover:text-txt-1'
+                }`}
+              >
+                <ThumbsUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void setFeedback(block.blockId, 'dislike')}
+                title="싫어요"
+                aria-pressed={rating === 'dislike'}
+                className={`rounded p-1 transition hover:bg-bg-3 ${
+                  rating === 'dislike' ? 'bg-blue-dim text-blue' : 'text-txt-3 hover:text-txt-1'
+                }`}
+              >
+                <ThumbsDown className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void regenerate(block.blockId)}
+                title="답변 다시 시도"
+                className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
+              >
+                <RotateCw className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

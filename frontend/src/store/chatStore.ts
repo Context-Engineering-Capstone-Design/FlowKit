@@ -40,6 +40,8 @@ interface ChatState {
   isRefining: boolean
   isCreatingBranch: boolean
   error: string | null
+  /** 값이 바뀔 때마다 입력창에 포커스를 옮긴다 (REQ-004) */
+  focusSignal: number
 
   loadChats: (keyword?: string) => Promise<void>
   newChat: () => Promise<void>
@@ -91,6 +93,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isCreatingBranch: false,
   highlightedBlockId: null,
   error: null,
+  focusSignal: 0,
 
   async loadChats(keyword) {
     try {
@@ -104,6 +107,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async newChat() {
     try {
       applyDetail(set, await chatApi.createChat())
+      set((s) => ({ focusSignal: s.focusSignal + 1 }))
       await get().loadChats()
     } catch (e) {
       set({ error: toErrorMessage(e) })
@@ -300,8 +304,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { chatId, branchId, refineJob } = get()
     if (!chatId || !branchId || !refineJob) return
     try {
-      await convApi.approveResult(chatId, branchId, refineJob.refineJobId, resultId)
-      await refreshAfterDecision(set, get, resultId)
+      // 승인은 블록의 활성 버전을 바꾸므로 블록 목록을 다시 받아온다
+      const updated = await convApi.approveResult(
+        chatId,
+        branchId,
+        refineJob.refineJobId,
+        resultId,
+      )
+      const detail = await chatApi.fetchChat(chatId, branchId)
+      set((s) => ({
+        blocks: detail.messageBlocks,
+        refineJob: s.refineJob && {
+          ...s.refineJob,
+          results: s.refineJob.results.map((r) => (r.resultId === resultId ? updated : r)),
+        },
+      }))
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -311,8 +328,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { chatId, branchId, refineJob } = get()
     if (!chatId || !branchId || !refineJob) return
     try {
-      await convApi.rejectResult(chatId, branchId, refineJob.refineJobId, resultId)
-      await refreshAfterDecision(set, get, resultId)
+      // 거절은 블록 내용을 바꾸지 않으므로 결과 상태만 반영한다
+      const updated = await convApi.rejectResult(chatId, branchId, refineJob.refineJobId, resultId)
+      set((s) => ({
+        refineJob: s.refineJob && {
+          ...s.refineJob,
+          results: s.refineJob.results.map((r) => (r.resultId === resultId ? updated : r)),
+        },
+      }))
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -322,9 +345,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { chatId, branchId, refineJob } = get()
     if (!chatId || !branchId || !refineJob) return
     try {
-      await convApi.approveAll(chatId, branchId, refineJob.refineJobId)
-      await get().openChat(chatId, branchId)
-      set({ refineJob: null, inlineView: {} })
+      const { processed, failed } = await convApi.approveAll(
+        chatId,
+        branchId,
+        refineJob.refineJobId,
+      )
+      const detail = await chatApi.fetchChat(chatId, branchId)
+      const processedById = new Map(processed.map((r) => [r.resultId, r]))
+      set((s) => ({
+        blocks: detail.messageBlocks,
+        refineJob: s.refineJob && {
+          ...s.refineJob,
+          results: s.refineJob.results.map((r) => processedById.get(r.resultId) ?? r),
+        },
+        error:
+          failed.length > 0
+            ? `${failed.length}개 블록은 승인에 실패했습니다. 나머지 항목에서 다시 시도해주세요.`
+            : s.error,
+      }))
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -397,26 +435,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ error: null })
   },
 }))
-
-/** 승인·거절 후 본문과 남은 결과를 다시 맞춘다. */
-async function refreshAfterDecision(
-  set: (partial: Partial<ChatState>) => void,
-  get: () => ChatState,
-  resultId: string,
-) {
-  const { chatId, branchId, refineJob } = get()
-  if (!chatId || !branchId || !refineJob) return
-
-  const detail = await chatApi.fetchChat(chatId, branchId)
-  const remaining = refineJob.results.filter((r) => r.resultId !== resultId)
-
-  set({
-    blocks: detail.messageBlocks,
-    refineJob: remaining.length
-      ? { ...refineJob, results: remaining }
-      : null,
-  })
-}
 
 function applyDetail(
   set: (partial: Partial<ChatState>) => void,

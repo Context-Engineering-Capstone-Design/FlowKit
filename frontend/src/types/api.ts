@@ -146,6 +146,12 @@ export interface RefineJob {
   results: RefineResultItem[]
 }
 
+/** 전체 승인·전체 거절처럼 여러 항목을 처리할 때, 일부만 실패할 수 있다 */
+export interface BulkRefineResult {
+  processed: RefineResultItem[]
+  failed: { resultId: string; reason: string }[]
+}
+
 export interface VersionItem {
   versionId: string
   versionNo: number

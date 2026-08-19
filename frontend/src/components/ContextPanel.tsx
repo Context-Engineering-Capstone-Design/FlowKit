@@ -1,7 +1,12 @@
 import { Check, SlidersHorizontal, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toPreview } from '@/lib/preview'
 import { useChatStore } from '@/store/chatStore'
+import type { RefineStatus } from '@/types/api'
+
+/** 항목이 밀려 나가는 시간(ms). 여러 개를 승인하면 이만큼씩 늦게 시작한다. */
+const LEAVE_DURATION = 320
+const LEAVE_STAGGER = 55
 
 const QUICK_EDITS = [
   '핵심만 요약',
@@ -181,46 +186,131 @@ function RefinePreview() {
   const approveAll = useChatStore((s) => s.approveAll)
   const closeRefine = useChatStore((s) => s.closeRefine)
 
+  // 방금 승인되어 밀려 나가는 중인 항목. 애니메이션이 끝나야 목록에서 완전히 빠진다 (REQ-039)
+  const [leavingIds, setLeavingIds] = useState<Set<string>>(new Set())
+  const prevStatuses = useRef<Record<string, RefineStatus>>({})
+
+  useEffect(() => {
+    if (!refineJob) {
+      prevStatuses.current = {}
+      return
+    }
+    const prev = prevStatuses.current
+    const justApproved = refineJob.results.filter(
+      (r) => r.status === 'approved' && prev[r.resultId] === 'pending',
+    )
+    prevStatuses.current = Object.fromEntries(
+      refineJob.results.map((r) => [r.resultId, r.status]),
+    )
+    if (justApproved.length === 0) return
+
+    setLeavingIds((ids) => new Set([...ids, ...justApproved.map((r) => r.resultId)]))
+    const timers = justApproved.map((r, i) =>
+      setTimeout(
+        () => {
+          setLeavingIds((ids) => {
+            if (!ids.has(r.resultId)) return ids
+            const next = new Set(ids)
+            next.delete(r.resultId)
+            return next
+          })
+        },
+        LEAVE_DURATION + i * LEAVE_STAGGER,
+      ),
+    )
+    return () => timers.forEach(clearTimeout)
+  }, [refineJob])
+
+  // 승인된 항목은 목록에서 빠지고, 대기·거절 상태만 남는다 (REQ-032)
+  // 상태가 바뀐 첫 렌더에서도 항목을 유지해야 다음 렌더에서 퇴장 효과를 시작할 수 있다
+  const justApprovedIds = new Set(
+    refineJob?.results
+      .filter(
+        (r) => r.status === 'approved' && prevStatuses.current[r.resultId] === 'pending',
+      )
+      .map((r) => r.resultId) ?? [],
+  )
+  const visible =
+    refineJob?.results.filter(
+      (r) =>
+        r.status !== 'approved' ||
+        leavingIds.has(r.resultId) ||
+        justApprovedIds.has(r.resultId),
+    ) ?? []
+  // 남은 항목이 하나도 없으면 카드 전체를 서서히 닫는다
+  const closing = refineJob !== null && visible.length === 0
+
+  useEffect(() => {
+    if (!closing) return
+    const timer = setTimeout(() => void closeRefine(), 280)
+    return () => clearTimeout(timer)
+  }, [closing, closeRefine])
+
   if (!refineJob) return null
   const pending = refineJob.results.filter((r) => r.status === 'pending')
 
   return (
-    <section className="pt-5">
+    <section
+      className={`pt-5 transition-opacity duration-300 ${closing ? 'opacity-0' : 'opacity-100'}`}
+    >
       <SectionLabel>블록별 정제 미리보기</SectionLabel>
 
       <div className="mt-2 space-y-2.5">
-        {refineJob.results.map((r) => (
-          <div key={r.resultId} className="rounded-lg bg-bg-2 p-2.5">
-            <p className="text-[10.5px] font-semibold text-txt-3">원본</p>
-            <p className="mt-1 line-clamp-3 border-l-2 border-line pl-2 text-[11.5px] leading-relaxed text-txt-2">
-              {r.baseContent}
-            </p>
-
-            <p className="mt-2.5 text-[10.5px] font-semibold text-green">
-              정제 결과
-            </p>
-            <p className="mt-1 line-clamp-4 border-l-2 border-green pl-2 text-[11.5px] leading-relaxed text-txt-1">
-              {r.refinedContent}
-            </p>
-
-            <div className="mt-2.5 flex gap-1.5">
-              <button
-                type="button"
-                onClick={() => void approve(r.resultId)}
-                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-blue-dim py-1.5 text-[11px] font-semibold text-blue transition hover:bg-blue hover:text-white"
+        {visible.map((r) => {
+          const leaving = leavingIds.has(r.resultId)
+          return (
+            <div
+              key={r.resultId}
+              className={`grid transition-all ease-in ${
+                leaving ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
+              }`}
+              style={{ transitionDuration: `${LEAVE_DURATION}ms` }}
+            >
+              <div
+                className={`overflow-hidden rounded-lg bg-bg-2 transition-transform ease-in ${
+                  leaving ? 'translate-x-6' : 'translate-x-0'
+                }`}
+                style={{ transitionDuration: `${LEAVE_DURATION}ms` }}
               >
-                <Check className="h-3 w-3" /> 승인
-              </button>
-              <button
-                type="button"
-                onClick={() => void reject(r.resultId)}
-                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-bg-3 py-1.5 text-[11px] text-txt-1 transition hover:text-txt-0"
-              >
-                <X className="h-3 w-3" /> 거절
-              </button>
+                <div className="p-2.5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10.5px] font-semibold text-txt-3">원본</p>
+                    <StatusBadge status={r.status} />
+                  </div>
+                  <p className="mt-1 line-clamp-3 border-l-2 border-line pl-2 text-[11.5px] leading-relaxed text-txt-2">
+                    {r.baseContent}
+                  </p>
+
+                  <p className="mt-2.5 text-[10.5px] font-semibold text-green">
+                    정제 결과
+                  </p>
+                  <p className="mt-1 line-clamp-4 border-l-2 border-green pl-2 text-[11.5px] leading-relaxed text-txt-1">
+                    {r.refinedContent}
+                  </p>
+
+                  {r.status === 'pending' && (
+                    <div className="mt-2.5 flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void approve(r.resultId)}
+                        className="flex flex-1 items-center justify-center gap-1 rounded-md bg-blue-dim py-1.5 text-[11px] font-semibold text-blue transition hover:bg-blue hover:text-white"
+                      >
+                        <Check className="h-3 w-3" /> 승인
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void reject(r.resultId)}
+                        className="flex flex-1 items-center justify-center gap-1 rounded-md bg-bg-3 py-1.5 text-[11px] text-txt-1 transition hover:text-txt-0"
+                      >
+                        <X className="h-3 w-3" /> 거절
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="mt-3 flex gap-1.5">
@@ -260,6 +350,29 @@ function PanelFooter() {
         이 Context로 질문하기 ({selectedCount})
       </button>
     </div>
+  )
+}
+
+// 정제 결과 상태 배지 — 대기·거절됨 (REQ-032)
+function StatusBadge({ status }: { status: RefineStatus }) {
+  if (status === 'approved') {
+    return (
+      <span className="rounded bg-green-dim px-1.5 py-px text-[10px] text-green">
+        승인됨
+      </span>
+    )
+  }
+  if (status === 'rejected') {
+    return (
+      <span className="rounded bg-bg-3 px-1.5 py-px text-[10px] text-txt-3">
+        거절됨
+      </span>
+    )
+  }
+  return (
+    <span className="rounded bg-blue-dim px-1.5 py-px text-[10px] text-blue">
+      대기
+    </span>
   )
 }
 

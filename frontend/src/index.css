@@ -96,3 +96,16 @@ body {
   font-weight: 600;
   color: var(--color-txt-0);
 }
+
+/* 정제 결과 승인 직후 블록에 잠깐 주는 적용 완료 효과 (FE-REFINE-005) */
+@keyframes approve-flash {
+  0% {
+    background-color: var(--color-blue-dim);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.approve-flash {
+  animation: approve-flash 900ms ease-out;
+}

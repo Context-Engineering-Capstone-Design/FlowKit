@@ -43,7 +43,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   async logout() {
-    await authApi.logout()
-    set({ user: null })
+    try {
+      await authApi.logout()
+    } catch {
+      // 토큰은 authApi.logout 내부에서 이미 지워졌다. 요청이 실패해도 화면은 로그인 상태로 되돌린다
+    } finally {
+      set({ user: null })
+    }
   },
 }))
