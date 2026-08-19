@@ -31,8 +31,13 @@ class AiResponseJob(Base, TimestampMixin):
     assistant_message_block_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("message_blocks.id", ondelete="SET NULL"), nullable=True, index=True)
     result_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("message_block_versions.id", ondelete="SET NULL"), nullable=True)
     source_job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ai_response_jobs.id", ondelete="SET NULL"), nullable=True, index=True)
-    job_type: Mapped[AiResponseJobType] = mapped_column(Enum(AiResponseJobType, name="ai_response_job_type"))
-    status: Mapped[AiResponseJobStatus] = mapped_column(Enum(AiResponseJobStatus, name="ai_response_job_status"), default=AiResponseJobStatus.REQUESTED)
+    job_type: Mapped[AiResponseJobType] = mapped_column(
+        Enum(AiResponseJobType, name="ai_response_job_type", values_callable=lambda x: [e.value for e in x])
+    )
+    status: Mapped[AiResponseJobStatus] = mapped_column(
+        Enum(AiResponseJobStatus, name="ai_response_job_status", values_callable=lambda x: [e.value for e in x]),
+        default=AiResponseJobStatus.REQUESTED,
+    )
     input_snapshot: Mapped[dict] = mapped_column(JSON)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(300), nullable=True)

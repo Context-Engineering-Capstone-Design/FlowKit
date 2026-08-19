@@ -27,7 +27,8 @@ class Attachment(Base, TimestampMixin):
     file_size: Mapped[int] = mapped_column(Integer)
     storage_key: Mapped[str] = mapped_column(String(512), unique=True)
     status: Mapped[AttachmentStatus] = mapped_column(
-        Enum(AttachmentStatus, name="attachment_status"), default=AttachmentStatus.TEMPORARY
+        Enum(AttachmentStatus, name="attachment_status", values_callable=lambda x: [e.value for e in x]),
+        default=AttachmentStatus.TEMPORARY,
     )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 

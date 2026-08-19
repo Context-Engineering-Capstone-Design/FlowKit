@@ -27,7 +27,7 @@ class AiResponseFeedback(Base, TimestampMixin):
         ForeignKey("message_blocks.id", ondelete="CASCADE"), index=True
     )
     rating: Mapped[AiResponseRating] = mapped_column(
-        Enum(AiResponseRating, name="ai_response_rating")
+        Enum(AiResponseRating, name="ai_response_rating", values_callable=lambda x: [e.value for e in x])
     )
 
     __table_args__ = (
