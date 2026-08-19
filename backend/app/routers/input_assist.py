@@ -24,6 +24,7 @@ def get_models() -> list[ModelOut]:
             supports_web_search=model.supports_web_search,
             supports_attachment=model.supports_attachment,
             is_default=model.is_default, is_available=True,
+            description=model.description, tags=list(model.tags),
         )
         for model in input_assist_service.list_models()
     ]

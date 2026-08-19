@@ -26,6 +26,8 @@ class ModelInfo:
     supports_web_search: bool
     supports_attachment: bool
     is_default: bool = False
+    description: str = ""
+    tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

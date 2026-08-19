@@ -17,6 +17,8 @@ MODELS: tuple[ModelInfo, ...] = (
         supports_web_search=True,
         supports_attachment=True,
         is_default=True,
+        description="빠른 응답과 폭넓은 기능을 갖춘 기본 모델",
+        tags=("최신", "빠름"),
     ),
 )
 

@@ -16,6 +16,8 @@ class ModelOut(BaseModel):
     supports_attachment: bool = Field(..., serialization_alias="supportsAttachment")
     is_default: bool = Field(..., serialization_alias="isDefault")
     is_available: bool = Field(True, serialization_alias="isAvailable")
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(populate_by_name=True)
 

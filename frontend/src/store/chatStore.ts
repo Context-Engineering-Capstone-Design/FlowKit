@@ -25,6 +25,20 @@ import type {
 let latestChatListRequestId: string | null = null
 let latestChatMoreRequestId: string | null = null
 
+// 목록 조회에 실패했을 때 보여줄 기본 모델 (FE-INPUT-005). 서버 목록과 어긋나면
+// 전송 시점에 서버가 오류로 안내하므로 조용히 잘못된 모델로 보내지 않는다.
+const FALLBACK_MODEL: ModelOption = {
+  modelId: 'gemini-3.6-flash',
+  displayName: 'Gemini 3.6 Flash',
+  provider: 'google',
+  supportsWebSearch: true,
+  supportsAttachment: true,
+  isDefault: true,
+  isAvailable: true,
+  description: '빠른 응답과 폭넓은 기능을 갖춘 기본 모델',
+  tags: ['최신', '빠름'],
+}
+
 interface ChatState {
   chats: ChatSummary[]
   nextCursor: string | null
@@ -332,7 +346,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : (models.find((m) => m.isDefault)?.modelId ?? selected),
       })
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      const selected = get().selectedModelId
+      set({
+        models: [FALLBACK_MODEL],
+        selectedModelId: selected ?? FALLBACK_MODEL.modelId,
+        error: toErrorMessage(e),
+      })
     } finally {
       set({ isModelListLoading: false })
     }
@@ -582,6 +601,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch (e) {
       if (openApiKeyWhenMissing(e)) {
         set({ error: null })
+      } else if (errorCode(e) === 'WEB_SEARCH_NOT_SUPPORTED') {
+        // 선택한 모델이 검색을 지원하지 않으면 다시 눌러도 같은 오류가 반복되므로 토글을 꺼둔다
+        set({ webSearchEnabled: false, error: toErrorMessage(e) })
       } else {
         // 모델 호출 중 실패했다면 질문은 서버에 남아 있으므로 화면을 다시 맞춘다
         const detail = errorDetail<AiResponseFailureDetail>(e)

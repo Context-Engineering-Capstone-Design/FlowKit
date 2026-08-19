@@ -70,6 +70,8 @@ export interface BranchMeta {
   branchName: string
   branchType: BranchType
   parentBranchId: string | null
+  /** 브랜치 생성 응답에만 실린다. 출발 Context 참조 ID. */
+  sourceContextRefId?: string
 }
 
 export interface BranchListItem extends BranchMeta {
@@ -198,7 +200,7 @@ export interface SendMessageResponse {
 export interface AiResponseFailureDetail { aiResponseJobId: string; userMessageBlockId: string; retryable: boolean }
 export interface RegenerateResponse extends BlockResponse { searchSources: SearchSource[]; aiResponseJobId: string; jobStatus: string }
 
-export interface ModelOption { modelId: string; displayName: string; provider: string; supportsWebSearch: boolean; supportsAttachment: boolean; isDefault: boolean; isAvailable: boolean }
+export interface ModelOption { modelId: string; displayName: string; provider: string; supportsWebSearch: boolean; supportsAttachment: boolean; isDefault: boolean; isAvailable: boolean; description: string; tags: string[] }
 export interface AttachmentResponse { attachmentId: string; fileName: string; mimeType: string; fileSize: number; status: 'temporary' | 'attached' | 'expired'; expiresAt: string | null }
 export interface SearchSource { title: string; url: string }
 export interface DraftAttachment { localId: string; attachmentId: string | null; file: File; fileName: string; mimeType: string; localUrl: string | null; status: 'uploading' | 'uploaded' | 'failed'; error: string | null }
