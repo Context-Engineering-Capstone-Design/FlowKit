@@ -232,6 +232,7 @@ def test_create_branch_does_not_copy_messages(client, auth, chat_with_blocks, db
         headers=auth,
     )
     assert res.status_code == 201, res.text
+    assert res.json()["sourceContextRefId"]
     new_branch_id = res.json()["branchId"]
     assert res.json()["actionMeta"] == {
         "actionType": "branch_create",
@@ -409,6 +410,7 @@ def test_source_context_info_points_back_to_original(client, auth, chat_with_blo
     assert len(info) == 2
     assert info[0]["sourceMessageBlockId"] == str(blocks[1].id)
     assert info[0]["previewText"] == "메인 블록 1"
+    assert info[0]["role"] == "assistant"
     assert info[0]["scrollTargetIndex"] == 1
     assert info[1]["scrollTargetIndex"] == 3
     assert info[0]["sourceBranchId"] == chat["branchMeta"]["branchId"]

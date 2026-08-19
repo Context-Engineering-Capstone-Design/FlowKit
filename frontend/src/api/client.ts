@@ -53,6 +53,13 @@ api.interceptors.request.use((config) => {
  */
 let refreshing: Promise<string | null> | null = null
 
+const AUTH_ENDPOINTS = ['/api/auth/google', '/api/auth/dev', '/api/auth/refresh']
+
+export function isAuthEndpoint(url: string | undefined): boolean {
+  const path = (url ?? '').split('?')[0]
+  return AUTH_ENDPOINTS.some((endpoint) => path.endsWith(endpoint))
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = tokenStore.refresh
   if (!refreshToken) {
@@ -112,7 +119,7 @@ api.interceptors.response.use(
       error.response?.status === 401 &&
       original &&
       !original._retried &&
-      !original.url?.includes('/api/auth/refresh')
+      !isAuthEndpoint(original.url)
 
     if (!shouldRefresh) return Promise.reject(error)
 

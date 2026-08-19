@@ -23,12 +23,13 @@ export function Sidebar() {
 
   const [keyword, setKeyword] = useState('')
   const loadMoreRef = useInfiniteChatList(Boolean(nextCursor), isLoadingMoreChats, loadMoreChats)
+  const searchKeyword = keyword.trim()
 
   useEffect(() => {
     // 입력할 때마다 요청하지 않도록 잠시 기다렸다 검색한다
-    const timer = setTimeout(() => void loadChats(keyword || undefined), 250)
+    const timer = setTimeout(() => void loadChats(searchKeyword || undefined), 250)
     return () => clearTimeout(timer)
-  }, [keyword, loadChats])
+  }, [loadChats, searchKeyword])
 
   return (
     <aside className="flex w-[236px] shrink-0 flex-col overflow-hidden bg-bg-1">
@@ -66,7 +67,7 @@ export function Sidebar() {
         {chatListError && (
           <div className="mb-1 rounded-md bg-red/10 px-2 py-2 text-[11px] text-red">
             <p>{chatListError}</p>
-            <button type="button" onClick={() => void loadChats(keyword || undefined)} className="mt-1 underline">다시 시도</button>
+            <button type="button" onClick={() => void loadChats(searchKeyword || undefined)} className="mt-1 underline">다시 시도</button>
           </div>
         )}
         {chats.length === 0 && !isLoadingChats && (

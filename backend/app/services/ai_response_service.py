@@ -25,7 +25,7 @@ class SendResult:
 
 @dataclass(frozen=True)
 class RegenerateResult:
-    block: MessageBlock; job: AiResponseJob
+    block: MessageBlock; search_sources: list; job: AiResponseJob
 
 def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_prompt: str, context_block_ids: list[uuid.UUID] | None = None, selected_model_id: str | None = None, web_search_enabled: bool = False, attachment_ids: list[uuid.UUID] | None = None, answerer=None, titler=None) -> SendResult:
     prompt = (user_prompt or "").strip()
@@ -58,14 +58,14 @@ def regenerate(db: Session, user: User, chat: Chat, branch: Branch, block_id: uu
     if origin is None: return _legacy_regenerate(db, user, chat, branch, block, api_key, answerer)
     job = _new_job(user, chat, branch, origin.user_message_block_id, AiResponseJobType.REGENERATE, origin.input_snapshot, origin.id)
     job.assistant_message_block_id = block.id; db.add(job); db.commit()
-    try: answer, _ = _generate_snapshot(db, user, chat, origin.input_snapshot, api_key, answerer)
+    try: answer, sources = _generate_snapshot(db, user, chat, origin.input_snapshot, api_key, answerer)
     except Exception as exc:
         _fail_job(db, job, exc); raise _failure_error(job) from exc
     updated = message_service.add_version(db, chat, block, answer, VersionSourceType.AI_REGENERATE)
     job.result_version_id, job.status = updated.current_version_id, AiResponseJobStatus.COMPLETED; db.commit(); db.refresh(job)
-    return RegenerateResult(updated, job)
+    return RegenerateResult(updated, sources, job)
 
-def retry_failed_job(db: Session, user: User, chat: Chat, branch: Branch, job_id: uuid.UUID, answerer=None) -> SendResult:
+def retry_failed_job(db: Session, user: User, chat: Chat, branch: Branch, job_id: uuid.UUID, answerer=None, titler=None) -> SendResult:
     failed = db.get(AiResponseJob, job_id)
     if failed is None or failed.user_id != user.id or failed.chat_id != chat.id or failed.branch_id != branch.id: raise AiJobNotFoundError()
     if failed.job_type is not AiResponseJobType.GENERATE or failed.status is not AiResponseJobStatus.FAILED: raise AiJobNotRetryableError()
@@ -77,7 +77,18 @@ def retry_failed_job(db: Session, user: User, chat: Chat, branch: Branch, job_id
     assistant = message_service.create_block(db, chat, branch, MessageRole.ASSISTANT, answer, commit=False)
     job.assistant_message_block_id, job.result_version_id, job.status = assistant.id, assistant.current_version_id, AiResponseJobStatus.COMPLETED; db.commit(); db.refresh(assistant); db.refresh(job)
     snapshot = failed.input_snapshot
-    return SendResult(user_block, assistant, _context_from_snapshot(snapshot), False, snapshot["selectedModelId"], snapshot["webSearchEnabled"], input_assist_service.get_attached_for_snapshot(db, user, chat, snapshot["attachmentIds"]), sources, job)
+    titled = (
+        not snapshot["messageFlow"]
+        and chat.title == chat_service.DEFAULT_TITLE
+        and _try_generate_title(
+            db,
+            chat,
+            snapshot["userPrompt"],
+            user_setting_service.require_api_key(db, user),
+            titler,
+        )
+    )
+    return SendResult(user_block, assistant, _context_from_snapshot(snapshot), bool(titled), snapshot["selectedModelId"], snapshot["webSearchEnabled"], input_assist_service.get_attached_for_snapshot(db, user, chat, snapshot["attachmentIds"]), sources, job)
 
 def _make_snapshot(prompt, flow, context_items, model_id, web, attachments) -> dict:
     return {"schemaVersion": 1, "userPrompt": prompt, "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow], "appliedContext": [{"blockId": str(x.block_id), "versionId": str(x.version_id), "content": x.content, "orderIndex": x.order_index} for x in context_items], "selectedModelId": model_id, "webSearchEnabled": web, "attachmentIds": [str(x.id) for x in attachments]}
@@ -119,15 +130,7 @@ def _classify_error(exc):
     return "AI_PROVIDER_ERROR", "AI 응답을 생성하지 못했습니다."
 
 def _legacy_regenerate(db, user, chat, branch, block, api_key, answerer):
-    flow = message_service.active_message_flow(db, branch); prior = [x for x in flow if x.order_index < block.order_index]
-    i = next((j for j in range(len(prior)-1, -1, -1) if prior[j].role is MessageRole.USER), None)
-    if i is None: raise AiInputSnapshotNotFoundError()
-    from modeling.models import default_model
-    snap = _make_snapshot(prior[i].content, prior[:i], [], default_model().model_id, False, [])
-    job = _new_job(user, chat, branch, prior[i].block_id, AiResponseJobType.REGENERATE, snap); job.assistant_message_block_id = block.id; db.add(job); db.commit()
-    try: answer, _ = _generate_snapshot(db, user, chat, snap, api_key, answerer)
-    except Exception as exc: _fail_job(db, job, exc); raise _failure_error(job) from exc
-    updated = message_service.add_version(db, chat, block, answer, VersionSourceType.AI_REGENERATE); job.result_version_id, job.status = updated.current_version_id, AiResponseJobStatus.COMPLETED; db.commit(); db.refresh(job); return RegenerateResult(updated, job)
+    raise AiInputSnapshotNotFoundError()
 
 def get_feedback(db, user, branch, block_id):
     _require_assistant_block(db, branch, block_id); return db.scalar(select(AiResponseFeedback).where(AiResponseFeedback.user_id == user.id, AiResponseFeedback.message_block_id == block_id))

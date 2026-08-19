@@ -22,7 +22,7 @@ export function AttachmentMenu({ disabled, onSelect }: Props) {
   return (
     <div className="relative">
       <input ref={imageRef} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onChange={selected} />
-      <input ref={fileRef} type="file" accept="application/pdf,text/plain,text/markdown,.md,.markdown" multiple hidden onChange={selected} />
+      <input ref={fileRef} type="file" accept="application/pdf,text/plain,text/markdown,.txt,.md,.markdown" multiple hidden onChange={selected} />
       <button type="button" disabled={disabled} onClick={() => setOpen((v) => !v)} title="파일 첨부" className="rounded-md p-1.5 text-txt-2 hover:bg-bg-3 hover:text-txt-0 disabled:opacity-30">
         <Paperclip className="h-4 w-4" />
       </button>

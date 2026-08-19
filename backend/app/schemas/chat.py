@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -129,6 +130,7 @@ class UpdateTitleRequest(BaseModel):
 class SourceContextItem(BaseModel):
     context_block_id: str = Field(..., serialization_alias="contextBlockId")
     preview_text: str = Field(..., serialization_alias="previewText")
+    role: Literal["user", "assistant"]
     source_message_block_id: str = Field(
         ..., serialization_alias="sourceMessageBlockId"
     )

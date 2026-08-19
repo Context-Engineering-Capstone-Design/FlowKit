@@ -370,6 +370,28 @@ def test_regenerate_adds_version_to_same_block(client, auth, chat, captured):
     assert versions[-1]["sourceType"] == "ai_regenerate"
 
 
+def test_regenerate_returns_search_sources(client, auth, chat, captured, monkeypatch):
+    import modeling
+    from modeling.types import AnswerResult, SearchSource
+
+    source = SearchSource("공식 문서", "https://example.com")
+    monkeypatch.setattr(
+        modeling,
+        "generate_answer",
+        lambda _request, **_kwargs: AnswerResult("검색 답변", [source]),
+    )
+    first = send(client, auth, chat, "검색해줘")
+    block_id = first["assistantBlock"]["blockId"]
+    res = client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}"
+        f"/blocks/{block_id}/regenerate",
+        headers=auth,
+    )
+
+    assert res.status_code == 200
+    assert res.json()["searchSources"] == [{"title": source.title, "url": source.url}]
+
+
 def test_regenerate_reuses_the_original_question(client, auth, chat, captured):
     send(client, auth, chat, "첫 질문")
     second = send(client, auth, chat, "두 번째 질문")
@@ -416,6 +438,67 @@ def test_failed_job_can_retry_without_duplicate_question(client, auth, chat, mon
     assert retried.json()["actionMeta"]["successCode"] == "AI_RESPONSE_RETRY_SUCCEEDED"
     detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth).json()
     assert [block["content"] for block in detail["messageBlocks"]] == ["복구할 질문", "복구 답변"]
+
+
+def test_failed_first_question_retry_generates_title(client, auth, chat, monkeypatch):
+    import modeling
+
+    calls = [0]
+
+    def flaky(_request, **_kwargs):
+        calls[0] += 1
+        if calls[0] == 1:
+            raise RuntimeError("temporary")
+        return "복구 답변"
+
+    monkeypatch.setattr(modeling, "generate_answer", flaky)
+    title_calls = []
+    monkeypatch.setattr(
+        modeling,
+        "generate_title",
+        lambda prompt, **_kwargs: title_calls.append(prompt) or "복구 질문 제목",
+    )
+
+    failed = client.post(
+        msg_url(chat), json={"userPrompt": "복구할 첫 질문"}, headers=auth
+    )
+    job_id = failed.json()["detail"]["aiResponseJobId"]
+    retried = client.post(
+        f"{msg_url(chat).removesuffix('/messages')}/ai-response-jobs/{job_id}/retry",
+        headers=auth,
+    )
+
+    assert retried.status_code == 201
+    body = retried.json()
+    assert body["titleGenerated"] is True
+    assert body["chatTitle"] == "복구 질문 제목"
+    assert title_calls == ["복구할 첫 질문"]
+
+
+def test_legacy_regenerate_does_not_use_default_conditions(
+    client, auth, chat, captured, db_session
+):
+    import uuid
+    from sqlalchemy import delete
+    from app.models import AiResponseJob
+
+    first = send(client, auth, chat, "예전 답변")
+    db_session.execute(
+        delete(AiResponseJob).where(
+            AiResponseJob.assistant_message_block_id
+            == uuid.UUID(first["assistantBlock"]["blockId"])
+        )
+    )
+    db_session.commit()
+
+    res = client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}"
+        f"/blocks/{first['assistantBlock']['blockId']}/regenerate",
+        headers=auth,
+    )
+
+    assert res.status_code == 404
+    assert res.json()["errorCode"] == "AI_INPUT_SNAPSHOT_NOT_FOUND"
 
 
 def test_regenerate_rejects_user_block(client, auth, chat, captured):

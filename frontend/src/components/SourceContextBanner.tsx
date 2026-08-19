@@ -40,6 +40,9 @@ export function SourceContextBanner() {
                 title="원본 위치로 이동"
                 className="max-w-[260px] truncate rounded-full bg-bg-2 px-2.5 py-1 text-[11px] text-txt-1 transition hover:bg-bg-3 hover:text-txt-0"
               >
+                <span className={c.role === 'user' ? 'text-blue' : 'text-green'}>
+                  {c.role === 'user' ? 'User' : 'AI'}
+                </span>{' '}
                 {toPreview(c.previewText)}
               </button>
             ))}

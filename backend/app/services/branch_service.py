@@ -245,6 +245,7 @@ def build_source_context_info(db: Session, branch: Branch) -> list[dict]:
             {
                 "context_block_id": str(item.id),
                 "preview_text": _preview(block),
+                "role": block.role.value,
                 "source_message_block_id": str(block.id),
                 "source_branch_id": (
                     str(source_context.source_branch_id)

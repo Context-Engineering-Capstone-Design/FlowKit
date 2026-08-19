@@ -100,6 +100,7 @@ export interface ChatDetail {
 export interface SourceContextItem {
   contextBlockId: string
   previewText: string
+  role: 'user' | 'assistant'
   sourceMessageBlockId: string
   sourceBranchId: string | null
   scrollTargetIndex: number | null
@@ -195,7 +196,7 @@ export interface SendMessageResponse {
 }
 
 export interface AiResponseFailureDetail { aiResponseJobId: string; userMessageBlockId: string; retryable: boolean }
-export interface RegenerateResponse extends BlockResponse { aiResponseJobId: string; jobStatus: string }
+export interface RegenerateResponse extends BlockResponse { searchSources: SearchSource[]; aiResponseJobId: string; jobStatus: string }
 
 export interface ModelOption { modelId: string; displayName: string; provider: string; supportsWebSearch: boolean; supportsAttachment: boolean; isDefault: boolean; isAvailable: boolean }
 export interface AttachmentResponse { attachmentId: string; fileName: string; mimeType: string; fileSize: number; status: 'temporary' | 'attached' | 'expired'; expiresAt: string | null }

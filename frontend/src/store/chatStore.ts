@@ -7,6 +7,7 @@ import { useSettingsStore } from '@/store/settingsStore'
 import { useNotificationStore } from '@/store/notificationStore'
 import { useConfirmStore } from '@/store/confirmStore'
 import { withRequestTimeout } from '@/lib/requestTimeout'
+import { validateAttachment } from '@/lib/attachmentValidation'
 import type {
   AiResponseRating,
   BranchListItem,
@@ -198,6 +199,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sourceNavigationError: null,
 
   async loadChats(keyword) {
+    const normalizedKeyword = keyword?.trim() || undefined
     latestChatMoreRequestId = null
     set({ isLoadingChats: true, isLoadingMoreChats: false, chatListError: null })
     let requestId: string | null = null
@@ -205,16 +207,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const res = await withRequestTimeout(async ({ signal, requestId: id }) => {
         requestId = id
         latestChatListRequestId = id
-        const result = await chatApi.fetchChats({ keyword }, signal)
+        const result = await chatApi.fetchChats({ keyword: normalizedKeyword }, signal)
         return { result, requestId: id }
       })
       if (latestChatListRequestId !== res.requestId) return
       useNotificationStore.getState().dismissBanner('chat-list')
-      set({ chats: res.result.chats, nextCursor: res.result.nextCursor, chatListKeyword: keyword ?? '' })
+      set({ chats: res.result.chats, nextCursor: res.result.nextCursor, chatListKeyword: normalizedKeyword ?? '' })
     } catch (e) {
       if (requestId && latestChatListRequestId !== requestId) return
       set({ chatListError: toErrorMessage(e) })
-      showChatError(e, 'chat-list', () => void get().loadChats(keyword))
+      showChatError(e, 'chat-list', () => void get().loadChats(normalizedKeyword))
     } finally {
       if (!requestId || latestChatListRequestId === requestId) {
         set({ isLoadingChats: false })
@@ -376,7 +378,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async addFiles(files) {
     const { chatId } = get()
     if (!chatId) return
-    const entries = files.map((file) => ({
+    const rejected = files
+      .map((file) => ({ file, reason: validateAttachment(file) }))
+      .filter((item): item is { file: File; reason: string } => Boolean(item.reason))
+    if (rejected.length) {
+      useNotificationStore.getState().show(
+        rejected.map((item) => item.file.name + ': ' + item.reason).join(' '),
+        'error',
+      )
+    }
+    const validFiles = files.filter((file) => !validateAttachment(file))
+    if (!validFiles.length) return
+    const entries = validFiles.map((file) => ({
       localId: crypto.randomUUID(), attachmentId: null, file, fileName: file.name,
       mimeType: file.type, localUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
       status: 'uploading' as const, error: null,

@@ -47,6 +47,22 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState().chats.map((item) => item.chatId)).toEqual(['1', '2'])
   })
 
+  it('검색어 앞뒤 공백을 제거하고 공백만 입력하면 전체 목록을 요청한다', async () => {
+    chatApi.fetchChats.mockResolvedValue({ chats: [], nextCursor: null })
+
+    await useChatStore.getState().loadChats('  검색어  ')
+    expect(chatApi.fetchChats).toHaveBeenLastCalledWith(
+      { keyword: '검색어' },
+      expect.any(AbortSignal),
+    )
+
+    await useChatStore.getState().loadChats('   ')
+    expect(chatApi.fetchChats).toHaveBeenLastCalledWith(
+      { keyword: undefined },
+      expect.any(AbortSignal),
+    )
+  })
+
   it('Context 이름을 적용하고 해제해도 선택은 유지한다', () => {
     useChatStore.setState({ selectedBlockIds: ['block-1'], contextInstruction: '  핵심만 요약  ', focusSignal: 0 })
 
