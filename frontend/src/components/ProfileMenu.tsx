@@ -15,7 +15,7 @@ export function ProfileMenu() {
   const logout = useAuthStore((state) => state.logout)
   const openProfile = useSettingsStore((state) => state.openProfile)
   const openApiKey = useSettingsStore((state) => state.openApiKey)
-  const clearDraft = useChatStore((state) => state.clearDraft)
+  const resetSession = useChatStore((state) => state.resetSession)
   const [isOpen, setIsOpen] = useState(false)
   const holderRef = useRef<HTMLDivElement>(null)
 
@@ -70,7 +70,7 @@ export function ProfileMenu() {
             icon={<LogOut className="h-3.5 w-3.5" />}
             label="로그아웃"
             danger
-            onClick={() => run(() => { clearDraft(); void logout() })}
+            onClick={() => run(() => { resetSession(); void logout() })}
           />
         </div>
       )}

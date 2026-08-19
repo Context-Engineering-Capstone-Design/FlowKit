@@ -18,7 +18,7 @@ export default function App() {
   const check = useAuthStore((s) => s.check)
   const clearSession = useAuthStore((s) => s.clearSession)
   const closeSettings = useSettingsStore((s) => s.closeModal)
-  const clearDraft = useChatStore((s) => s.clearDraft)
+  const resetSession = useChatStore((s) => s.resetSession)
 
   useEffect(() => {
     void check()
@@ -28,11 +28,11 @@ export default function App() {
     function expireSession() {
       clearSession()
       closeSettings()
-      clearDraft()
+      resetSession()
     }
     window.addEventListener(AUTH_EXPIRED_EVENT, expireSession)
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, expireSession)
-  }, [clearSession, closeSettings, clearDraft])
+  }, [clearSession, closeSettings, resetSession])
 
   if (isChecking) {
     return (
@@ -49,12 +49,12 @@ export default function App() {
 function Workspace() {
   const [panelOpen, setPanelOpen] = useState(true)
   const [branchModalOpen, setBranchModalOpen] = useState(false)
-  const loadChats = useChatStore((s) => s.loadChats)
+  const openDefaultChat = useChatStore((s) => s.openDefaultChat)
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
 
   useEffect(() => {
-    void loadChats()
-  }, [loadChats])
+    void openDefaultChat()
+  }, [openDefaultChat])
 
   // 블록을 고르면 편집할 곳이 보여야 한다
   useEffect(() => {

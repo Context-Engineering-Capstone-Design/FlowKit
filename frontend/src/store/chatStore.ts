@@ -44,6 +44,8 @@ interface ChatState {
   isSending: boolean
   isRefining: boolean
   isCreatingBranch: boolean
+  /** 로그인 직후 기본 대화를 여는 중인지. 빈 화면이 잠깐 보이지 않게 한다. */
+  isOpeningDefaultChat: boolean
   error: string | null
   /** 값이 바뀔 때마다 입력창에 포커스를 옮긴다 (REQ-004) */
   focusSignal: number
@@ -59,6 +61,10 @@ interface ChatState {
 
   loadChats: (keyword?: string) => Promise<void>
   newChat: () => Promise<void>
+  /** 로그인·새로고침 후 작업 화면에 들어오면 바로 빈 대화를 연다. */
+  openDefaultChat: () => Promise<void>
+  /** 로그아웃·세션 만료 때 이전 사용자의 대화 상태를 비운다. */
+  resetSession: () => void
   openChat: (chatId: string, branchId?: string) => Promise<void>
   switchBranch: (branchId: string) => Promise<void>
   toggleBlock: (blockId: string) => void
@@ -118,6 +124,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isSending: false,
   isRefining: false,
   isCreatingBranch: false,
+  isOpeningDefaultChat: false,
   highlightedBlockId: null,
   error: null,
   focusSignal: 0,
@@ -141,14 +148,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   async newChat() {
     if (!confirmDraftDiscard(get())) return
+    await createFreshChat(set, get)
+  },
+
+  async openDefaultChat() {
+    if (get().chatId || get().isOpeningDefaultChat) return
+    set({ isOpeningDefaultChat: true, error: null })
     try {
-      get().clearDraft()
-      applyDetail(set, await chatApi.createChat())
-      set((s) => ({ focusSignal: s.focusSignal + 1 }))
-      await get().loadChats()
-    } catch (e) {
-      set({ error: toErrorMessage(e) })
+      await createFreshChat(set, get)
+    } finally {
+      set({ isOpeningDefaultChat: false })
     }
+  },
+
+  resetSession() {
+    get().clearDraft()
+    set({
+      chats: [],
+      nextCursor: null,
+      chatId: null,
+      chatTitle: '',
+      branchId: null,
+      branches: [],
+      blocks: [],
+      sourceContext: [],
+      selectedBlockIds: [],
+      appliedBlockIds: [],
+      refineJob: null,
+      inlineView: {},
+      ratings: {},
+      versionsByBlock: {},
+      isSending: false,
+      isRefining: false,
+      isCreatingBranch: false,
+      isOpeningDefaultChat: false,
+      highlightedBlockId: null,
+      error: null,
+      models: [],
+      selectedModelId: null,
+      webSearchEnabled: false,
+      isModelListLoading: false,
+      pendingByBlockId: {},
+      failedJobsByBlockId: {},
+    })
   },
 
   async loadInputAssist() {
@@ -600,6 +642,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ error: null })
   },
 }))
+
+async function createFreshChat(
+  set: (partial: Partial<ChatState>) => void,
+  get: () => ChatState,
+) {
+  try {
+    get().clearDraft()
+    applyDetail(set, await chatApi.createChat())
+    set({ focusSignal: get().focusSignal + 1 })
+    await get().loadChats()
+  } catch (e) {
+    set({ error: toErrorMessage(e) })
+  }
+}
 
 function applyDetail(
   set: (partial: Partial<ChatState>) => void,

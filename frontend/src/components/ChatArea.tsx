@@ -18,6 +18,7 @@ interface Props {
 export function ChatArea({ panelOpen, onTogglePanel, onCreateBranch }: Props) {
   const chatTitle = useChatStore((s) => s.chatTitle)
   const chatId = useChatStore((s) => s.chatId)
+  const isOpeningDefaultChat = useChatStore((s) => s.isOpeningDefaultChat)
   const blocks = useChatStore((s) => s.blocks)
   const refineJob = useChatStore((s) => s.refineJob)
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
@@ -73,7 +74,9 @@ export function ChatArea({ panelOpen, onTogglePanel, onCreateBranch }: Props) {
       <SourceContextBanner />
 
       <div className="flex-1 overflow-y-auto pb-4">
-        {!chatId && <EmptyState />}
+        {!chatId && (
+          <EmptyState isOpening={isOpeningDefaultChat} />
+        )}
         {blocks.map((b) => (
           <MessageBlockItem
             key={b.blockId}
@@ -92,14 +95,16 @@ export function ChatArea({ panelOpen, onTogglePanel, onCreateBranch }: Props) {
   )
 }
 
-function EmptyState() {
+function EmptyState({ isOpening }: { isOpening: boolean }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
       <p className="text-[15px] font-semibold text-txt-1">
-        새 채팅을 시작해보세요
+        {isOpening ? '대화를 여는 중…' : '새 채팅을 시작해보세요'}
       </p>
       <p className="text-[12.5px] text-txt-3">
-        왼쪽 위 버튼으로 새 대화를 만들 수 있습니다
+        {isOpening
+          ? '잠시만 기다려 주세요'
+          : '왼쪽 위 버튼으로 새 대화를 만들 수 있습니다'}
       </p>
     </div>
   )
