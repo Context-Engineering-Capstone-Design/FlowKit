@@ -6,6 +6,7 @@ import { ContextPanel } from '@/components/ContextPanel'
 import { LoginScreen } from '@/components/LoginScreen'
 import { Sidebar } from '@/components/Sidebar'
 import { UserProfileModal } from '@/components/UserProfileModal'
+import { Toast } from '@/components/Toast'
 import { AUTH_EXPIRED_EVENT } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { useChatStore } from '@/store/chatStore'
@@ -75,6 +76,7 @@ function Workspace() {
       )}
       <UserProfileModal />
       <ApiKeyModal />
+      <Toast />
     </div>
   )
 }
