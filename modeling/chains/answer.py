@@ -12,6 +12,10 @@ from modeling.prompts import answer as prompt
 from modeling.types import AnswerRequest, AnswerResult, SearchSource
 
 
+class EmptyAnswerError(ValueError):
+    """모델이 빈 응답을 돌려줬을 때 (AI-ANSWER-003)."""
+
+
 def build_messages(request: AnswerRequest) -> list[BaseMessage]:
     """모델에 넣을 메시지를 만든다 (AI-ANSWER-001, 002).
 
@@ -80,10 +84,10 @@ def generate_answer(
         )
 
     response = model.invoke(build_messages(request))
-    return AnswerResult(
-        text=_text_of(response).strip(),
-        search_sources=extract_sources(response),
-    )
+    text = _text_of(response).strip()
+    if not text:
+        raise EmptyAnswerError("모델이 빈 응답을 돌려줬습니다.")
+    return AnswerResult(text=text, search_sources=extract_sources(response))
 
 
 def _text_of(response) -> str:

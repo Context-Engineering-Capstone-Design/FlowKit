@@ -12,8 +12,8 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from modeling.chains.answer import build_messages, generate_answer
-from modeling.chains.refine import refine_blocks
+from modeling.chains.answer import EmptyAnswerError, build_messages, generate_answer
+from modeling.chains.refine import EmptyRefineResultError, refine_blocks
 from modeling.chains.title import generate_title
 from modeling.config import MAX_TITLE_LENGTH
 from modeling.types import AnswerRequest, ChatTurn, RefineTarget
@@ -96,6 +96,13 @@ def test_refine_requires_instruction():
         )
 
 
+def test_refine_rejects_empty_result():
+    with pytest.raises(EmptyRefineResultError):
+        refine_blocks(
+            [RefineTarget("b1", "assistant", "원문")], "요약", model=fake_model("   ")
+        )
+
+
 # ── 제목 생성 ──────────────────────────────────────────────────────────────
 
 
@@ -172,3 +179,9 @@ def test_generate_answer_strips_output():
 def test_generate_answer_requires_prompt():
     with pytest.raises(ValueError):
         generate_answer(AnswerRequest("  ", [], []), model=fake_model("답변"))
+
+
+def test_generate_answer_rejects_empty_response():
+    request = AnswerRequest("질문", [], [])
+    with pytest.raises(EmptyAnswerError):
+        generate_answer(request, model=fake_model("   "))

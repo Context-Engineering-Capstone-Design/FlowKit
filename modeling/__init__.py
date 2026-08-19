@@ -7,8 +7,8 @@ from modeling.attachments import (
     AttachmentNotReadableError,
     AttachmentNotSupportedError,
 )
-from modeling.chains.answer import generate_answer
-from modeling.chains.refine import refine_blocks
+from modeling.chains.answer import EmptyAnswerError, generate_answer
+from modeling.chains.refine import EmptyRefineResultError, refine_blocks
 from modeling.chains.title import generate_title
 from modeling.llm import (
     MissingApiKeyError,
@@ -42,6 +42,8 @@ __all__ = [
     "WebSearchNotSupportedError",
     "AttachmentNotReadableError",
     "AttachmentNotSupportedError",
+    "EmptyAnswerError",
+    "EmptyRefineResultError",
     "AnswerRequest",
     "AnswerResult",
     "Attachment",

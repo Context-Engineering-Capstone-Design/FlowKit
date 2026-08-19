@@ -14,6 +14,10 @@ from modeling.types import RefineResult, RefineTarget
 _ROLE_LABEL = {"user": "사용자 질문", "assistant": "AI 답변"}
 
 
+class EmptyRefineResultError(ValueError):
+    """모델이 특정 블록에 빈 정제 결과를 돌려줬을 때 (AI-REFINE-004)."""
+
+
 def build_refine_chain(model: BaseChatModel):
     template = ChatPromptTemplate.from_messages(
         [("system", prompt.SYSTEM), ("human", prompt.HUMAN)]
@@ -53,7 +57,10 @@ def refine_blocks(
     ]
 
     outputs = chain.batch(inputs)
-    return [
+    results = [
         RefineResult(block_id=t.block_id, refined_content=out.strip())
         for t, out in zip(targets, outputs, strict=True)
     ]
+    if any(not r.refined_content for r in results):
+        raise EmptyRefineResultError("모델이 빈 정제 결과를 돌려줬습니다.")
+    return results

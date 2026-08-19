@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.exceptions import AiInputSnapshotIncompleteError, AiInputSnapshotNotFoundError, AiJobNotFoundError, AiJobNotRetryableError, AppError, ValidationError
 from app.models import AiResponseFeedback, AiResponseJob, AiResponseJobStatus, AiResponseJobType, AiResponseRating, Branch, Chat, MessageBlock, MessageRole, User, VersionSourceType
 from app.services import chat_service, context_service, input_assist_service, message_service, user_setting_service
+from modeling import EmptyAnswerError
 
 class AiResponseFailedError(AppError):
     status_code = 502
@@ -126,7 +127,7 @@ def _classify_error(exc):
     n = exc.__class__.__name__.lower()
     if "timeout" in n: return "AI_TIMEOUT", "AI 응답 시간이 초과되었습니다."
     if "rate" in n or "quota" in n: return "AI_RATE_LIMITED", "AI 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
-    if isinstance(exc, ValueError) and str(exc) == "empty": return "AI_RESPONSE_EMPTY", "AI 답변이 비어 있습니다."
+    if isinstance(exc, EmptyAnswerError) or (isinstance(exc, ValueError) and str(exc) == "empty"): return "AI_RESPONSE_EMPTY", "AI 답변이 비어 있습니다."
     return "AI_PROVIDER_ERROR", "AI 응답을 생성하지 못했습니다."
 
 def _legacy_regenerate(db, user, chat, branch, block, api_key, answerer):
