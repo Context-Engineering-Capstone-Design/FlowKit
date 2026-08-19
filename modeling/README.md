@@ -48,7 +48,9 @@ DB 모델을 참조하지 않고 위 데이터 구조로만 주고받는다. 그
 
 ## 모델
 
-`gemini-3.6-flash` 를 쓴다. `gemini-2.5-flash` 는 신규 사용자에게 더 이상 열리지 않아 404 가 난다.
+쓸 수 있는 모델은 `config.py` 의 `MODELS` 에 정의한다. 현재는 `gemini-3.6-flash` 하나이고 이것이 기본값이다. `gemini-2.5-flash` 는 신규 사용자에게 더 이상 열리지 않아 404 가 난다.
+
+목록에 모델을 더할 때는 실제 키로 호출해 보고 검색·첨부 지원 여부까지 확인한 뒤 넣는다. 확인하지 않은 모델을 넣으면 사용자가 고른 뒤에야 실패한다.
 
 이 모델은 온도(temperature) 같은 샘플링 값을 고정으로 쓰므로 지정하지 않는다. 넘겨도 무시되고 경고만 남는다.
 
@@ -65,9 +67,26 @@ for m in client.models.list():
 
 | 기능 | 함수 | 관련 명세 |
 | --- | --- | --- |
-| 블록별 정제 | `refine_blocks(targets, instruction)` | BE-REFINE-002 |
-| 채팅 제목 생성 | `generate_title(user_prompt)` | BE-CHAT-004 |
-| 답변 생성 | `generate_answer(request)` | BE-AIRESP-001 |
+| 블록별 정제 | `refine_blocks(targets, instruction, api_key=..., model_id=...)` | AI-REFINE-002 |
+| 채팅 제목 생성 | `generate_title(user_prompt, api_key=...)` | AI-TITLE-001 |
+| 답변 생성 | `generate_answer(request, api_key=...)` | AI-ANSWER-003 |
+| 모델 목록 조회 | `available_models()` | AI-CORE-001 |
+| 모델 선택값 확정 | `resolve_model(model_id)` | AI-CORE-002 |
+| API 키 연결 확인 | `check_connection(api_key)` | AI-CORE-006 |
+
+### API 키는 요청마다 받는다
+
+사용자가 자기 키를 등록해 쓰는 구조라, 키를 모듈 전체가 공유하는 값으로 두지 않는다. 호출할 때마다 `api_key` 로 넘긴다.
+
+`configure()` 는 키가 넘어오지 않았을 때 쓰는 예비 값이다. 백엔드에 사용자 키 저장소가 붙으면 없앤다.
+
+### 답변 생성은 결과 객체를 돌려준다
+
+`generate_answer` 는 글자가 아니라 `AnswerResult` 를 돌려준다. 본문은 `.text`, 웹 검색 근거는 `.search_sources` 다. 검색을 켜도 모델이 검색을 쓰지 않으면 근거는 비어 있고, 그것을 실패로 보지 않는다.
+
+### 첨부는 종류에 따라 다르게 넣는다
+
+이미지는 글자로 바꾸지 않고 그대로 싣는다. PDF 와 텍스트 파일은 글자를 뽑아 질문 앞에 파일 이름과 함께 붙인다. 글자를 뽑지 못하면 조용히 넘기지 않고 오류를 낸다. 넘기면 사용자는 첨부가 반영된 줄 알고 답을 받기 때문이다.
 
 ### 정제는 블록마다 따로 호출한다
 

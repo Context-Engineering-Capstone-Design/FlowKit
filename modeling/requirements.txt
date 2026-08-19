@@ -5,4 +5,6 @@ langchain-core>=1.5,<2
 langchain-google-genai>=4.3,<5
 langgraph>=1.2,<2
 pydantic>=2.7,<3
+# PDF 첨부에서 글자를 뽑는다 (AI-ATTACH-002).
+pypdf>=6.1,<7
 pytest>=8.0.0

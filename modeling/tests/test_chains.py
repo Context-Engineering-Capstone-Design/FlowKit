@@ -166,7 +166,7 @@ def test_empty_context_entries_are_ignored():
 
 def test_generate_answer_strips_output():
     request = AnswerRequest("질문", [], [])
-    assert generate_answer(request, model=fake_model("  답변  ")) == "답변"
+    assert generate_answer(request, model=fake_model("  답변  ")).text == "답변"
 
 
 def test_generate_answer_requires_prompt():

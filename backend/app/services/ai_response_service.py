@@ -222,7 +222,10 @@ def _generate(
         message_flow=[ChatTurn(role=t.role.value, content=t.content) for t in flow],
         applied_context=[item.content for item in context_items],
     )
-    answer = (call(request) or "").strip()
+    # 모델링은 답변 본문과 검색 근거를 함께 돌려준다. 근거 저장은 아직 없어
+    # 본문만 쓴다. 테스트가 문자열을 돌려주는 가짜 함수를 넣는 경우도 받는다.
+    result = call(request)
+    answer = (getattr(result, "text", result) or "").strip()
     if not answer:
         raise ValueError("답변이 비어 있습니다.")
     return answer

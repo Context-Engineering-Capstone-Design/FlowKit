@@ -13,6 +13,7 @@ dependencies = [
     "langchain-google-genai>=4.3,<5",
     "langgraph>=1.2,<2",
     "pydantic>=2.7,<3",
+    "pypdf>=6.1,<7",
 ]
 
 # 패키지 폴더가 곧 프로젝트 루트다 (modeling/ 안에 __init__.py 가 있다).
