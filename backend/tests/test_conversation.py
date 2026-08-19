@@ -80,6 +80,12 @@ def test_send_creates_question_and_answer(client, auth, chat, captured):
     assert body["userBlock"]["content"] == "파이프라이닝이 뭐야?"
     assert body["assistantBlock"]["role"] == "assistant"
     assert body["assistantBlock"]["content"] == "답변(1)"
+    assert body["actionMeta"] == {
+        "actionType": "message_send",
+        "successCode": "MESSAGE_SENT",
+        "message": "메시지를 보내고 답변을 생성했습니다.",
+        "affectedResourceId": body["assistantBlock"]["blockId"],
+    }
 
 
 def test_blocks_are_in_order(client, auth, chat, captured):
@@ -146,6 +152,7 @@ def test_feedback_can_be_saved_changed_and_cleared(client, auth, chat, captured)
     assert liked.status_code == 200
     assert liked.json()["rating"] == "like"
     assert liked.json()["updatedAt"] is not None
+    assert liked.json()["actionMeta"]["successCode"] == "AI_RESPONSE_FEEDBACK_UPDATED"
 
     disliked = client.put(url, json={"rating": "dislike"}, headers=auth)
     assert disliked.status_code == 200
@@ -154,6 +161,7 @@ def test_feedback_can_be_saved_changed_and_cleared(client, auth, chat, captured)
     loaded = client.get(url, headers=auth)
     assert loaded.status_code == 200
     assert loaded.json()["rating"] == "dislike"
+    assert "actionMeta" not in loaded.json()
 
     cleared = client.put(url, json={"rating": None}, headers=auth)
     assert cleared.status_code == 200
@@ -350,6 +358,12 @@ def test_regenerate_adds_version_to_same_block(client, auth, chat, captured):
     assert again["blockId"] == block_id
     assert again["versionNo"] == 2
     assert again["content"] == "답변(2)"
+    assert again["actionMeta"] == {
+        "actionType": "ai_response_regenerate",
+        "successCode": "AI_RESPONSE_REGENERATED",
+        "message": "답변을 다시 생성했습니다.",
+        "affectedResourceId": block_id,
+    }
 
     versions = client.get(f"{base}/versions", headers=auth).json()
     assert [v["content"] for v in versions] == ["답변(1)", "답변(2)"]
@@ -399,6 +413,7 @@ def test_failed_job_can_retry_without_duplicate_question(client, auth, chat, mon
     job_id = failed.json()["detail"]["aiResponseJobId"]
     retried = client.post(f"{msg_url(chat).removesuffix('/messages')}/ai-response-jobs/{job_id}/retry", headers=auth)
     assert retried.status_code == 201
+    assert retried.json()["actionMeta"]["successCode"] == "AI_RESPONSE_RETRY_SUCCEEDED"
     detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth).json()
     assert [block["content"] for block in detail["messageBlocks"]] == ["복구할 질문", "복구 답변"]
 

@@ -17,8 +17,11 @@ export async function fetchChats(params?: {
   cursor?: string
   limit?: number
   keyword?: string
-}): Promise<ChatListResponse> {
-  const { data } = await api.get<ChatListResponse>('/api/chats', { params })
+}, signal?: AbortSignal): Promise<ChatListResponse> {
+  const { data } = await api.get<ChatListResponse>('/api/chats', {
+    params,
+    signal,
+  })
   return data
 }
 

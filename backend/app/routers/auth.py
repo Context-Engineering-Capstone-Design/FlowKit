@@ -11,11 +11,14 @@ from app.exceptions import DevLoginUnavailableError
 from app.schemas.auth import (
     AuthStatusResponse,
     GoogleLoginRequest,
+    LogoutResponse,
     RefreshRequest,
     TokenResponse,
     UpdateProfileRequest,
+    UpdateProfileResponse,
     UserProfile,
 )
+from app.schemas.notification import ActionMeta
 from app.services import auth_service
 from app.services.google_auth import GoogleUser, verify_google_id_token
 from app.settings import get_settings
@@ -54,6 +57,12 @@ def google_login(payload: GoogleLoginRequest, db: DbSession) -> TokenResponse:
         expires_at=expires_at,
         user=UserProfile.model_validate(user),
         is_new_user=is_new_user,
+        action_meta=ActionMeta(
+            action_type="auth_login",
+            success_code="AUTH_LOGIN_SUCCEEDED",
+            message="로그인했습니다.",
+            affected_resource_id=user.id,
+        ),
     )
 
 
@@ -73,6 +82,12 @@ def dev_login(request: Request, db: DbSession) -> TokenResponse:
         expires_at=expires_at,
         user=UserProfile.model_validate(user),
         is_new_user=is_new_user,
+        action_meta=ActionMeta(
+            action_type="auth_login",
+            success_code="AUTH_LOGIN_SUCCEEDED",
+            message="로그인했습니다.",
+            affected_resource_id=user.id,
+        ),
     )
 
 
@@ -87,6 +102,12 @@ def refresh(payload: RefreshRequest, db: DbSession) -> TokenResponse:
         refresh_token=refresh_token,
         expires_at=expires_at,
         user=UserProfile.model_validate(user),
+        action_meta=ActionMeta(
+            action_type="auth_session_refresh",
+            success_code="AUTH_SESSION_REFRESHED",
+            message="로그인 세션을 갱신했습니다.",
+            affected_resource_id=user.id,
+        ),
     )
 
 
@@ -96,10 +117,10 @@ def me(user: CurrentUser) -> UserProfile:
     return UserProfile.model_validate(user)
 
 
-@router.patch("/me", response_model=UserProfile)
+@router.patch("/me", response_model=UpdateProfileResponse)
 def update_me(
     payload: UpdateProfileRequest, user: CurrentUser, db: DbSession
-) -> UserProfile:
+) -> UpdateProfileResponse:
     """BE-AUTH-008: 계정 기본 정보 수정."""
     updated = auth_service.update_profile(
         db,
@@ -109,14 +130,31 @@ def update_me(
         memo=payload.memo,
         memo_present="memo" in payload.model_fields_set,
     )
-    return UserProfile.model_validate(updated)
+    profile = UserProfile.model_validate(updated)
+    return UpdateProfileResponse(
+        **profile.model_dump(),
+        action_meta=ActionMeta(
+            action_type="profile_update",
+            success_code="PROFILE_UPDATED",
+            message="프로필을 수정했습니다.",
+            affected_resource_id=updated.id,
+        ),
+    )
 
 
-@router.post("/logout")
-def logout(user: CurrentUser, db: DbSession) -> dict[str, bool]:
+@router.post("/logout", response_model=LogoutResponse)
+def logout(user: CurrentUser, db: DbSession) -> LogoutResponse:
     """BE-AUTH-009: 현재 사용자의 refreshToken 전체 무효화."""
     auth_service.logout(db, user.id)
-    return {"logoutSuccess": True}
+    return LogoutResponse(
+        logout_success=True,
+        action_meta=ActionMeta(
+            action_type="auth_logout",
+            success_code="AUTH_LOGOUT_SUCCEEDED",
+            message="로그아웃했습니다.",
+            affected_resource_id=user.id,
+        ),
+    )
 
 
 def _is_loopback_request(request: Request) -> bool:

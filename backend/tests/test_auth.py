@@ -94,6 +94,8 @@ def test_google_login_creates_user_and_issues_tokens(client, stub_google, db_ses
     assert body["isNewUser"] is True
     assert body["accessToken"] and body["refreshToken"]
     assert body["user"]["email"] == GOOGLE_USER.email
+    assert body["actionMeta"]["successCode"] == "AUTH_LOGIN_SUCCEEDED"
+    assert body["actionMeta"]["affectedResourceId"] == body["user"]["userId"]
 
     users = db_session.scalars(select(User)).all()
     assert len(users) == 1
@@ -211,6 +213,7 @@ def test_update_profile(client, stub_google):
     assert res.status_code == 200
     assert res.json()["name"] == "새이름"
     assert res.json()["memo"] == "메모"
+    assert res.json()["actionMeta"]["successCode"] == "PROFILE_UPDATED"
 
     cleared = client.patch("/api/auth/me", json={"memo": None}, headers=headers)
     assert cleared.status_code == 200
@@ -242,6 +245,7 @@ def test_refresh_rotates_token(client, stub_google):
     new_body = res.json()
     assert new_body["refreshToken"] != body["refreshToken"]
     assert new_body["user"]["email"] == GOOGLE_USER.email
+    assert new_body["actionMeta"]["successCode"] == "AUTH_SESSION_REFRESHED"
 
 
 def test_old_refresh_token_is_revoked_immediately(client, stub_google):
@@ -298,7 +302,14 @@ def test_logout_invalidates_refresh_tokens(client, stub_google):
         headers={"Authorization": f"Bearer {body['accessToken']}"},
     )
     assert res.status_code == 200
-    assert res.json() == {"logoutSuccess": True}
+    logout = res.json()
+    assert logout["logoutSuccess"] is True
+    assert logout["actionMeta"] == {
+        "actionType": "auth_logout",
+        "successCode": "AUTH_LOGOUT_SUCCEEDED",
+        "message": "로그아웃했습니다.",
+        "affectedResourceId": body["user"]["userId"],
+    }
 
     res = client.post("/api/auth/refresh", json={"refreshToken": body["refreshToken"]})
     assert res.status_code == 401

@@ -16,6 +16,13 @@ export function ErrorBanner() {
       <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red" />
       <div className="min-w-0 flex-1">
         <p className="text-[12.5px] text-txt-0">{banner.message}</p>
+        {banner.details.length > 0 && (
+          <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-txt-1">
+            {banner.details.map((detail, index) => (
+              <li key={`${index}-${detail}`}>{detail}</li>
+            ))}
+          </ul>
+        )}
         {banner.traceId && (
           <p className="mt-1 truncate text-[10.5px] text-txt-3">
             추적 ID: {banner.traceId}
@@ -33,7 +40,7 @@ export function ErrorBanner() {
       )}
       <button
         type="button"
-        onClick={dismiss}
+        onClick={() => dismiss()}
         aria-label="오류 안내 닫기"
         className="shrink-0 rounded p-1 text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"
       >

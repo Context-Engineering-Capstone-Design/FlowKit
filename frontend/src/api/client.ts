@@ -13,6 +13,7 @@ import type { ApiError, TokenResponse } from '@/types/api'
 const ACCESS_KEY = 'flowkit_access_token'
 const REFRESH_KEY = 'flowkit_refresh_token'
 export const AUTH_EXPIRED_EVENT = 'flowkit:auth-expired'
+let authExpirationNotified = false
 
 export const tokenStore = {
   get access() {
@@ -24,6 +25,7 @@ export const tokenStore = {
   save(accessToken: string, refreshToken: string) {
     localStorage.setItem(ACCESS_KEY, accessToken)
     localStorage.setItem(REFRESH_KEY, refreshToken)
+    authExpirationNotified = false
   },
   clear() {
     localStorage.removeItem(ACCESS_KEY)
@@ -53,7 +55,10 @@ let refreshing: Promise<string | null> | null = null
 
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = tokenStore.refresh
-  if (!refreshToken) return null
+  if (!refreshToken) {
+    notifyAuthExpired()
+    return null
+  }
 
   try {
     const { data } = await axios.post<TokenResponse>(
@@ -63,10 +68,16 @@ async function refreshAccessToken(): Promise<string | null> {
     tokenStore.save(data.accessToken, data.refreshToken)
     return data.accessToken
   } catch {
-    tokenStore.clear()
-    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+    notifyAuthExpired()
     return null
   }
+}
+
+function notifyAuthExpired() {
+  tokenStore.clear()
+  if (authExpirationNotified) return
+  authExpirationNotified = true
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
 }
 
 api.interceptors.response.use(

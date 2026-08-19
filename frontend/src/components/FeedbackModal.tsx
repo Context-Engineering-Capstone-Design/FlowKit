@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { submitFeedback } from '@/api/feedback'
-import { toErrorMessage } from '@/api/client'
+import { errorCode, toErrorMessage } from '@/api/client'
+import { withRequestTimeout } from '@/lib/requestTimeout'
 import { useChatStore } from '@/store/chatStore'
 import { useNotificationStore } from '@/store/notificationStore'
 import type {
@@ -27,6 +28,7 @@ export function FeedbackModal({ onClose, contextInfo }: FeedbackModalProps) {
   const [content, setContent] = useState('')
   const [busy, setBusy] = useState(false)
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
+  const latestRequestId = useRef<string | null>(null)
 
   const safeContext = useMemo<ServiceFeedbackContext>(
     () => ({
@@ -59,18 +61,32 @@ export function FeedbackModal({ onClose, contextInfo }: FeedbackModalProps) {
 
     setBusy(true)
     setValidationMessage(null)
+    let requestId: string | null = null
     try {
-      const result = await submitFeedback(type, trimmed, safeContext)
-      dismissBanner()
+      const result = await withRequestTimeout(async ({ signal, requestId: id }) => {
+        requestId = id
+        latestRequestId.current = id
+        return submitFeedback(type, trimmed, safeContext, signal)
+      })
+      if (latestRequestId.current !== requestId) return
+      dismissBanner('feedback')
       setType('usability')
       setContent('')
       if (result.actionMeta) showAction(result.actionMeta)
       else showToast({ message: '피드백을 제출했습니다.', kind: 'success' })
       onClose()
     } catch (error) {
+      if (requestId && latestRequestId.current !== requestId) return
       const message = toErrorMessage(error)
       setValidationMessage(message)
-      showError(error, { message })
+      showError(error, {
+        message,
+        scope: 'feedback',
+        action:
+          errorCode(error) === 'REQUEST_TIMEOUT'
+            ? { label: '다시 시도', run: () => void send() }
+            : undefined,
+      })
     } finally {
       setBusy(false)
     }

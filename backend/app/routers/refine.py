@@ -13,7 +13,9 @@ from app.schemas.refine import (
     BulkRefineFailure,
     BulkRefineResponse,
     CleanupResponse,
+    RefineJobMutationResponse,
     RefineJobResponse,
+    RefineResultMutationOut,
     RefineResultOut,
     RunRefineRequest,
 )
@@ -55,6 +57,26 @@ def _job_response(db, job: BlockRefineJob) -> RefineJobResponse:
     )
 
 
+def _result_mutation(
+    result: BlockRefineResult,
+    job: BlockRefineJob,
+    *,
+    action_type: str,
+    success_code: str,
+    message: str,
+) -> RefineResultMutationOut:
+    response = _result_out(result, job)
+    return RefineResultMutationOut(
+        **response.model_dump(),
+        action_meta=ActionMeta(
+            action_type=action_type,
+            success_code=success_code,
+            message=message,
+            affected_resource_id=result.id,
+        ),
+    )
+
+
 def _bulk_response(
     *,
     action_type: str,
@@ -91,20 +113,29 @@ def _bulk_response(
     )
 
 
-@router.post("", response_model=RefineJobResponse, status_code=201)
+@router.post("", response_model=RefineJobMutationResponse, status_code=201)
 def run_refine(
     chat_id: uuid.UUID,
     branch_id: uuid.UUID,
     payload: RunRefineRequest,
     user: CurrentUser,
     db: DbSession,
-) -> RefineJobResponse:
+) -> RefineJobMutationResponse:
     """BE-REFINE-001~003: 선택 블록을 각각 정제하고 결과를 대기 상태로 저장한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.run_refine(
         db, user, chat, branch, payload.selected_block_ids, payload.instruction_text
     )
-    return _job_response(db, job)
+    response = _job_response(db, job)
+    return RefineJobMutationResponse(
+        **response.model_dump(),
+        action_meta=ActionMeta(
+            action_type="refine_run",
+            success_code="REFINE_COMPLETED",
+            message="선택한 메시지의 정제 결과를 만들었습니다.",
+            affected_resource_id=job.id,
+        ),
+    )
 
 
 @router.get("/{job_id}", response_model=RefineJobResponse)
@@ -121,7 +152,10 @@ def get_job(
     return _job_response(db, job)
 
 
-@router.post("/{job_id}/results/{result_id}/approve", response_model=RefineResultOut)
+@router.post(
+    "/{job_id}/results/{result_id}/approve",
+    response_model=RefineResultMutationOut,
+)
 def approve(
     chat_id: uuid.UUID,
     branch_id: uuid.UUID,
@@ -129,15 +163,24 @@ def approve(
     result_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
-) -> RefineResultOut:
+) -> RefineResultMutationOut:
     """BE-REFINE-005: 승인 즉시 정제본을 새 버전으로 반영한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     result = refine_service.get_result(db, job, result_id)
-    return _result_out(refine_service.approve(db, chat, branch, result), job)
+    approved = refine_service.approve(db, chat, branch, result)
+    return _result_mutation(
+        approved,
+        job,
+        action_type="refine_result_approve",
+        success_code="REFINE_RESULT_APPROVED",
+        message="정제 결과를 반영했습니다.",
+    )
 
 
-@router.post("/{job_id}/results/{result_id}/reject", response_model=RefineResultOut)
+@router.post(
+    "/{job_id}/results/{result_id}/reject", response_model=RefineResultMutationOut
+)
 def reject(
     chat_id: uuid.UUID,
     branch_id: uuid.UUID,
@@ -145,12 +188,19 @@ def reject(
     result_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
-) -> RefineResultOut:
+) -> RefineResultMutationOut:
     """BE-REFINE-006: 거절. 원본 활성 버전은 그대로 둔다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     result = refine_service.get_result(db, job, result_id)
-    return _result_out(refine_service.reject(db, result), job)
+    rejected = refine_service.reject(db, result)
+    return _result_mutation(
+        rejected,
+        job,
+        action_type="refine_result_reject",
+        success_code="REFINE_RESULT_REJECTED",
+        message="정제 결과를 거절했습니다.",
+    )
 
 
 @router.post("/{job_id}/approve-all", response_model=BulkRefineResponse)
@@ -206,6 +256,14 @@ def cleanup(
     """BE-REFINE-010: 패널을 닫을 때 남은 미승인 결과를 정리한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
+    cleaned_count = refine_service.cleanup_unapproved(db, job)
     return CleanupResponse(
-        refine_job_id=job.id, cleaned_count=refine_service.cleanup_unapproved(db, job)
+        refine_job_id=job.id,
+        cleaned_count=cleaned_count,
+        action_meta=ActionMeta(
+            action_type="refine_cleanup",
+            success_code="REFINE_CLEANED_UP",
+            message=f"{cleaned_count}개 미승인 결과를 정리했습니다.",
+            affected_resource_id=job.id,
+        ),
     )

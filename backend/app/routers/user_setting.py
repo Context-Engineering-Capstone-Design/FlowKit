@@ -7,6 +7,7 @@ from app.schemas.auth import UserProfile
 from app.schemas.notification import ActionMeta
 from app.schemas.service_feedback import FeedbackRequest, FeedbackResponse
 from app.schemas.user_setting import (
+    ApiKeyMutationResponse,
     ApiKeyStatus,
     DeleteApiKeyResponse,
     SaveApiKeyRequest,
@@ -47,16 +48,25 @@ def get_settings(user: CurrentUser, db: DbSession) -> UserSettingResponse:
     )
 
 
-@router.put("/api-keys/{provider}", response_model=ApiKeyStatus)
+@router.put("/api-keys/{provider}", response_model=ApiKeyMutationResponse)
 def save_api_key(
     provider: str,
     payload: SaveApiKeyRequest,
     user: CurrentUser,
     db: DbSession,
-) -> ApiKeyStatus:
+) -> ApiKeyMutationResponse:
     """BE-USERSET-003: 사용자 키를 암호화해 저장하거나 갱신한다."""
     record = user_setting_service.save_api_key(db, user, provider, payload.api_key)
-    return _api_key_status(record)
+    status = _api_key_status(record)
+    return ApiKeyMutationResponse(
+        **status.model_dump(),
+        action_meta=ActionMeta(
+            action_type="api_key_saved",
+            success_code="API_KEY_SAVED",
+            message="API 키를 저장했습니다.",
+            affected_resource_id=record.id,
+        ),
+    )
 
 
 @router.delete("/api-keys/{provider}", response_model=DeleteApiKeyResponse)
@@ -67,17 +77,32 @@ def delete_api_key(
     provider = user_setting_service.validate_provider(provider)
     user_setting_service.delete_api_key(db, user, provider)
     return DeleteApiKeyResponse(
-        delete_success=True, api_key_status=_api_key_status(None, provider)
+        delete_success=True,
+        api_key_status=_api_key_status(None, provider),
+        action_meta=ActionMeta(
+            action_type="api_key_deleted",
+            success_code="API_KEY_DELETED",
+            message="API 키를 삭제했습니다.",
+        ),
     )
 
 
-@router.post("/api-keys/{provider}/check", response_model=ApiKeyStatus)
+@router.post("/api-keys/{provider}/check", response_model=ApiKeyMutationResponse)
 def check_api_key(
     provider: str, user: CurrentUser, db: DbSession
-) -> ApiKeyStatus:
+) -> ApiKeyMutationResponse:
     """BE-USERSET-005: 저장된 키로 Provider 연결을 확인한다."""
     record = user_setting_service.check_api_key_connection(db, user, provider)
-    return _api_key_status(record)
+    status = _api_key_status(record)
+    return ApiKeyMutationResponse(
+        **status.model_dump(),
+        action_meta=ActionMeta(
+            action_type="api_key_connection_check",
+            success_code="API_KEY_CONNECTION_CHECKED",
+            message="API 키 연결 상태를 확인했습니다.",
+            affected_resource_id=record.id,
+        ),
+    )
 
 
 @router.post("/feedback", response_model=FeedbackResponse, status_code=201)

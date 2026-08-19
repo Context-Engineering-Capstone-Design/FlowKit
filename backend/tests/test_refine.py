@@ -94,6 +94,12 @@ def test_refine_creates_one_pending_result_per_block(
     assert job["status"] == "completed"
     assert len(job["results"]) == len(blocks)
     assert {r["status"] for r in job["results"]} == {"pending"}
+    assert job["actionMeta"] == {
+        "actionType": "refine_run",
+        "successCode": "REFINE_COMPLETED",
+        "message": "선택한 메시지의 정제 결과를 만들었습니다.",
+        "affectedResourceId": job["refineJobId"],
+    }
 
 
 def test_each_result_matches_its_own_block(client, auth, chat, blocks, fake_ai):
@@ -218,6 +224,7 @@ def test_approve_applies_refined_content_and_keeps_history(
 
     assert approved["status"] == "approved"
     assert approved["approvedVersionId"]
+    assert approved["actionMeta"]["successCode"] == "REFINE_RESULT_APPROVED"
 
     detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
     contents = [b["content"] for b in detail.json()["messageBlocks"]]
@@ -282,6 +289,7 @@ def test_reject_leaves_original_untouched(client, auth, chat, blocks, fake_ai):
 
     assert rejected["status"] == "rejected"
     assert rejected["approvedVersionId"] is None
+    assert rejected["actionMeta"]["successCode"] == "REFINE_RESULT_REJECTED"
 
     detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
     assert detail.json()["messageBlocks"][0]["content"] == "원본0"
@@ -413,6 +421,12 @@ def test_cleanup_marks_pending_as_rejected(client, auth, chat, blocks, fake_ai):
         f"{jobs_url(chat)}/{job['refineJobId']}/cleanup", headers=auth
     ).json()
     assert res["cleanedCount"] == 2
+    assert res["actionMeta"] == {
+        "actionType": "refine_cleanup",
+        "successCode": "REFINE_CLEANED_UP",
+        "message": "2개 미승인 결과를 정리했습니다.",
+        "affectedResourceId": job["refineJobId"],
+    }
 
     after = client.get(f"{jobs_url(chat)}/{job['refineJobId']}", headers=auth).json()
     statuses = sorted(r["status"] for r in after["results"])

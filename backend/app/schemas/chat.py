@@ -6,6 +6,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import Branch, Chat, MessageBlock
+from app.schemas.notification import ActionMeta
 
 
 class ChatSummary(BaseModel):
@@ -104,6 +105,14 @@ class ChatDetailResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class CreateChatResponse(ChatDetailResponse):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
+class UpdateChatTitleResponse(ChatMeta):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
 class UpdateTitleRequest(BaseModel):
     generated_title: str = Field(..., alias="generatedTitle")
 
@@ -146,3 +155,7 @@ class CreateBranchRequest(BaseModel):
     edited_base_content: str | None = Field(None, alias="editedBaseContent")
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class CreateBranchResponse(BranchMeta):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")

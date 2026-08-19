@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from app.deps import CurrentUser, DbSession
 from app.models import MessageRole
 from app.schemas.message import (
+    BlockMutationResponse,
     BlockResponse,
     CreateBlockRequest,
     EditBlockRequest,
@@ -17,6 +18,7 @@ from app.schemas.message import (
     ValidateSelectionResponse,
     VersionResponse,
 )
+from app.schemas.notification import ActionMeta
 from app.services import branch_service, chat_service, message_service
 
 router = APIRouter(
@@ -30,20 +32,35 @@ def _load(db, user, chat_id: uuid.UUID, branch_id: uuid.UUID):
     return chat, branch
 
 
-@router.post("", response_model=BlockResponse, status_code=201)
+def _mutation_response(block, action_type: str, success_code: str, message: str):
+    response = BlockResponse.of(block)
+    return BlockMutationResponse(
+        **response.model_dump(),
+        action_meta=ActionMeta(
+            action_type=action_type,
+            success_code=success_code,
+            message=message,
+            affected_resource_id=block.id,
+        ),
+    )
+
+
+@router.post("", response_model=BlockMutationResponse, status_code=201)
 def create_block(
     chat_id: uuid.UUID,
     branch_id: uuid.UUID,
     payload: CreateBlockRequest,
     user: CurrentUser,
     db: DbSession,
-) -> BlockResponse:
+) -> BlockMutationResponse:
     """BE-MSG-001: 사용자 질문 또는 AI 응답을 블록으로 저장한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     block = message_service.create_block(
         db, chat, branch, MessageRole(payload.role), payload.content
     )
-    return BlockResponse.of(block)
+    return _mutation_response(
+        block, "message_block_create", "MESSAGE_BLOCK_CREATED", "메시지를 추가했습니다."
+    )
 
 
 @router.post("/validate", response_model=ValidateSelectionResponse)
@@ -64,7 +81,7 @@ def validate_selection(
     )
 
 
-@router.patch("/{block_id}", response_model=BlockResponse)
+@router.patch("/{block_id}", response_model=BlockMutationResponse)
 def edit_block(
     chat_id: uuid.UUID,
     branch_id: uuid.UUID,
@@ -72,13 +89,15 @@ def edit_block(
     payload: EditBlockRequest,
     user: CurrentUser,
     db: DbSession,
-) -> BlockResponse:
+) -> BlockMutationResponse:
     """BE-MSG-004: 수정본을 새 버전으로 저장하고 활성화한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     block = message_service.save_edit(
         db, chat, branch, block_id, payload.edited_content
     )
-    return BlockResponse.of(block)
+    return _mutation_response(
+        block, "message_block_update", "MESSAGE_BLOCK_UPDATED", "메시지를 수정했습니다."
+    )
 
 
 @router.get("/{block_id}/versions", response_model=list[VersionResponse])
@@ -96,7 +115,7 @@ def list_versions(
     return [VersionResponse.of(v, block.current_version_id) for v in versions]
 
 
-@router.patch("/{block_id}/version", response_model=BlockResponse)
+@router.patch("/{block_id}/version", response_model=BlockMutationResponse)
 def set_active_version(
     chat_id: uuid.UUID,
     branch_id: uuid.UUID,
@@ -104,10 +123,15 @@ def set_active_version(
     payload: SetActiveVersionRequest,
     user: CurrentUser,
     db: DbSession,
-) -> BlockResponse:
+) -> BlockMutationResponse:
     """BE-MSG-006: 활성 버전 변경. 되돌리기도 이 경로를 쓴다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     block = message_service.set_active_version(
         db, chat, branch, block_id, payload.target_version_id
     )
-    return BlockResponse.of(block)
+    return _mutation_response(
+        block,
+        "message_version_activate",
+        "MESSAGE_VERSION_ACTIVATED",
+        "메시지 버전을 변경했습니다.",
+    )

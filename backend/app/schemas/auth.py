@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.schemas.notification import ActionMeta
+
 
 class GoogleLoginRequest(BaseModel):
     id_token: str = Field(..., alias="idToken", description="Google SDK로 받은 ID 토큰")
@@ -35,6 +37,7 @@ class TokenResponse(BaseModel):
     expires_at: datetime = Field(..., serialization_alias="expiresAt")
     user: UserProfile
     is_new_user: bool = Field(False, serialization_alias="isNewUser")
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -43,6 +46,17 @@ class UpdateProfileRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
     email: EmailStr | None = None
     memo: str | None = None
+
+
+class UpdateProfileResponse(UserProfile):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
+class LogoutResponse(BaseModel):
+    logout_success: bool = Field(..., serialization_alias="logoutSuccess")
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class AuthStatusResponse(BaseModel):

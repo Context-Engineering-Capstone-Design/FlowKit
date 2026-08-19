@@ -9,6 +9,7 @@ export async function submitFeedback(
   feedbackType: ServiceFeedbackType,
   content: string,
   contextInfo?: ServiceFeedbackContext,
+  signal?: AbortSignal,
 ): Promise<ServiceFeedbackResponse> {
   const safeContext = contextInfo
     ? {
@@ -20,6 +21,7 @@ export async function submitFeedback(
   const { data } = await api.post<ServiceFeedbackResponse>(
     '/api/settings/feedback',
     { feedbackType, content, contextInfo: safeContext },
+    { signal },
   )
   return data
 }

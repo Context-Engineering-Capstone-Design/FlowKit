@@ -18,6 +18,8 @@ export interface ToastInput {
 
 export interface ErrorBannerInput {
   message?: string
+  scope?: string
+  details?: string[]
   action?: NotificationAction
 }
 
@@ -31,6 +33,8 @@ export interface ErrorBannerState {
   message: string
   errorCode: string | null
   traceId: string | null
+  scope: string | null
+  details: string[]
   action?: NotificationAction
 }
 
@@ -40,7 +44,7 @@ interface NotificationState {
   banner: ErrorBannerState | null
   toast: ToastState | null
   showError: (error: unknown, input?: ErrorBannerInput) => void
-  dismissBanner: () => void
+  dismissBanner: (scope?: string) => void
   showToast: (input: ToastInput) => void
   showAction: (actionMeta: ActionMeta, kind?: NoticeKind) => void
   clearToast: () => void
@@ -83,13 +87,17 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
           message: input?.message ?? toErrorMessage(error),
           errorCode: errorCode(error),
           traceId: errorTraceId(error),
+          scope: input?.scope ?? null,
+          details: (input?.details ?? []).filter(Boolean).slice(0, 20),
           action: input?.action,
         },
       })
     },
 
-    dismissBanner() {
-      set({ banner: null })
+    dismissBanner(scope) {
+      set((state) =>
+        !scope || state.banner?.scope === scope ? { banner: null } : state,
+      )
     },
 
     showToast(input) {

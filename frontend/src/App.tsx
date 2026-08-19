@@ -10,10 +10,10 @@ import { Toast } from '@/components/Toast'
 import { AppErrorBoundary } from '@/components/AppErrorBoundary'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { reportClientError } from '@/lib/errorReporting'
+import { handleAuthExpired } from '@/lib/authExpiration'
 import { AUTH_EXPIRED_EVENT } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { useChatStore } from '@/store/chatStore'
-import { useSettingsStore } from '@/store/settingsStore'
 import { useNotificationStore } from '@/store/notificationStore'
 
 // 앱 최상단 틀 — 로그인 여부에 따라 로그인 화면 또는 3단 작업 화면을 보여준다
@@ -21,11 +21,8 @@ export default function App() {
   const user = useAuthStore((s) => s.user)
   const isChecking = useAuthStore((s) => s.isChecking)
   const check = useAuthStore((s) => s.check)
-  const clearSession = useAuthStore((s) => s.clearSession)
-  const closeSettings = useSettingsStore((s) => s.closeModal)
-  const resetSession = useChatStore((s) => s.resetSession)
-  const showNotification = useNotificationStore((s) => s.show)
   const showError = useNotificationStore((s) => s.showError)
+  const dismissBanner = useNotificationStore((s) => s.dismissBanner)
   const chatError = useChatStore((s) => s.error)
 
   useEffect(() => {
@@ -33,21 +30,16 @@ export default function App() {
   }, [check])
 
   useEffect(() => {
-    function expireSession() {
-      clearSession()
-      closeSettings()
-      resetSession()
-      showNotification('세션이 만료되었습니다. 다시 로그인해주세요.', 'info')
-    }
-    window.addEventListener(AUTH_EXPIRED_EVENT, expireSession)
-    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, expireSession)
-  }, [clearSession, closeSettings, resetSession, showNotification])
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+  }, [])
 
   useEffect(() => { const onError = (event: ErrorEvent) => reportClientError('window_error', event.error ?? event.message, { page: window.location.pathname }); const onReject = (event: PromiseRejectionEvent) => reportClientError('unhandled_rejection', event.reason, { page: window.location.pathname }); window.addEventListener('error', onError); window.addEventListener('unhandledrejection', onReject); return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onReject) } }, [])
 
   useEffect(() => {
-    if (chatError) showError(chatError, { message: chatError })
-  }, [chatError, showError])
+    if (chatError) showError(chatError, { message: chatError, scope: 'chat' })
+    else dismissBanner('chat')
+  }, [chatError, dismissBanner, showError])
 
   if (isChecking) {
     return (

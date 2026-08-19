@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models import (
+    Branch,
     Chat,
     MessageBlock,
     MessageBlockVersion,
@@ -74,6 +75,12 @@ def test_create_chat_returns_initial_state(chat):
     assert chat["messageBlocks"] == []
     assert len(chat["branchList"]) == 1
     assert chat["branchList"][0]["isActive"] is True
+    assert chat["actionMeta"] == {
+        "actionType": "chat_create",
+        "successCode": "CHAT_CREATED",
+        "message": "새 채팅을 만들었습니다.",
+        "affectedResourceId": chat["chatMeta"]["chatId"],
+    }
 
 
 def test_create_chat_requires_auth(client):
@@ -147,6 +154,7 @@ def test_update_title(client, auth, chat):
     )
     assert res.status_code == 200
     assert res.json()["title"] == "파이프라이닝 정리"
+    assert res.json()["actionMeta"]["successCode"] == "CHAT_TITLE_UPDATED"
 
 
 @pytest.mark.parametrize("bad", ["", "   ", "줄바꿈\n포함", "x" * 201])
@@ -225,6 +233,12 @@ def test_create_branch_does_not_copy_messages(client, auth, chat_with_blocks, db
     )
     assert res.status_code == 201, res.text
     new_branch_id = res.json()["branchId"]
+    assert res.json()["actionMeta"] == {
+        "actionType": "branch_create",
+        "successCode": "BRANCH_CREATED",
+        "message": "새 브랜치를 만들었습니다.",
+        "affectedResourceId": new_branch_id,
+    }
 
     # 새 브랜치에는 자기 블록이 하나도 없어야 한다 (참조형)
     import uuid as _uuid
@@ -427,3 +441,83 @@ def test_edited_branch_keeps_original_block_unchanged(client, auth, chat_with_bl
     assert main["messageBlocks"][1]["content"] == "메인 블록 1"
     child = client.get(f"/api/chats/{chat_id}/branches/{created.json()['branchId']}", headers=auth).json()
     assert [b["content"] for b in child["messageBlocks"]] == ["메인 블록 0", "새 브랜치에서만 보이는 수정본"]
+
+
+def test_edited_branch_rejects_block_that_is_not_a_branch_point(
+    client, auth, chat_with_blocks, db_session
+):
+    import uuid as _uuid
+
+    chat, blocks = chat_with_blocks
+    chat_id = chat["chatMeta"]["chatId"]
+    child = client.post(
+        f"/api/chats/{chat_id}/branches",
+        json={
+            "branchName": "기준 브랜치",
+            "baseBranchId": chat["branchMeta"]["branchId"],
+            "baseMessageBlockId": str(blocks[1].id),
+            "contextBlockIds": [],
+        },
+        headers=auth,
+    ).json()
+    child_only_block = _add_block(
+        db_session,
+        _uuid.UUID(chat_id),
+        _uuid.UUID(child["branchId"]),
+        2,
+        "하위 브랜치 전용 블록",
+    )
+
+    response = client.post(
+        f"/api/chats/{chat_id}/branches",
+        json={
+            "branchName": "잘못된 수정본 분기",
+            "baseBranchId": chat["branchMeta"]["branchId"],
+            "baseMessageBlockId": str(child_only_block.id),
+            "contextBlockIds": [],
+            "editedBaseContent": "적용되면 안 되는 수정본",
+        },
+        headers=auth,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["errorCode"] == "MESSAGE_BLOCK_NOT_FOUND"
+
+
+def test_edited_branch_rolls_back_copy_when_creation_fails(
+    chat_with_blocks, db_session, monkeypatch
+):
+    import uuid as _uuid
+
+    from app.services import branch_service
+
+    chat, blocks = chat_with_blocks
+    chat_model = db_session.get(Chat, _uuid.UUID(chat["chatMeta"]["chatId"]))
+    user = db_session.scalar(select(User).where(User.email == USER_A.email))
+    original_commit = db_session.commit
+
+    def fail_commit():
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(db_session, "commit", fail_commit)
+    with pytest.raises(RuntimeError, match="commit failed"):
+        branch_service.create_branch(
+            db_session,
+            user,
+            chat_model,
+            branch_name="실패할 수정본 분기",
+            base_branch_id=_uuid.UUID(chat["branchMeta"]["branchId"]),
+            base_message_block_id=blocks[1].id,
+            context_block_ids=[],
+            edited_base_content="남으면 안 되는 수정본",
+        )
+    monkeypatch.setattr(db_session, "commit", original_commit)
+
+    assert db_session.scalar(
+        select(Branch).where(Branch.name == "실패할 수정본 분기")
+    ) is None
+    assert db_session.scalar(
+        select(MessageBlockVersion).where(
+            MessageBlockVersion.content == "남으면 안 되는 수정본"
+        )
+    ) is None

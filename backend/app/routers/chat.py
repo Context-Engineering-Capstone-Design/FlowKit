@@ -16,10 +16,14 @@ from app.schemas.chat import (
     ChatMeta,
     ChatSummary,
     CreateBranchRequest,
+    CreateBranchResponse,
+    CreateChatResponse,
     MessageBlockOut,
     SourceContextItem,
     UpdateTitleRequest,
+    UpdateChatTitleResponse,
 )
+from app.schemas.notification import ActionMeta
 from app.services import branch_service, chat_service
 
 router = APIRouter(prefix="/api/chats", tags=["Chat"])
@@ -35,15 +39,21 @@ def _branch_list(db, chat, active_branch_id: uuid.UUID) -> list[BranchListItem]:
     ]
 
 
-@router.post("", response_model=ChatDetailResponse, status_code=201)
-def create_chat(user: CurrentUser, db: DbSession) -> ChatDetailResponse:
+@router.post("", response_model=CreateChatResponse, status_code=201)
+def create_chat(user: CurrentUser, db: DbSession) -> CreateChatResponse:
     """BE-CHAT-001, 002: 새 채팅 + Main 브랜치 생성 후 초기 화면 상태를 돌려준다."""
     chat, main_branch = chat_service.create_chat_with_main_branch(db, user)
-    return ChatDetailResponse(
+    return CreateChatResponse(
         chat_meta=ChatMeta.of(chat),
         branch_meta=BranchMeta.of(main_branch),
         message_blocks=[],
         branch_list=_branch_list(db, chat, main_branch.id),
+        action_meta=ActionMeta(
+            action_type="chat_create",
+            success_code="CHAT_CREATED",
+            message="새 채팅을 만들었습니다.",
+            affected_resource_id=chat.id,
+        ),
     )
 
 
@@ -87,17 +97,26 @@ def get_chat(
     )
 
 
-@router.patch("/{chat_id}/title", response_model=ChatMeta)
+@router.patch("/{chat_id}/title", response_model=UpdateChatTitleResponse)
 def update_title(
     chat_id: uuid.UUID,
     payload: UpdateTitleRequest,
     user: CurrentUser,
     db: DbSession,
-) -> ChatMeta:
+) -> UpdateChatTitleResponse:
     """BE-CHAT-004: AI가 생성한 제목을 검증 후 저장한다."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
     updated = chat_service.update_title(db, chat, payload.generated_title)
-    return ChatMeta.of(updated)
+    meta = ChatMeta.of(updated)
+    return UpdateChatTitleResponse(
+        **meta.model_dump(),
+        action_meta=ActionMeta(
+            action_type="chat_title_update",
+            success_code="CHAT_TITLE_UPDATED",
+            message="채팅 제목을 수정했습니다.",
+            affected_resource_id=updated.id,
+        ),
+    )
 
 
 @router.get("/{chat_id}/branches", response_model=list[BranchListItem])
@@ -126,13 +145,15 @@ def get_branch(
     )
 
 
-@router.post("/{chat_id}/branches", response_model=BranchMeta, status_code=201)
+@router.post(
+    "/{chat_id}/branches", response_model=CreateBranchResponse, status_code=201
+)
 def create_branch(
     chat_id: uuid.UUID,
     payload: CreateBranchRequest,
     user: CurrentUser,
     db: DbSession,
-) -> BranchMeta:
+) -> CreateBranchResponse:
     """BE-BRANCH-003, 004, 005: 선택 Context 기반 브랜치 생성."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
     branch = branch_service.create_branch(
@@ -145,4 +166,13 @@ def create_branch(
         context_block_ids=payload.context_block_ids,
         edited_base_content=payload.edited_base_content,
     )
-    return BranchMeta.of(branch)
+    meta = BranchMeta.of(branch)
+    return CreateBranchResponse(
+        **meta.model_dump(),
+        action_meta=ActionMeta(
+            action_type="branch_create",
+            success_code="BRANCH_CREATED",
+            message="새 브랜치를 만들었습니다.",
+            affected_resource_id=branch.id,
+        ),
+    )

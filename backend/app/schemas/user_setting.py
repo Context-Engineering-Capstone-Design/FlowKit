@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.auth import UserProfile
+from app.schemas.notification import ActionMeta
 
 
 class ApiKeyStatus(BaseModel):
@@ -25,6 +26,10 @@ class UserSettingResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ApiKeyMutationResponse(ApiKeyStatus):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
 class SaveApiKeyRequest(BaseModel):
     api_key: str = Field(..., alias="apiKey", max_length=512)
 
@@ -34,5 +39,6 @@ class SaveApiKeyRequest(BaseModel):
 class DeleteApiKeyResponse(BaseModel):
     delete_success: bool = Field(..., serialization_alias="deleteSuccess")
     api_key_status: ApiKeyStatus = Field(..., serialization_alias="apiKeyStatus")
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 
     model_config = ConfigDict(populate_by_name=True)

@@ -6,8 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.message import BlockResponse
 from app.schemas.input_assist import AttachmentOut, SearchSourceOut
+from app.schemas.message import BlockResponse
+from app.schemas.notification import ActionMeta
 
 
 class SendMessageRequest(BaseModel):
@@ -45,6 +46,7 @@ class SendMessageResponse(BaseModel):
     search_sources: list[SearchSourceOut] = Field(..., serialization_alias="searchSources")
     ai_response_job_id: uuid.UUID = Field(..., serialization_alias="aiResponseJobId")
     job_status: str = Field(..., serialization_alias="jobStatus")
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -59,3 +61,7 @@ class FeedbackResponse(BaseModel):
     updated_at: datetime | None = Field(None, serialization_alias="updatedAt")
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class FeedbackMutationResponse(FeedbackResponse):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")

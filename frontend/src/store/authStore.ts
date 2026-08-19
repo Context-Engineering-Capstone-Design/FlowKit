@@ -37,7 +37,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: status.user, isChecking: false })
     } catch (e) {
       set({ user: null, isChecking: false, error: toErrorMessage(e) })
-      useNotificationStore.getState().showError(e)
+      if (tokenStore.access) {
+        useNotificationStore.getState().showError(e, { scope: 'auth' })
+      }
     }
   },
 
@@ -46,10 +48,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await authApi.loginWithGoogle(idToken)
       set({ user: res.user })
-      useNotificationStore.getState().dismissBanner()
+      useNotificationStore.getState().dismissBanner('auth')
+      useNotificationStore.getState().dismissBanner('auth-session')
     } catch (e) {
       set({ error: toErrorMessage(e) })
-      useNotificationStore.getState().showError(e)
+      useNotificationStore.getState().showError(e, { scope: 'auth' })
     }
   },
 
@@ -58,10 +61,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await authApi.loginForDevelopment()
       set({ user: res.user })
-      useNotificationStore.getState().dismissBanner()
+      useNotificationStore.getState().dismissBanner('auth')
+      useNotificationStore.getState().dismissBanner('auth-session')
     } catch (e) {
       set({ error: toErrorMessage(e) })
-      useNotificationStore.getState().showError(e)
+      useNotificationStore.getState().showError(e, { scope: 'auth' })
     }
   },
 
@@ -72,7 +76,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   clearSession() {
-    set({ user: null })
+    set({ user: null, error: null })
   },
 
   async logout() {
@@ -82,6 +86,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       // 토큰은 authApi.logout 내부에서 이미 지워졌다. 요청이 실패해도 화면은 로그인 상태로 되돌린다
     } finally {
       set({ user: null })
+      useNotificationStore.getState().dismissBanner('auth')
+      useNotificationStore.getState().dismissBanner('auth-session')
     }
   },
 }))

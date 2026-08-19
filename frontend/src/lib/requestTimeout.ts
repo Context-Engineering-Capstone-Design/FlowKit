@@ -30,8 +30,8 @@ export async function withRequestTimeout<T>(
 
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      controller.abort('request-timeout')
       reject(new RequestTimeoutError(timeoutMs))
+      controller.abort('request-timeout')
     }, timeoutMs)
   })
 

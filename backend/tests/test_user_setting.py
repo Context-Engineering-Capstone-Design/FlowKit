@@ -65,13 +65,20 @@ def test_save_encrypts_key_and_returns_only_masked_status(client, auth, db_sessi
     response = save_key(client, auth)
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert body == {
         "hasApiKey": True,
         "provider": "google",
         "last4": "7890",
         "connectedStatus": "unchecked",
         "checkedAt": None,
         "message": None,
+        "actionMeta": {
+            "actionType": "api_key_saved",
+            "successCode": "API_KEY_SAVED",
+            "message": "API 키를 저장했습니다.",
+            "affectedResourceId": body["actionMeta"]["affectedResourceId"],
+        },
     }
     record = db_session.scalar(select(UserApiKey))
     assert record is not None
@@ -149,6 +156,7 @@ def test_check_connection_saves_success_and_safe_failure_message(
     assert connected.status_code == 200
     assert connected.json()["connectedStatus"] == "connected"
     assert connected.json()["checkedAt"] is not None
+    assert connected.json()["actionMeta"]["successCode"] == "API_KEY_CONNECTION_CHECKED"
 
     monkeypatch.setattr(
         modeling,
@@ -187,6 +195,12 @@ def test_delete_removes_key_and_missing_delete_is_not_found(client, auth):
     assert deleted.status_code == 200
     assert deleted.json()["deleteSuccess"] is True
     assert deleted.json()["apiKeyStatus"]["hasApiKey"] is False
+    assert deleted.json()["actionMeta"] == {
+        "actionType": "api_key_deleted",
+        "successCode": "API_KEY_DELETED",
+        "message": "API 키를 삭제했습니다.",
+        "affectedResourceId": None,
+    }
     missing = client.delete("/api/settings/api-keys/google", headers=auth)
     assert missing.status_code == 404
     assert missing.json()["errorCode"] == "API_KEY_NOT_FOUND"

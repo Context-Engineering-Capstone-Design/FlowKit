@@ -38,7 +38,10 @@ describe('chatStore 화면 상태', () => {
     await useChatStore.getState().loadChats('검색어')
     await useChatStore.getState().loadMoreChats()
 
-    expect(chatApi.fetchChats).toHaveBeenLastCalledWith({ cursor: 'cursor-1', keyword: '검색어' })
+    expect(chatApi.fetchChats).toHaveBeenLastCalledWith(
+      { cursor: 'cursor-1', keyword: '검색어' },
+      expect.any(AbortSignal),
+    )
     expect(useChatStore.getState().chats.map((item) => item.chatId)).toEqual(['1', '2'])
   })
 

@@ -6,6 +6,7 @@ import * as inputAssistApi from '@/api/inputAssist'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useNotificationStore } from '@/store/notificationStore'
 import { useConfirmStore } from '@/store/confirmStore'
+import { withRequestTimeout } from '@/lib/requestTimeout'
 import type {
   AiResponseRating,
   BranchListItem,
@@ -19,6 +20,9 @@ import type {
   ModelOption,
   AiResponseFailureDetail,
 } from '@/types/api'
+
+let latestChatListRequestId: string | null = null
+let latestChatMoreRequestId: string | null = null
 
 interface ChatState {
   chats: ChatSummary[]
@@ -191,31 +195,59 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sourceNavigationError: null,
 
   async loadChats(keyword) {
-    set({ isLoadingChats: true, chatListError: null })
+    latestChatMoreRequestId = null
+    set({ isLoadingChats: true, isLoadingMoreChats: false, chatListError: null })
+    let requestId: string | null = null
     try {
-      const res = await chatApi.fetchChats({ keyword })
-      set({ chats: res.chats, nextCursor: res.nextCursor, chatListKeyword: keyword ?? '' })
+      const res = await withRequestTimeout(async ({ signal, requestId: id }) => {
+        requestId = id
+        latestChatListRequestId = id
+        const result = await chatApi.fetchChats({ keyword }, signal)
+        return { result, requestId: id }
+      })
+      if (latestChatListRequestId !== res.requestId) return
+      useNotificationStore.getState().dismissBanner('chat-list')
+      set({ chats: res.result.chats, nextCursor: res.result.nextCursor, chatListKeyword: keyword ?? '' })
     } catch (e) {
+      if (requestId && latestChatListRequestId !== requestId) return
       set({ chatListError: toErrorMessage(e) })
+      showChatError(e, 'chat-list', () => void get().loadChats(keyword))
     } finally {
-      set({ isLoadingChats: false })
+      if (!requestId || latestChatListRequestId === requestId) {
+        set({ isLoadingChats: false })
+      }
     }
   },
 
   async loadMoreChats() {
-    const { nextCursor, isLoadingMoreChats, chatListKeyword } = get()
-    if (!nextCursor || isLoadingMoreChats) return
+    const { nextCursor, isLoadingChats, isLoadingMoreChats, chatListKeyword } = get()
+    if (!nextCursor || isLoadingChats || isLoadingMoreChats) return
     set({ isLoadingMoreChats: true, chatListError: null })
+    let requestId: string | null = null
     try {
-      const res = await chatApi.fetchChats({ cursor: nextCursor, keyword: chatListKeyword || undefined })
+      const res = await withRequestTimeout(async ({ signal, requestId: id }) => {
+        requestId = id
+        latestChatMoreRequestId = id
+        const result = await chatApi.fetchChats(
+          { cursor: nextCursor, keyword: chatListKeyword || undefined },
+          signal,
+        )
+        return { result, requestId: id }
+      })
+      if (latestChatMoreRequestId !== res.requestId) return
+      useNotificationStore.getState().dismissBanner('chat-list')
       set((s) => ({
-        chats: [...s.chats, ...res.chats.filter((item) => !s.chats.some((chat) => chat.chatId === item.chatId))],
-        nextCursor: res.nextCursor,
+        chats: [...s.chats, ...res.result.chats.filter((item) => !s.chats.some((chat) => chat.chatId === item.chatId))],
+        nextCursor: res.result.nextCursor,
       }))
     } catch (e) {
+      if (requestId && latestChatMoreRequestId !== requestId) return
       set({ chatListError: toErrorMessage(e) })
+      showChatError(e, 'chat-list', () => void get().loadMoreChats())
     } finally {
-      set({ isLoadingMoreChats: false })
+      if (!requestId || latestChatMoreRequestId === requestId) {
+        set({ isLoadingMoreChats: false })
+      }
     }
   },
 
@@ -305,6 +337,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setContextInstruction(instruction) { set({ contextInstruction: instruction.slice(0, 2000) }) },
   focusContextInstruction() { set((s) => ({ contextInstructionFocusSignal: s.contextInstructionFocusSignal + 1 })) },
   openBranchModal(baseBlockId, editedBaseContent, sourceMode) {
+    useNotificationStore.getState().dismissBanner('branch')
     set((state) => ({
       branchDraft: {
         baseBlockId,
@@ -315,7 +348,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       branchError: null,
     }))
   },
-  closeBranchModal() { set({ branchDraft: null, branchError: null }) },
+  closeBranchModal() {
+    useNotificationStore.getState().dismissBanner('branch')
+    set({ branchDraft: null, branchError: null })
+  },
   openContextEditor(blockId) {
     set((s) => ({
       selectedBlockIds: s.selectedBlockIds.includes(blockId)
@@ -494,6 +530,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([id]) => id !== res.userBlock.blockId)),
       }))
       get().clearDraft()
+      useNotificationStore.getState().dismissBanner('api-key-required')
       useNotificationStore.getState().show('메시지를 전송했습니다.', 'success')
       if (res.titleGenerated) await get().loadChats()
     } catch (e) {
@@ -516,6 +553,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({ isSending: true, pendingByBlockId: { ...s.pendingByBlockId, [blockId]: true } }))
     try {
       const block = await convApi.regenerate(chatId, branchId, blockId)
+      useNotificationStore.getState().dismissBanner('api-key-required')
       set((s) => ({
         blocks: s.blocks.map((b) =>
           b.blockId === blockId ? { ...b, ...block } : b,
@@ -637,6 +675,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           job.results.map((r) => [r.blockId, 'refined' as const]),
         ),
       })
+      useNotificationStore.getState().dismissBanner('api-key-required')
       requestAnimationFrame(() => document.getElementById(`block-${job.results[0]?.blockId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
     } catch (e) {
       if (openApiKeyWhenMissing(e)) set({ error: null })
@@ -711,12 +750,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ...s.refineJob,
           results: s.refineJob.results.map((r) => processedById.get(r.resultId) ?? r),
         },
-        error:
-          failed.length > 0
-            ? `${failed.length}개 블록은 승인에 실패했습니다. 나머지 항목에서 다시 시도해주세요.`
-            : s.error,
+        error: null,
       }))
-      useNotificationStore.getState().show(actionMeta.message, failed.length ? 'warning' : 'success')
+      showBulkResult(actionMeta, failed, () => void get().approveAll())
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -728,8 +764,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const { processed, failed, actionMeta } = await convApi.rejectAll(chatId, branchId, refineJob.refineJobId)
       const byId = new Map(processed.map((item) => [item.resultId, item]))
-      set((s) => ({ refineJob: s.refineJob && { ...s.refineJob, results: s.refineJob.results.map((item) => byId.get(item.resultId) ?? item) }, error: failed.length ? `${failed.length}개 항목을 거절하지 못했습니다.` : s.error }))
-      useNotificationStore.getState().show(actionMeta.message, failed.length ? 'warning' : 'success')
+      set((s) => ({ refineJob: s.refineJob && { ...s.refineJob, results: s.refineJob.results.map((item) => byId.get(item.resultId) ?? item) }, error: null }))
+      showBulkResult(actionMeta, failed, () => void get().rejectAll())
     } catch (e) { set({ error: toErrorMessage(e) }) }
   },
 
@@ -773,9 +809,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const switched = await get().switchBranch(created.branchId)
       if (!switched) return false
       useNotificationStore.getState().show('브랜치를 만들었습니다.', 'success')
+      useNotificationStore.getState().dismissBanner('branch')
       return true
     } catch (e) {
       set({ branchError: toErrorMessage(e) })
+      showChatError(e, 'branch', () => void get().createBranch(name, baseBlockId, contextBlockIds, editedBaseContent))
       return false
     } finally {
       set({ isCreatingBranch: false })
@@ -891,10 +929,49 @@ async function refreshFeedbacks(
 
 function openApiKeyWhenMissing(error: unknown): boolean {
   if (errorCode(error) !== 'API_KEY_NOT_REGISTERED') return false
-  useSettingsStore
-    .getState()
-    .openApiKey('AI 기능을 사용하려면 먼저 Google AI API 키를 등록해주세요.')
+  const message = 'AI 기능을 사용하려면 먼저 Google AI API 키를 등록해주세요.'
+  useNotificationStore.getState().showError(error, {
+    message,
+    scope: 'api-key-required',
+    action: {
+      label: 'API 키 설정',
+      run: () => {
+        useNotificationStore.getState().dismissBanner('api-key-required')
+        useSettingsStore.getState().openApiKey(message)
+      },
+    },
+  })
   return true
+}
+
+function showChatError(error: unknown, scope: string, retry?: () => void) {
+  useNotificationStore.getState().showError(error, {
+    scope,
+    action:
+      retry && errorCode(error) === 'REQUEST_TIMEOUT'
+        ? { label: '다시 시도', run: retry }
+        : undefined,
+  })
+}
+
+function showBulkResult(
+  actionMeta: { message: string; successCode: string },
+  failed: { message: string }[],
+  retry: () => void,
+) {
+  const notifications = useNotificationStore.getState()
+  if (failed.length === 0) {
+    notifications.dismissBanner('bulk-refine')
+    notifications.show(actionMeta.message, 'success')
+    return
+  }
+  notifications.show(actionMeta.message, 'warning')
+  notifications.showError(new Error('bulk-refine-partial-failure'), {
+    message: '처리하지 못한 항목을 확인해주세요.',
+    scope: 'bulk-refine',
+    details: failed.map((item, index) => `${index + 1}. ${item.message}`),
+    action: { label: '실패 항목 다시 시도', run: retry },
+  })
 }
 
 async function confirmPendingDiscard(state: ChatState): Promise<boolean> {

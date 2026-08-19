@@ -156,46 +156,61 @@ def create_branch(
             "선택한 Context 블록을 찾을 수 없습니다.", detail={"blockIds": missing}
         )
 
-    branch = Branch(
-        chat_id=chat.id,
-        name=name,
-        branch_type=BranchType.CHILD,
-        parent_branch_id=base_branch.id,
-        base_message_block_id=base_message_block_id,
-    )
-    db.add(branch)
-    db.flush()
-
-    if edited:
-        from app.models import MessageBlockVersion, VersionSourceType
-        base = visible[base_message_block_id]
-        copy = MessageBlock(chat_id=chat.id, branch_id=branch.id, role=base.role, order_index=base.order_index)
-        db.add(copy)
-        db.flush()
-        version = MessageBlockVersion(block_id=copy.id, version_no=1, content=edited, source_type=VersionSourceType.USER_EDIT)
-        db.add(version)
-        db.flush()
-        copy.current_version_id = version.id
-
-    source_context = BranchSourceContext(
-        branch_id=branch.id, source_branch_id=base_branch.id
-    )
-    db.add(source_context)
-    db.flush()
-
-    for order, block_id in enumerate(context_block_ids):
-        db.add(
-            BranchSourceContextItem(
-                source_context_id=source_context.id,
-                source_message_block_id=block_id,
-                order_index=order,
-            )
+    try:
+        branch = Branch(
+            chat_id=chat.id,
+            name=name,
+            branch_type=BranchType.CHILD,
+            parent_branch_id=base_branch.id,
+            base_message_block_id=base_message_block_id,
         )
+        db.add(branch)
+        db.flush()
 
-    chat.last_activity_at = datetime.now(UTC)
-    db.commit()
-    db.refresh(branch)
-    return branch
+        if edited:
+            from app.models import MessageBlockVersion, VersionSourceType
+
+            base = visible[base_message_block_id]
+            copy = MessageBlock(
+                chat_id=chat.id,
+                branch_id=branch.id,
+                role=base.role,
+                order_index=base.order_index,
+            )
+            db.add(copy)
+            db.flush()
+            version = MessageBlockVersion(
+                block_id=copy.id,
+                version_no=1,
+                content=edited,
+                source_type=VersionSourceType.USER_EDIT,
+            )
+            db.add(version)
+            db.flush()
+            copy.current_version_id = version.id
+
+        source_context = BranchSourceContext(
+            branch_id=branch.id, source_branch_id=base_branch.id
+        )
+        db.add(source_context)
+        db.flush()
+
+        for order, block_id in enumerate(context_block_ids):
+            db.add(
+                BranchSourceContextItem(
+                    source_context_id=source_context.id,
+                    source_message_block_id=block_id,
+                    order_index=order,
+                )
+            )
+
+        chat.last_activity_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(branch)
+        return branch
+    except Exception:
+        db.rollback()
+        raise
 
 
 def build_source_context_info(db: Session, branch: Branch) -> list[dict]:

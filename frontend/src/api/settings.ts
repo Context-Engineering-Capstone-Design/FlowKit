@@ -5,28 +5,31 @@ import type {
   UserSettingResponse,
 } from '@/types/api'
 
-export async function fetchSettings(): Promise<UserSettingResponse> {
-  const { data } = await api.get<UserSettingResponse>('/api/settings')
+export async function fetchSettings(signal?: AbortSignal): Promise<UserSettingResponse> {
+  const { data } = await api.get<UserSettingResponse>('/api/settings', { signal })
   return data
 }
 
-export async function saveApiKey(apiKey: string): Promise<ApiKeyStatus> {
+export async function saveApiKey(apiKey: string, signal?: AbortSignal): Promise<ApiKeyStatus> {
   const { data } = await api.put<ApiKeyStatus>('/api/settings/api-keys/google', {
     apiKey,
-  })
+  }, { signal })
   return data
 }
 
-export async function deleteApiKey(): Promise<DeleteApiKeyResponse> {
+export async function deleteApiKey(signal?: AbortSignal): Promise<DeleteApiKeyResponse> {
   const { data } = await api.delete<DeleteApiKeyResponse>(
     '/api/settings/api-keys/google',
+    { signal },
   )
   return data
 }
 
-export async function checkApiKey(): Promise<ApiKeyStatus> {
+export async function checkApiKey(signal?: AbortSignal): Promise<ApiKeyStatus> {
   const { data } = await api.post<ApiKeyStatus>(
     '/api/settings/api-keys/google/check',
+    undefined,
+    { signal },
   )
   return data
 }

@@ -42,6 +42,14 @@ class RefineJobResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class RefineJobMutationResponse(RefineJobResponse):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
+class RefineResultMutationOut(RefineResultOut):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
 class BulkRefineFailure(BaseModel):
     """내부 예외 대신 리소스와 안전한 오류 코드·문구를 제공한다."""
 
@@ -68,5 +76,6 @@ class BulkRefineResponse(BaseModel):
 class CleanupResponse(BaseModel):
     refine_job_id: uuid.UUID = Field(..., serialization_alias="refineJobId")
     cleaned_count: int = Field(..., serialization_alias="cleanedCount")
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 
     model_config = ConfigDict(populate_by_name=True)

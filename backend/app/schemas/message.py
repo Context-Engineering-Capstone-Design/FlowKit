@@ -6,6 +6,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import MessageBlock, MessageBlockVersion
+from app.schemas.notification import ActionMeta
 
 
 class CreateBlockRequest(BaseModel):
@@ -66,6 +67,10 @@ class BlockResponse(BaseModel):
             order_index=block.order_index,
             created_at=block.created_at,
         )
+
+
+class BlockMutationResponse(BlockResponse):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 
 
 class VersionResponse(BaseModel):

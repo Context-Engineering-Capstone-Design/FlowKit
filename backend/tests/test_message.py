@@ -46,6 +46,12 @@ def test_create_block_starts_at_version_one(client, auth, chat):
     assert block["orderIndex"] == 0
     assert block["versionNo"] == 1
     assert block["currentVersionId"]
+    assert block["actionMeta"] == {
+        "actionType": "message_block_create",
+        "successCode": "MESSAGE_BLOCK_CREATED",
+        "message": "메시지를 추가했습니다.",
+        "affectedResourceId": block["blockId"],
+    }
 
 
 def test_order_index_increases(client, auth, chat):
@@ -88,6 +94,7 @@ def test_edit_adds_version_and_keeps_original(client, auth, chat):
     assert edited["content"] == "수정한 내용"
     assert edited["versionNo"] == 2
     assert edited["currentVersionId"] != block["currentVersionId"]
+    assert edited["actionMeta"]["successCode"] == "MESSAGE_BLOCK_UPDATED"
 
     versions = client.get(f"{url}/{block['blockId']}/versions", headers=auth).json()
     assert [v["content"] for v in versions] == ["원본 내용", "수정한 내용"]
@@ -113,6 +120,7 @@ def test_rollback_to_previous_version(client, auth, chat):
     ).json()
 
     assert restored["content"] == "원본 내용"
+    assert restored["actionMeta"]["successCode"] == "MESSAGE_VERSION_ACTIVATED"
     versions = client.get(f"{url}/{block['blockId']}/versions", headers=auth).json()
     assert len(versions) == 2
 

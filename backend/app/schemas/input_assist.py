@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.notification import ActionMeta
+
 
 class ModelOut(BaseModel):
     model_id: str = Field(..., serialization_alias="modelId")
@@ -25,6 +27,18 @@ class AttachmentOut(BaseModel):
     file_size: int = Field(..., serialization_alias="fileSize")
     status: str
     expires_at: datetime | None = Field(None, serialization_alias="expiresAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AttachmentMutationResponse(AttachmentOut):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
+class DeleteAttachmentResponse(BaseModel):
+    delete_success: bool = Field(..., serialization_alias="deleteSuccess")
+    attachment_id: uuid.UUID = Field(..., serialization_alias="attachmentId")
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 
     model_config = ConfigDict(populate_by_name=True)
 

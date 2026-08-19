@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { toErrorMessage } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useNotificationStore } from '@/store/notificationStore'
 
 // 사용자 정보 모달 — 이름·이메일·메모를 수정하고 전역 프로필을 갱신한다
 export function UserProfileModal() {
@@ -10,6 +11,9 @@ export function UserProfileModal() {
   const closeModal = useSettingsStore((state) => state.closeModal)
   const user = useAuthStore((state) => state.user)
   const updateProfile = useAuthStore((state) => state.updateProfile)
+  const showError = useNotificationStore((state) => state.showError)
+  const showToast = useNotificationStore((state) => state.showToast)
+  const dismissBanner = useNotificationStore((state) => state.dismissBanner)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [memo, setMemo] = useState('')
@@ -49,9 +53,12 @@ export function UserProfileModal() {
         email: email.trim(),
         memo: memo.trim() || null,
       })
+      dismissBanner('profile')
       setSaved(true)
+      showToast({ message: '사용자 정보를 저장했습니다.', kind: 'success' })
     } catch (submitError) {
       setError(toErrorMessage(submitError))
+      showError(submitError, { scope: 'profile' })
     } finally {
       setIsSaving(false)
     }

@@ -45,6 +45,12 @@ def test_upload_delete_and_send_attachment(client, auth, chat, monkeypatch):
     attachment = uploaded.json()
     assert attachment["status"] == "temporary"
     assert attachment["mimeType"] == "text/markdown"
+    assert attachment["actionMeta"] == {
+        "actionType": "attachment_upload",
+        "successCode": "ATTACHMENT_UPLOADED",
+        "message": "파일을 첨부했습니다.",
+        "affectedResourceId": attachment["attachmentId"],
+    }
 
     import modeling
     calls = []
@@ -62,6 +68,32 @@ def test_upload_delete_and_send_attachment(client, auth, chat, monkeypatch):
     deleted = client.delete(f"{attachment_url(chat)}/{attachment['attachmentId']}", headers=auth)
     assert deleted.status_code == 409
     assert deleted.json()["errorCode"] == "ATTACHMENT_ALREADY_USED"
+
+
+def test_delete_temporary_attachment_returns_compatible_success_body(
+    client, auth, chat
+):
+    created = client.post(
+        attachment_url(chat),
+        files={"file": ("delete-me.txt", b"temporary", "text/plain")},
+        headers=auth,
+    ).json()
+
+    response = client.delete(
+        f"{attachment_url(chat)}/{created['attachmentId']}", headers=auth
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "deleteSuccess": True,
+        "attachmentId": created["attachmentId"],
+        "actionMeta": {
+            "actionType": "attachment_delete",
+            "successCode": "ATTACHMENT_DELETED",
+            "message": "첨부 파일을 삭제했습니다.",
+            "affectedResourceId": created["attachmentId"],
+        },
+    }
 
 
 def test_rejects_path_filename_and_unallowed_bytes(client, auth, chat):
