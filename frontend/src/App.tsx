@@ -24,6 +24,7 @@ export default function App() {
   const showError = useNotificationStore((s) => s.showError)
   const dismissBanner = useNotificationStore((s) => s.dismissBanner)
   const chatError = useChatStore((s) => s.error)
+  const refineFailed = useChatStore((s) => s.refineFailed)
 
   useEffect(() => {
     void check()
@@ -37,9 +38,11 @@ export default function App() {
   useEffect(() => { const onError = (event: ErrorEvent) => reportClientError('window_error', event.error ?? event.message, { page: window.location.pathname }); const onReject = (event: PromiseRejectionEvent) => reportClientError('unhandled_rejection', event.reason, { page: window.location.pathname }); window.addEventListener('error', onError); window.addEventListener('unhandledrejection', onReject); return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onReject) } }, [])
 
   useEffect(() => {
+    // 정제 실패 사유는 Context 패널 안에 표시하므로 전역 배너로 중복 노출하지 않는다
+    if (refineFailed) { dismissBanner('chat'); return }
     if (chatError) showError(chatError, { message: chatError, scope: 'chat' })
     else dismissBanner('chat')
-  }, [chatError, dismissBanner, showError])
+  }, [chatError, dismissBanner, refineFailed, showError])
 
   if (isChecking) {
     return (

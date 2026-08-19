@@ -61,6 +61,7 @@ export function ApiKeyModal() {
     if (saved) {
       setApiKey('')
       setIsVisible(false)
+      closeModal()
     }
   }
 

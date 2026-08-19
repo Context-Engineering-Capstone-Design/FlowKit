@@ -138,6 +138,7 @@ function RefineForm() {
   const runRefine = useChatStore((s) => s.runRefine)
   const retryRefine = useChatStore((s) => s.retryRefine)
   const refineFailed = useChatStore((s) => s.refineFailed)
+  const refineError = useChatStore((s) => s.error)
   const refineJob = useChatStore((s) => s.refineJob)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -187,8 +188,18 @@ function RefineForm() {
         >
           {isRefining ? '정제 중…' : '블록별로 정제하기'}
         </button>
+        {!instruction.trim() && !isRefining && (
+          <p className="mt-1.5 text-[11px] text-txt-3">
+            편집 지시를 입력해야 정제할 수 있습니다.
+          </p>
+        )}
         {refineFailed && !isRefining && (
-          <button type="button" onClick={() => void retryRefine()} className="mt-1 w-full rounded-lg bg-bg-3 py-2 text-[12px] text-txt-1">같은 지시로 다시 시도</button>
+          <>
+            {refineError && (
+              <p className="mt-1.5 text-[11px] text-red">{refineError}</p>
+            )}
+            <button type="button" onClick={() => void retryRefine()} className="mt-1 w-full rounded-lg bg-bg-3 py-2 text-[12px] text-txt-1">같은 지시로 다시 시도</button>
+          </>
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-txt-3">
           선택한 블록을 각각 따로 정제합니다. 승인한 결과만 원본에 반영됩니다.

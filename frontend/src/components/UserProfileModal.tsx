@@ -19,7 +19,6 @@ export function UserProfileModal() {
   const [memo, setMemo] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     const currentUser = useAuthStore.getState().user
@@ -28,7 +27,6 @@ export function UserProfileModal() {
     setEmail(currentUser.email)
     setMemo(currentUser.memo ?? '')
     setError(null)
-    setSaved(false)
   }, [activeModal])
 
   useEffect(() => {
@@ -46,7 +44,6 @@ export function UserProfileModal() {
     event.preventDefault()
     setIsSaving(true)
     setError(null)
-    setSaved(false)
     try {
       await updateProfile({
         name: name.trim(),
@@ -54,7 +51,7 @@ export function UserProfileModal() {
         memo: memo.trim() || null,
       })
       dismissBanner('profile')
-      setSaved(true)
+      closeModal()
       showToast({ message: '사용자 정보를 저장했습니다.', kind: 'success' })
     } catch (submitError) {
       setError(toErrorMessage(submitError))
@@ -104,10 +101,7 @@ export function UserProfileModal() {
                 required
                 maxLength={100}
                 value={name}
-                onChange={(event) => {
-                  setName(event.target.value)
-                  setSaved(false)
-                }}
+                onChange={(event) => setName(event.target.value)}
                 className="w-full rounded-lg border border-line bg-bg-2 px-3 py-2.5 text-[13px] outline-none transition focus:border-blue"
               />
             </ModalField>
@@ -116,10 +110,7 @@ export function UserProfileModal() {
                 required
                 type="email"
                 value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value)
-                  setSaved(false)
-                }}
+                onChange={(event) => setEmail(event.target.value)}
                 className="w-full rounded-lg border border-line bg-bg-2 px-3 py-2.5 text-[13px] outline-none transition focus:border-blue"
               />
             </ModalField>
@@ -127,21 +118,13 @@ export function UserProfileModal() {
               <textarea
                 rows={3}
                 value={memo}
-                onChange={(event) => {
-                  setMemo(event.target.value)
-                  setSaved(false)
-                }}
+                onChange={(event) => setMemo(event.target.value)}
                 placeholder="프로필에 남길 메모를 입력하세요"
                 className="w-full resize-none rounded-lg border border-line bg-bg-2 px-3 py-2.5 text-[13px] outline-none transition placeholder:text-txt-3 focus:border-blue"
               />
             </ModalField>
 
             {error && <p className="text-[12px] text-red">{error}</p>}
-            {saved && (
-              <p className="text-[12px] text-green">
-                사용자 정보를 저장했습니다.
-              </p>
-            )}
           </div>
 
           <footer className="flex justify-end gap-2 border-t border-line px-5 py-4">
