@@ -12,6 +12,10 @@ export function Sidebar() {
   const newChat = useChatStore((s) => s.newChat)
   const openChat = useChatStore((s) => s.openChat)
   const switchBranch = useChatStore((s) => s.switchBranch)
+  const nextCursor = useChatStore((s) => s.nextCursor)
+  const isLoadingChats = useChatStore((s) => s.isLoadingChats)
+  const isLoadingMoreChats = useChatStore((s) => s.isLoadingMoreChats)
+  const loadMoreChats = useChatStore((s) => s.loadMoreChats)
 
   const [keyword, setKeyword] = useState('')
 
@@ -54,8 +58,8 @@ export function Sidebar() {
 
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         <SectionLabel>최근 대화</SectionLabel>
-        {chats.length === 0 && (
-          <p className="px-2 py-1 text-[12px] text-txt-3">대화가 없습니다</p>
+        {chats.length === 0 && !isLoadingChats && (
+          <p className="px-2 py-1 text-[12px] text-txt-3">{keyword ? '검색 결과가 없습니다' : '대화가 없습니다'}</p>
         )}
         {chats.map((c) => (
           <button
@@ -71,6 +75,16 @@ export function Sidebar() {
             {c.title}
           </button>
         ))}
+        {nextCursor && (
+          <button
+            type="button"
+            onClick={() => void loadMoreChats()}
+            disabled={isLoadingMoreChats}
+            className="mt-1 w-full rounded-md px-2 py-2 text-[11px] text-txt-2 hover:bg-bg-2 disabled:opacity-40"
+          >
+            {isLoadingMoreChats ? '불러오는 중…' : '대화 더 보기'}
+          </button>
+        )}
 
         {branches.length > 0 && (
           <>

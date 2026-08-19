@@ -20,7 +20,7 @@ _bearer = HTTPBearer(auto_error=False)
 BearerCreds = Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
 
 
-def get_current_user(creds: BearerCreds, db: DbSession) -> User:
+def get_current_user(request: Request, creds: BearerCreds, db: DbSession) -> User:
     if creds is None:
         raise UnauthorizedError()
 
@@ -28,6 +28,7 @@ def get_current_user(creds: BearerCreds, db: DbSession) -> User:
     user = db.get(User, user_id)
     if user is None:
         raise UserNotFoundError()
+    request.state.user_id = user.id
     return user
 
 
@@ -41,7 +42,10 @@ def get_current_user_optional(request: Request, db: DbSession) -> User | None:
         user_id = decode_access_token(token)
     except Exception:
         return None
-    return db.get(User, user_id)
+    user = db.get(User, user_id)
+    if user is not None:
+        request.state.user_id = user.id
+    return user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]

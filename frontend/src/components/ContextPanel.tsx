@@ -127,11 +127,18 @@ function SelectedBlocks() {
 
 // 빠른 편집 버튼과 자연어 편집 지시 입력 (REQ-024, REQ-025)
 function RefineForm() {
-  const [instruction, setInstruction] = useState('')
+  const instruction = useChatStore((s) => s.contextInstruction)
+  const setInstruction = useChatStore((s) => s.setContextInstruction)
+  const focusSignal = useChatStore((s) => s.contextInstructionFocusSignal)
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
   const isRefining = useChatStore((s) => s.isRefining)
   const runRefine = useChatStore((s) => s.runRefine)
   const refineJob = useChatStore((s) => s.refineJob)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    textareaRef.current?.focus()
+  }, [focusSignal])
 
   if (selectedCount === 0 || refineJob) return null
 
@@ -144,7 +151,10 @@ function RefineForm() {
             <button
               key={q}
               type="button"
-              onClick={() => setInstruction(q)}
+            onClick={() => {
+              setInstruction(q)
+              textareaRef.current?.focus()
+            }}
               className="rounded-full bg-bg-2 px-2.5 py-1 text-[11px] text-txt-1 transition hover:bg-bg-3 hover:text-txt-0"
             >
               {q}
@@ -156,8 +166,10 @@ function RefineForm() {
       <section className="pt-5">
         <SectionLabel>AI 편집 지시</SectionLabel>
         <textarea
+          ref={textareaRef}
           value={instruction}
           onChange={(e) => setInstruction(e.target.value)}
+          maxLength={2000}
           rows={3}
           placeholder="어떻게 정리할지 적어주세요"
           className="mt-2 w-full resize-none rounded-lg bg-bg-2 p-2.5 text-[12.5px] text-txt-0 outline-none placeholder:text-txt-3"

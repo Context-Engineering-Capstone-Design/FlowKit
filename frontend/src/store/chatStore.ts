@@ -21,6 +21,8 @@ import type {
 interface ChatState {
   chats: ChatSummary[]
   nextCursor: string | null
+  isLoadingChats: boolean
+  isLoadingMoreChats: boolean
 
   chatId: string | null
   chatTitle: string
@@ -58,8 +60,13 @@ interface ChatState {
   isModelListLoading: boolean
   pendingByBlockId: Record<string, boolean>
   failedJobsByBlockId: Record<string, string>
+  /** 패널을 닫았다 열어도 유지되는 Context 정제 지시문. */
+  contextInstruction: string
+  contextInstructionFocusSignal: number
+  branchDraft: { baseBlockId: string; editedBaseContent?: string } | null
 
   loadChats: (keyword?: string) => Promise<void>
+  loadMoreChats: () => Promise<void>
   newChat: () => Promise<void>
   /** 로그인·새로고침 후 작업 화면에 들어오면 바로 빈 대화를 연다. */
   openDefaultChat: () => Promise<void>
@@ -104,11 +111,17 @@ interface ChatState {
   uploadAttachment: (localId: string) => Promise<void>
   clearDraft: () => void
   retryAiResponseJob: (jobId: string) => Promise<void>
+  setContextInstruction: (instruction: string) => void
+  focusContextInstruction: () => void
+  openBranchModal: (baseBlockId: string, editedBaseContent?: string) => void
+  closeBranchModal: () => void
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   chats: [],
   nextCursor: null,
+  isLoadingChats: false,
+  isLoadingMoreChats: false,
   chatId: null,
   chatTitle: '',
   branchId: null,
@@ -136,13 +149,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isModelListLoading: false,
   pendingByBlockId: {},
   failedJobsByBlockId: {},
+  contextInstruction: '',
+  contextInstructionFocusSignal: 0,
+  branchDraft: null,
 
   async loadChats(keyword) {
+    set({ isLoadingChats: true })
     try {
       const res = await chatApi.fetchChats({ keyword })
       set({ chats: res.chats, nextCursor: res.nextCursor })
     } catch (e) {
       set({ error: toErrorMessage(e) })
+    } finally {
+      set({ isLoadingChats: false })
+    }
+  },
+
+  async loadMoreChats() {
+    const { nextCursor, isLoadingMoreChats } = get()
+    if (!nextCursor || isLoadingMoreChats) return
+    set({ isLoadingMoreChats: true })
+    try {
+      const res = await chatApi.fetchChats({ cursor: nextCursor })
+      set((s) => ({
+        chats: [...s.chats, ...res.chats.filter((item) => !s.chats.some((chat) => chat.chatId === item.chatId))],
+        nextCursor: res.nextCursor,
+      }))
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+    } finally {
+      set({ isLoadingMoreChats: false })
     }
   },
 
@@ -190,6 +226,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isModelListLoading: false,
       pendingByBlockId: {},
       failedJobsByBlockId: {},
+      contextInstruction: '',
+      contextInstructionFocusSignal: 0,
+      branchDraft: null,
     })
   },
 
@@ -213,6 +252,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setDraftText(text) { set({ draftText: text }) },
+
+  setContextInstruction(instruction) { set({ contextInstruction: instruction.slice(0, 2000) }) },
+  focusContextInstruction() { set((s) => ({ contextInstructionFocusSignal: s.contextInstructionFocusSignal + 1 })) },
+  openBranchModal(baseBlockId, editedBaseContent) { set({ branchDraft: { baseBlockId, editedBaseContent } }) },
+  closeBranchModal() { set({ branchDraft: null }) },
 
   setSelectedModel(modelId) {
     const model = get().models.find((item) => item.modelId === modelId)
@@ -299,6 +343,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         inlineView: {},
         ratings: {},
         versionsByBlock: {},
+        contextInstruction: '',
         branches: get().branches.map((b) => ({
           ...b,
           isActive: b.branchId === branchId,
@@ -622,9 +667,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     set({ highlightedBlockId: item.sourceMessageBlockId })
 
-    document
-      .getElementById(`block-${item.sourceMessageBlockId}`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // 브랜치 전환 뒤 새 블록 목록이 렌더링된 다음에 위치를 찾는다.
+    requestAnimationFrame(() => {
+      const target = document.getElementById(`block-${item.sourceMessageBlockId}`)
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      else set({ error: '원본 메시지를 찾을 수 없습니다.' })
+    })
 
     // 강조는 잠깐만 남긴다. 계속 켜두면 어디를 보라는 건지 흐려진다
     setTimeout(() => {
@@ -673,7 +721,8 @@ function applyDetail(
     refineJob: null,
     inlineView: {},
     ratings: {},
-    versionsByBlock: {},
+        versionsByBlock: {},
+        contextInstruction: '',
     error: null,
     draftText: '',
     draftAttachments: [],

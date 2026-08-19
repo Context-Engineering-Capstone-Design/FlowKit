@@ -13,6 +13,9 @@ from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.db import SessionLocal
+from app.models import ErrorLog
+
 
 class AppError(Exception):
     status_code = 500
@@ -244,6 +247,29 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
     trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
+    _record_unexpected_error(request, trace_id, exc)
     response = JSONResponse(status_code=500, content={"errorCode": "INTERNAL_ERROR", "message": "서버 오류가 발생했습니다.", "detail": None, "traceId": trace_id})
     response.headers["X-Trace-Id"] = trace_id
     return response
+
+
+def _record_unexpected_error(request: Request, trace_id: str, exc: Exception) -> None:
+    """오류 기록 실패가 원래 요청의 오류 응답을 가리지 않게 한다."""
+    try:
+        with SessionLocal() as db:
+            db.add(
+                ErrorLog(
+                    trace_id=trace_id,
+                    user_id=getattr(request.state, "user_id", None),
+                    request_path=request.url.path[:300],
+                    method=request.method,
+                    error_code="INTERNAL_ERROR",
+                    message="Unhandled server exception",
+                    exception_type=type(exc).__name__[:100],
+                    status_code=500,
+                )
+            )
+            db.commit()
+    except Exception:
+        # 관찰성 저장소 자체의 장애는 사용자 응답에 노출하지 않는다.
+        pass

@@ -1,0 +1,2 @@
+import { api } from '@/api/client'
+export function reportClientError(clientErrorType: string, error: unknown, pageContext?: Record<string, string | null>) { const message = String(error instanceof Error ? error.message : error).replace(/AIza[\w-]{20,}|Bearer\s+\S+|[\w.+-]+@[\w.-]+/g, '[redacted]').slice(0, 500); void api.post('/api/client-errors', { clientErrorType, message, pageContext }).catch(() => undefined) }
