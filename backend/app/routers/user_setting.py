@@ -10,6 +10,8 @@ from app.schemas.user_setting import (
     SaveApiKeyRequest,
     UserSettingResponse,
 )
+from app.schemas.service_feedback import FeedbackRequest, FeedbackResponse
+from app.models import FeedbackType, ServiceFeedback
 from app.services import user_setting_service
 
 router = APIRouter(prefix="/api/settings", tags=["UserSetting"])
@@ -76,3 +78,17 @@ def check_api_key(
     """BE-USERSET-005: 저장된 키로 Provider 연결을 확인한다."""
     record = user_setting_service.check_api_key_connection(db, user, provider)
     return _api_key_status(record)
+
+@router.post("/feedback", response_model=FeedbackResponse, status_code=201)
+def submit_feedback(payload: FeedbackRequest, user: CurrentUser, db: DbSession) -> FeedbackResponse:
+    content = payload.content.strip()
+    if not content or len(content) > 2000:
+        from app.exceptions import ValidationError
+        raise ValidationError("피드백은 1~2,000자로 입력해주세요.")
+    try: kind = FeedbackType(payload.feedback_type)
+    except ValueError as exc:
+        from app.exceptions import ValidationError
+        raise ValidationError("지원하지 않는 피드백 유형입니다.") from exc
+    item = ServiceFeedback(user_id=user.id, feedback_type=kind, content=content, context_info=payload.context_info)
+    db.add(item); db.commit(); db.refresh(item)
+    return FeedbackResponse(feedback_id=item.id, submitted_at=item.created_at)
