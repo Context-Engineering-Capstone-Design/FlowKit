@@ -6,6 +6,7 @@ import type {
   ChatDetail,
   ChatListResponse,
   ChatMeta,
+  DeleteChatResponse,
 } from '@/types/api'
 
 export async function createChat(): Promise<ChatDetail> {
@@ -74,5 +75,10 @@ export async function createBranch(
     `/api/chats/${chatId}/branches`,
     payload,
   )
+  return data
+}
+
+export async function deleteChat(chatId: string): Promise<DeleteChatResponse> {
+  const { data } = await api.delete<DeleteChatResponse>(`/api/chats/${chatId}`)
   return data
 }

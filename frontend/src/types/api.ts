@@ -52,6 +52,11 @@ export interface ChatListResponse {
   nextCursor: string | null
 }
 
+export interface DeleteChatResponse {
+  deleteSuccess: boolean
+  actionMeta: ActionMeta
+}
+
 export interface ChatMeta {
   chatId: string
   title: string

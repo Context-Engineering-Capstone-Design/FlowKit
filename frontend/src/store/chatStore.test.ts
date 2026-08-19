@@ -9,6 +9,7 @@ const chatApi = vi.hoisted(() => ({
   fetchBranch: vi.fn(),
   fetchBranches: vi.fn(),
   createBranch: vi.fn(),
+  deleteChat: vi.fn(),
 }))
 
 vi.mock('@/api/chat', () => chatApi)
@@ -27,6 +28,7 @@ describe('chatStore 화면 상태', () => {
       selectedBlockIds: [], appliedBlockIds: [], appliedContextLabel: null,
       contextInstruction: '', draftText: '', draftAttachments: [],
       editingBlockId: null, editingDraft: '', editingOriginal: '',
+      deletingChatId: null,
     })
   })
 
@@ -76,5 +78,65 @@ describe('chatStore 화면 상태', () => {
     await useChatStore.getState().switchBranch('branch-2')
 
     expect(useChatStore.getState()).toMatchObject({ branchId: 'branch-2', contextInstruction: '', editingBlockId: null })
+  })
+
+  it('확인을 취소하면 대화를 삭제하지 않는다', async () => {
+    const request = vi.fn().mockResolvedValue(false)
+    useConfirmStore.setState({ request })
+    useChatStore.setState({ chats: [{ chatId: 'chat-1', title: '새 대화' }] })
+
+    await useChatStore.getState().deleteChat('chat-1')
+
+    expect(chatApi.deleteChat).not.toHaveBeenCalled()
+    expect(useChatStore.getState().chats).toEqual([{ chatId: 'chat-1', title: '새 대화' }])
+  })
+
+  it('다른 대화를 삭제하면 목록에서만 뺀다', async () => {
+    const request = vi.fn().mockResolvedValue(true)
+    useConfirmStore.setState({ request })
+    chatApi.deleteChat.mockResolvedValue({
+      deleteSuccess: true,
+      actionMeta: { actionType: 'chat_delete', successCode: 'CHAT_DELETED', message: '대화를 삭제했습니다.', affectedResourceId: 'chat-2' },
+    })
+    useChatStore.setState({
+      chatId: 'chat-1',
+      chats: [
+        { chatId: 'chat-1', title: '현재' },
+        { chatId: 'chat-2', title: '다른 대화' },
+      ],
+    })
+
+    await useChatStore.getState().deleteChat('chat-2')
+
+    expect(chatApi.deleteChat).toHaveBeenCalledWith('chat-2')
+    expect(chatApi.createChat).not.toHaveBeenCalled()
+    expect(useChatStore.getState().chats).toEqual([{ chatId: 'chat-1', title: '현재' }])
+    expect(useChatStore.getState().chatId).toBe('chat-1')
+  })
+
+  it('지금 열린 대화를 삭제하면 새 빈 대화를 연다', async () => {
+    const request = vi.fn().mockResolvedValue(true)
+    useConfirmStore.setState({ request })
+    chatApi.deleteChat.mockResolvedValue({
+      deleteSuccess: true,
+      actionMeta: { actionType: 'chat_delete', successCode: 'CHAT_DELETED', message: '대화를 삭제했습니다.', affectedResourceId: 'chat-1' },
+    })
+    chatApi.createChat.mockResolvedValue({
+      chatMeta: { chatId: 'chat-new', title: '새 대화' },
+      branchMeta: { branchId: 'branch-new' },
+      messageBlocks: [],
+      branchList: [],
+    })
+    chatApi.fetchChats.mockResolvedValue({ chats: [{ chatId: 'chat-new', title: '새 대화' }], nextCursor: null })
+    useChatStore.setState({
+      chatId: 'chat-1',
+      chats: [{ chatId: 'chat-1', title: '새 대화' }],
+    })
+
+    await useChatStore.getState().deleteChat('chat-1')
+
+    expect(chatApi.deleteChat).toHaveBeenCalledWith('chat-1')
+    expect(chatApi.createChat).toHaveBeenCalledOnce()
+    expect(useChatStore.getState().chatId).toBe('chat-new')
   })
 })

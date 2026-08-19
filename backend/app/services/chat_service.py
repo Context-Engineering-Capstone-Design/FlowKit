@@ -1,4 +1,4 @@
-"""채팅 서비스 (BE-CHAT-001 ~ BE-CHAT-008)."""
+"""채팅 서비스 (BE-CHAT-001 ~ BE-CHAT-009)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import base64
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.exceptions import (
@@ -14,7 +14,23 @@ from app.exceptions import (
     ChatNotFoundError,
     ValidationError,
 )
-from app.models import Branch, BranchType, Chat, User
+from app.models import (
+    AiResponseFeedback,
+    AiResponseJob,
+    AppliedContextItem,
+    AppliedContextLog,
+    BlockRefineJob,
+    BlockRefineResult,
+    BlockRefineTarget,
+    Branch,
+    BranchSourceContext,
+    BranchSourceContextItem,
+    BranchType,
+    Chat,
+    MessageBlock,
+    MessageBlockVersion,
+    User,
+)
 
 DEFAULT_TITLE = "새 대화"
 MAX_TITLE_LENGTH = 200
@@ -118,6 +134,82 @@ def update_title(db: Session, chat: Chat, generated_title: str) -> Chat:
 def touch_activity(db: Session, chat: Chat) -> None:
     """정렬용 활동 시각 갱신 (BE-CHAT-007). UI에는 노출하지 않는다."""
     chat.last_activity_at = datetime.now(UTC)
+    db.commit()
+
+
+def delete_chat(db: Session, chat: Chat) -> None:
+    """채팅과 하위 브랜치·메시지·첨부를 실제로 삭제한다 (BE-CHAT-009)."""
+    from app.services import input_assist_service
+
+    chat_id = chat.id
+    input_assist_service.delete_attachments_for_chat(db, chat)
+
+    branch_ids = list(db.scalars(select(Branch.id).where(Branch.chat_id == chat_id)))
+    block_ids = list(db.scalars(select(MessageBlock.id).where(MessageBlock.chat_id == chat_id)))
+
+    if branch_ids:
+        source_ctx_ids = list(
+            db.scalars(
+                select(BranchSourceContext.id).where(
+                    BranchSourceContext.branch_id.in_(branch_ids)
+                )
+            )
+        )
+        if source_ctx_ids:
+            db.execute(
+                delete(BranchSourceContextItem).where(
+                    BranchSourceContextItem.source_context_id.in_(source_ctx_ids)
+                )
+            )
+            db.execute(
+                delete(BranchSourceContext).where(
+                    BranchSourceContext.id.in_(source_ctx_ids)
+                )
+            )
+
+    if block_ids:
+        db.execute(
+            delete(AiResponseFeedback).where(
+                AiResponseFeedback.message_block_id.in_(block_ids)
+            )
+        )
+
+    db.execute(delete(AiResponseJob).where(AiResponseJob.chat_id == chat_id))
+
+    job_ids = list(
+        db.scalars(select(BlockRefineJob.id).where(BlockRefineJob.chat_id == chat_id))
+    )
+    if job_ids:
+        db.execute(delete(BlockRefineResult).where(BlockRefineResult.job_id.in_(job_ids)))
+        db.execute(delete(BlockRefineTarget).where(BlockRefineTarget.job_id.in_(job_ids)))
+        db.execute(delete(BlockRefineJob).where(BlockRefineJob.id.in_(job_ids)))
+
+    log_ids = list(
+        db.scalars(select(AppliedContextLog.id).where(AppliedContextLog.chat_id == chat_id))
+    )
+    if log_ids:
+        db.execute(delete(AppliedContextItem).where(AppliedContextItem.log_id.in_(log_ids)))
+        db.execute(delete(AppliedContextLog).where(AppliedContextLog.id.in_(log_ids)))
+
+    db.execute(
+        update(Branch)
+        .where(Branch.chat_id == chat_id)
+        .values(parent_branch_id=None, base_message_block_id=None)
+    )
+    if block_ids:
+        db.execute(
+            update(MessageBlock)
+            .where(MessageBlock.id.in_(block_ids))
+            .values(current_version_id=None)
+        )
+        db.execute(
+            delete(MessageBlockVersion).where(MessageBlockVersion.block_id.in_(block_ids))
+        )
+        db.execute(delete(MessageBlock).where(MessageBlock.id.in_(block_ids)))
+
+    db.execute(delete(Branch).where(Branch.chat_id == chat_id))
+    db.expunge(chat)
+    db.execute(delete(Chat).where(Chat.id == chat_id))
     db.commit()
 
 

@@ -109,6 +109,13 @@ class CreateChatResponse(ChatDetailResponse):
     action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 
 
+class DeleteChatResponse(BaseModel):
+    delete_success: bool = Field(..., serialization_alias="deleteSuccess")
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class UpdateChatTitleResponse(ChatMeta):
     action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 

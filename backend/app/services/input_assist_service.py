@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.exceptions import (
@@ -110,6 +110,23 @@ def upload_attachment(db: Session, user: User, chat: Chat, upload: UploadFile) -
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
         upload.file.close()
+
+
+def delete_attachments_for_chat(db: Session, chat: Chat) -> None:
+    """채팅에 속한 첨부 연결·원본 파일을 먼저 정리한다. 채팅 삭제 전에 호출한다."""
+    attachments = list(db.scalars(select(Attachment).where(Attachment.chat_id == chat.id)))
+    if not attachments:
+        return
+    ids = [item.id for item in attachments]
+    db.execute(delete(MessageAttachment).where(MessageAttachment.attachment_id.in_(ids)))
+    storage = _storage()
+    for attachment in attachments:
+        try:
+            storage.delete(attachment.storage_key)
+        except (OSError, ValueError):
+            pass
+        db.delete(attachment)
+    db.flush()
 
 
 def delete_temporary_attachment(db: Session, user: User, chat: Chat, attachment_id: uuid.UUID) -> None:

@@ -59,6 +59,7 @@ interface ChatState {
   isCreatingBranch: boolean
   /** 로그인 직후 기본 대화를 여는 중인지. 빈 화면이 잠깐 보이지 않게 한다. */
   isOpeningDefaultChat: boolean
+  deletingChatId: string | null
   error: string | null
   /** 값이 바뀔 때마다 입력창에 포커스를 옮긴다 (REQ-004) */
   focusSignal: number
@@ -96,6 +97,7 @@ interface ChatState {
   /** 로그아웃·세션 만료 때 이전 사용자의 대화 상태를 비운다. */
   resetSession: () => void
   openChat: (chatId: string, branchId?: string) => Promise<void>
+  deleteChat: (chatId: string) => Promise<void>
   switchBranch: (branchId: string) => Promise<boolean>
   toggleBlock: (blockId: string) => void
   clearSelection: () => void
@@ -172,6 +174,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   refineFailed: false,
   isCreatingBranch: false,
   isOpeningDefaultChat: false,
+  deletingChatId: null,
   highlightedBlockId: null,
   error: null,
   focusSignal: 0,
@@ -290,6 +293,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       refineFailed: false,
       isCreatingBranch: false,
       isOpeningDefaultChat: false,
+      deletingChatId: null,
       highlightedBlockId: null,
       error: null,
       models: [],
@@ -429,6 +433,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
       } else {
         set({ error: toErrorMessage(e) })
       }
+    }
+  },
+
+  async deleteChat(chatId) {
+    if (get().deletingChatId) return
+    const title = get().chats.find((item) => item.chatId === chatId)?.title ?? '이 대화'
+    const confirmed = await useConfirmStore.getState().request(
+      `"${title}" 대화를 삭제할까요? 삭제한 뒤에는 되돌릴 수 없습니다.`,
+      { confirmLabel: '삭제' },
+    )
+    if (!confirmed) return
+
+    const wasCurrent = get().chatId === chatId
+    set({ deletingChatId: chatId })
+    try {
+      const result = await chatApi.deleteChat(chatId)
+      set((s) => ({ chats: s.chats.filter((item) => item.chatId !== chatId) }))
+      useNotificationStore.getState().showAction(result.actionMeta)
+      if (wasCurrent) await createFreshChat(set, get)
+    } catch (e) {
+      if (errorCode(e) === 'CHAT_ACCESS_DENIED' || errorCode(e) === 'CHAT_NOT_FOUND') {
+        set((s) => ({ chats: s.chats.filter((item) => item.chatId !== chatId) }))
+        if (wasCurrent) await createFreshChat(set, get)
+      } else {
+        set({ error: toErrorMessage(e) })
+        showChatError(e, 'chat-delete', () => void get().deleteChat(chatId))
+      }
+    } finally {
+      set({ deletingChatId: null })
     }
   },
 
@@ -978,5 +1011,5 @@ async function confirmPendingDiscard(state: ChatState): Promise<boolean> {
   const hasComposerDraft = state.draftText.trim() || state.draftAttachments.length > 0
   const hasMessageEdit = state.editingBlockId && state.editingDraft !== state.editingOriginal
   if (!hasComposerDraft && !hasMessageEdit) return true
-  return useConfirmStore.getState().request('저장하지 않은 입력 또는 수정 내용이 있습니다. 이동하면 사라집니다.')
+  return useConfirmStore.getState().request('저장하지 않은 입력 또는 수정 내용이 있습니다. 이동하면 사라집니다.', { confirmLabel: '버리기' })
 }

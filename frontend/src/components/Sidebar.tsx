@@ -1,10 +1,10 @@
-import { GitBranch, Layers, Search, SquarePen } from 'lucide-react'
+import { GitBranch, Layers, Search, SquarePen, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
 import { useInfiniteChatList } from '@/hooks/useInfiniteChatList'
 
-// 좌측 사이드바 — 새 채팅, 대화 검색, 최근 대화 목록, 현재 대화의 브랜치 목록
+// 좌측 사이드바 — 새 채팅, 대화 검색, 최근 대화 목록·삭제, 현재 대화의 브랜치 목록
 export function Sidebar() {
   const chats = useChatStore((s) => s.chats)
   const chatId = useChatStore((s) => s.chatId)
@@ -12,6 +12,8 @@ export function Sidebar() {
   const loadChats = useChatStore((s) => s.loadChats)
   const newChat = useChatStore((s) => s.newChat)
   const openChat = useChatStore((s) => s.openChat)
+  const deleteChat = useChatStore((s) => s.deleteChat)
+  const deletingChatId = useChatStore((s) => s.deletingChatId)
   const switchBranch = useChatStore((s) => s.switchBranch)
   const nextCursor = useChatStore((s) => s.nextCursor)
   const isLoadingChats = useChatStore((s) => s.isLoadingChats)
@@ -71,18 +73,32 @@ export function Sidebar() {
           <p className="px-2 py-1 text-[12px] text-txt-3">{keyword ? '검색 결과가 없습니다' : '대화가 없습니다'}</p>
         )}
         {chats.map((c) => (
-          <button
+          <div
             key={c.chatId}
-            type="button"
-            onClick={() => void openChat(c.chatId)}
-            className={`block w-full truncate rounded-md px-2 py-[7px] text-left text-[12.5px] transition ${
+            className={`flex items-center rounded-md ${
               c.chatId === chatId
                 ? 'bg-bg-3 text-txt-0'
                 : 'text-txt-1 hover:bg-bg-2'
             }`}
           >
-            {c.title}
-          </button>
+            <button
+              type="button"
+              onClick={() => void openChat(c.chatId)}
+              className="min-w-0 flex-1 truncate px-2 py-[7px] text-left text-[12.5px] transition"
+            >
+              {c.title}
+            </button>
+            <button
+              type="button"
+              title="대화 삭제"
+              aria-label={`${c.title} 삭제`}
+              disabled={deletingChatId === c.chatId}
+              onClick={() => void deleteChat(c.chatId)}
+              className="mr-0.5 shrink-0 rounded-md p-1 text-txt-3 transition hover:bg-bg-3 hover:text-red disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         ))}
         {nextCursor && (
           <div ref={loadMoreRef} className="py-2 text-center text-[11px] text-txt-2">

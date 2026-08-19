@@ -521,3 +521,57 @@ def test_edited_branch_rolls_back_copy_when_creation_fails(
             MessageBlockVersion.content == "남으면 안 되는 수정본"
         )
     ) is None
+
+
+# ── BE-CHAT-009: 삭제 ──────────────────────────────────────────────────────
+
+
+def test_delete_chat_removes_chat_and_messages(client, auth, chat, db_session):
+    import uuid
+
+    chat_id = chat["chatMeta"]["chatId"]
+    branch_id = chat["branchMeta"]["branchId"]
+    _add_block(db_session, uuid.UUID(chat_id), uuid.UUID(branch_id), 0, "지워질 질문")
+
+    res = client.delete(f"/api/chats/{chat_id}", headers=auth)
+    assert res.status_code == 200
+    assert res.json()["deleteSuccess"] is True
+    assert res.json()["actionMeta"] == {
+        "actionType": "chat_delete",
+        "successCode": "CHAT_DELETED",
+        "message": "대화를 삭제했습니다.",
+        "affectedResourceId": chat_id,
+    }
+
+    db_session.expire_all()
+    assert client.get(f"/api/chats/{chat_id}", headers=auth).status_code == 404
+    assert db_session.get(Chat, uuid.UUID(chat_id)) is None
+    assert db_session.scalar(
+        select(MessageBlock).where(MessageBlock.chat_id == uuid.UUID(chat_id))
+    ) is None
+    listed = [item["chatId"] for item in client.get("/api/chats", headers=auth).json()["chats"]]
+    assert chat_id not in listed
+
+
+def test_other_user_cannot_delete_chat(client, auth, chat, monkeypatch):
+    chat_id = chat["chatMeta"]["chatId"]
+    other = _login(client, monkeypatch, USER_B)
+    res = client.delete(
+        f"/api/chats/{chat_id}", headers={"Authorization": f"Bearer {other}"}
+    )
+    assert res.status_code == 403
+    assert res.json()["errorCode"] == "CHAT_ACCESS_DENIED"
+    assert client.get(f"/api/chats/{chat_id}", headers=auth).status_code == 200
+
+
+def test_delete_unknown_chat_returns_not_found(client, auth):
+    res = client.delete(
+        "/api/chats/00000000-0000-0000-0000-000000000000", headers=auth
+    )
+    assert res.status_code == 404
+    assert res.json()["errorCode"] == "CHAT_NOT_FOUND"
+
+
+def test_delete_chat_requires_auth(client, chat):
+    chat_id = chat["chatMeta"]["chatId"]
+    assert client.delete(f"/api/chats/{chat_id}").status_code == 401

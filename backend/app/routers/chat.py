@@ -18,6 +18,7 @@ from app.schemas.chat import (
     CreateBranchRequest,
     CreateBranchResponse,
     CreateChatResponse,
+    DeleteChatResponse,
     MessageBlockOut,
     SourceContextItem,
     UpdateTitleRequest,
@@ -94,6 +95,24 @@ def get_chat(
         branch_meta=BranchMeta.of(branch),
         message_blocks=[MessageBlockOut.of(b) for b in blocks],
         branch_list=_branch_list(db, chat, branch.id),
+    )
+
+
+@router.delete("/{chat_id}", response_model=DeleteChatResponse)
+def delete_chat(
+    chat_id: uuid.UUID, user: CurrentUser, db: DbSession
+) -> DeleteChatResponse:
+    """BE-CHAT-009: 채팅과 하위 데이터를 실제로 삭제한다."""
+    chat = chat_service.get_owned_chat(db, user, chat_id)
+    chat_service.delete_chat(db, chat)
+    return DeleteChatResponse(
+        delete_success=True,
+        action_meta=ActionMeta(
+            action_type="chat_delete",
+            success_code="CHAT_DELETED",
+            message="대화를 삭제했습니다.",
+            affected_resource_id=chat_id,
+        ),
     )
 
 
