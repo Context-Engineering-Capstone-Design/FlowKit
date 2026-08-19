@@ -114,6 +114,51 @@ export interface ApiError {
   traceId: string
 }
 
+export interface ActionMeta {
+  actionType: string
+  successCode: string
+  message: string
+  affectedResourceId: string | null
+}
+
+export type ServiceFeedbackType =
+  | 'error'
+  | 'usability'
+  | 'context'
+  | 'branch'
+  | 'other'
+
+export interface ServiceFeedbackContext {
+  page?: string
+  chatId?: string
+  branchId?: string
+}
+
+export interface ServiceFeedbackResponse {
+  feedbackId: string
+  submittedAt: string
+  actionMeta: ActionMeta
+}
+
+export interface ClientErrorContext {
+  page?: string
+  feature?: string
+  chatId?: string
+  branchId?: string
+  resourceId?: string
+}
+
+export type ClientErrorType =
+  | 'window_error'
+  | 'unhandled_rejection'
+  | 'react_render_error'
+  | 'api_response_error'
+
+export interface ClientErrorResponse {
+  logId: string
+  receivedAt: string
+}
+
 export interface BlockResponse {
   blockId: string
   role: MessageRole
@@ -184,7 +229,14 @@ export interface RefineJob {
 /** 전체 승인·전체 거절처럼 여러 항목을 처리할 때, 일부만 실패할 수 있다 */
 export interface BulkRefineResult {
   processed: RefineResultItem[]
-  failed: { resultId: string; reason: string }[]
+  failed: {
+    resourceId: string
+    errorCode: string
+    message: string
+    resultId: string
+    reason: string
+  }[]
+  actionMeta: ActionMeta
 }
 
 export interface VersionItem {

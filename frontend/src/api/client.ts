@@ -1,4 +1,13 @@
-import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
+import axios, {
+  AxiosError,
+  type AxiosRequestConfig,
+  type AxiosResponse,
+} from 'axios'
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  isRequestTimeout,
+} from '@/lib/requestTimeout'
+import { reportUnexpectedApiResponse } from '@/lib/errorReporting'
 import type { ApiError, TokenResponse } from '@/types/api'
 
 const ACCESS_KEY = 'flowkit_access_token'
@@ -24,6 +33,7 @@ export const tokenStore = {
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000',
+  timeout: DEFAULT_REQUEST_TIMEOUT_MS,
 })
 
 api.interceptors.request.use((config) => {
@@ -60,8 +70,31 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const contentType = String(response.headers['content-type'] ?? '')
+    const endpoint = response.config.url ?? ''
+    if (
+      endpoint.includes('/api/') &&
+      typeof response.data === 'string' &&
+      (contentType.includes('text/html') || /^\s*<!doctype|^\s*<html/i.test(response.data))
+    ) {
+      reportUnexpectedApiResponse(endpoint, contentType)
+    }
+    return response
+  },
   async (error: AxiosError<ApiError>) => {
+    const responseTraceId = error.response
+      ? getResponseTraceId(error.response)
+      : null
+    if (
+      responseTraceId &&
+      error.response?.data &&
+      typeof error.response.data === 'object' &&
+      !error.response.data.traceId
+    ) {
+      error.response.data.traceId = responseTraceId
+    }
+
     const original = error.config as AxiosRequestConfig & { _retried?: boolean }
 
     const shouldRefresh =
@@ -87,20 +120,51 @@ api.interceptors.response.use(
 
 /** 백엔드 오류 형식에서 사용자에게 보여줄 메시지를 꺼낸다. */
 export function toErrorMessage(error: unknown): string {
+  if (isRequestTimeout(error) || isAxiosTimeout(error)) {
+    return '요청 시간이 초과되었습니다. 다시 시도해주세요.'
+  }
   if (axios.isAxiosError<ApiError>(error) && error.response?.data?.message) {
     return error.response.data.message
+  }
+  if (axios.isAxiosError(error) && !error.response) {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return '인터넷 연결을 확인한 뒤 다시 시도해주세요.'
+    }
+    return '서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.'
   }
   return '요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.'
 }
 
 export function errorCode(error: unknown): string | null {
+  if (isRequestTimeout(error) || isAxiosTimeout(error)) return 'REQUEST_TIMEOUT'
   if (axios.isAxiosError<ApiError>(error)) {
     return error.response?.data?.errorCode ?? null
   }
   return null
 }
 
+export function errorTraceId(error: unknown): string | null {
+  if (!axios.isAxiosError<ApiError>(error)) return null
+  return (
+    error.response?.data?.traceId ??
+    (error.response ? getResponseTraceId(error.response) : null)
+  )
+}
+
+export function getResponseTraceId(response: AxiosResponse): string | null {
+  const value = response.headers['x-trace-id']
+  if (Array.isArray(value)) return value[0] ?? null
+  return typeof value === 'string' && value ? value : null
+}
+
 export function errorDetail<T>(error: unknown): T | null {
   if (axios.isAxiosError<ApiError>(error)) return (error.response?.data?.detail as T | undefined) ?? null
   return null
+}
+
+function isAxiosTimeout(error: unknown): boolean {
+  return (
+    axios.isAxiosError(error) &&
+    (error.code === AxiosError.ECONNABORTED || error.code === 'ETIMEDOUT')
+  )
 }
