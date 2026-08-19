@@ -11,6 +11,7 @@ interface AuthState {
   /** 새로고침 후에도 로그인 상태를 이어가기 위해 저장된 토큰으로 확인한다. */
   check: () => Promise<void>
   loginWithGoogle: (idToken: string) => Promise<void>
+  loginForDevelopment: () => Promise<void>
   updateProfile: (payload: {
     name: string
     email: string
@@ -42,6 +43,16 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ error: null })
     try {
       const res = await authApi.loginWithGoogle(idToken)
+      set({ user: res.user })
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+    }
+  },
+
+  async loginForDevelopment() {
+    set({ error: null })
+    try {
+      const res = await authApi.loginForDevelopment()
       set({ user: res.user })
     } catch (e) {
       set({ error: toErrorMessage(e) })

@@ -49,6 +49,12 @@ class InvalidGoogleIdTokenError(AppError):
     message = "유효하지 않은 Google 로그인 정보입니다."
 
 
+class DevLoginUnavailableError(AppError):
+    status_code = 404
+    error_code = "DEV_LOGIN_UNAVAILABLE"
+    message = "로컬 개발 로그인을 사용할 수 없습니다."
+
+
 class TokenReuseDetectedError(AppError):
     """이미 회전된 refreshToken 이 다시 제출된 경우 (토큰 탈취 의심, BE-AUTH-006)."""
 

@@ -7,6 +7,12 @@ export async function loginWithGoogle(idToken: string): Promise<TokenResponse> {
   return data
 }
 
+export async function loginForDevelopment(): Promise<TokenResponse> {
+  const { data } = await api.post<TokenResponse>('/api/auth/dev')
+  tokenStore.save(data.accessToken, data.refreshToken)
+  return data
+}
+
 export async function fetchAuthStatus(): Promise<AuthStatus> {
   const { data } = await api.get<AuthStatus>('/api/auth/status')
   return data

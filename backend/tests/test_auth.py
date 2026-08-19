@@ -9,8 +9,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.db import get_db
+from app.main import app
 from app.models import AuthSession, User
 from app.routers import auth as auth_router
 from app.services import google_auth
@@ -97,6 +100,52 @@ def test_google_login_creates_user_and_issues_tokens(client, stub_google, db_ses
     # refreshToken 원문은 저장하지 않는다
     session = db_session.scalars(select(AuthSession)).one()
     assert session.refresh_token_hash != body["refreshToken"]
+
+
+def test_dev_login_is_hidden_when_disabled(client, monkeypatch):
+    monkeypatch.setattr(
+        auth_router,
+        "get_settings",
+        lambda: type("Settings", (), {"dev_login_enabled": False})(),
+    )
+
+    res = client.post("/api/auth/dev")
+
+    assert res.status_code == 404
+    assert res.json()["errorCode"] == "DEV_LOGIN_UNAVAILABLE"
+
+
+def test_dev_login_rejects_non_loopback_request(client, monkeypatch):
+    monkeypatch.setattr(
+        auth_router,
+        "get_settings",
+        lambda: type("Settings", (), {"dev_login_enabled": True})(),
+    )
+
+    res = client.post("/api/auth/dev")
+
+    assert res.status_code == 404
+    assert res.json()["errorCode"] == "DEV_LOGIN_UNAVAILABLE"
+
+
+def test_dev_login_issues_tokens_for_loopback_request(db_session, monkeypatch):
+    monkeypatch.setattr(
+        auth_router,
+        "get_settings",
+        lambda: type("Settings", (), {"dev_login_enabled": True})(),
+    )
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        with TestClient(app, client=("127.0.0.1", 50000)) as local_client:
+            res = local_client.post("/api/auth/dev")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["accessToken"] and body["refreshToken"]
+    assert body["user"]["email"] == "developer@flowkit.example.com"
+    assert db_session.scalars(select(User)).one().name == "로컬 개발자"
 
 
 def test_second_login_reuses_existing_user(client, stub_google, db_session):

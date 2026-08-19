@@ -42,9 +42,38 @@ export function LoginScreen() {
         </div>
 
         <GoogleLoginButton />
+        {import.meta.env.DEV && import.meta.env.VITE_DEV_LOGIN_ENABLED === 'true' && (
+          <DevelopmentLoginButton />
+        )}
 
         {error && <p className="mt-3 text-[12px] text-red">{error}</p>}
       </div>
+    </div>
+  )
+}
+
+// Cursor 내장 브라우저에서 로컬 개발 계정으로 진입하는 버튼
+function DevelopmentLoginButton() {
+  const loginForDevelopment = useAuthStore((s) => s.loginForDevelopment)
+  const [pending, setPending] = useState(false)
+
+  const login = async () => {
+    setPending(true)
+    await loginForDevelopment()
+    setPending(false)
+  }
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => void login()}
+        className="w-[300px] rounded-full border border-line-strong py-2.5 text-[12.5px] font-semibold text-txt-1 transition hover:bg-bg-2 disabled:opacity-40"
+      >
+        {pending ? '로그인 중...' : '로컬 개발 로그인'}
+      </button>
+      <p className="mt-1.5 text-[10.5px] text-txt-3">로컬 개발 환경에서만 사용할 수 있습니다.</p>
     </div>
   )
 }

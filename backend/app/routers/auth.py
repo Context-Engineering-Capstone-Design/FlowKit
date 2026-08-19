@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from ipaddress import ip_address
+
+from fastapi import APIRouter, Request
 
 from app.deps import CurrentUser, DbSession, OptionalUser
+from app.exceptions import DevLoginUnavailableError
 from app.schemas.auth import (
     AuthStatusResponse,
     GoogleLoginRequest,
@@ -14,9 +17,17 @@ from app.schemas.auth import (
     UserProfile,
 )
 from app.services import auth_service
-from app.services.google_auth import verify_google_id_token
+from app.services.google_auth import GoogleUser, verify_google_id_token
+from app.settings import get_settings
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
+
+_LOCAL_DEV_USER = GoogleUser(
+    google_user_id="flowkit-local-developer",
+    email="developer@flowkit.example.com",
+    name="로컬 개발자",
+    profile_image=None,
+)
 
 
 @router.get("/status", response_model=AuthStatusResponse)
@@ -36,6 +47,25 @@ def google_login(payload: GoogleLoginRequest, db: DbSession) -> TokenResponse:
     user, is_new_user = auth_service.find_or_create_user(db, google_user)
     access_token, refresh_token, expires_at = auth_service.issue_tokens(
         db, user, device_info=payload.device_info
+    )
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+        user=UserProfile.model_validate(user),
+        is_new_user=is_new_user,
+    )
+
+
+@router.post("/dev", response_model=TokenResponse)
+def dev_login(request: Request, db: DbSession) -> TokenResponse:
+    """Cursor 내장 브라우저 등 로컬 개발 환경에서만 서비스 토큰을 발급한다."""
+    if not get_settings().dev_login_enabled or not _is_loopback_request(request):
+        raise DevLoginUnavailableError()
+
+    user, is_new_user = auth_service.find_or_create_user(db, _LOCAL_DEV_USER)
+    access_token, refresh_token, expires_at = auth_service.issue_tokens(
+        db, user, device_info="local-dev-login"
     )
     return TokenResponse(
         access_token=access_token,
@@ -87,3 +117,12 @@ def logout(user: CurrentUser, db: DbSession) -> dict[str, bool]:
     """BE-AUTH-009: 현재 사용자의 refreshToken 전체 무효화."""
     auth_service.logout(db, user.id)
     return {"logoutSuccess": True}
+
+
+def _is_loopback_request(request: Request) -> bool:
+    if request.client is None:
+        return False
+    try:
+        return ip_address(request.client.host).is_loopback
+    except ValueError:
+        return request.client.host == "localhost"

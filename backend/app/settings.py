@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # Google 로그인 (BE-AUTH-002): FE가 획득한 ID 토큰의 audience 검증에 사용
     google_client_id: str = ""
 
+    # Cursor 내장 브라우저 등에서 쓰는 로컬 전용 로그인. 운영 환경에서는 켜지 않는다.
+    dev_login_enabled: bool = False
+
     # HMAC-SHA256 권장 최소 길이(32바이트)를 충족하는 개발용 기본값. 배포 시 반드시 교체한다.
     jwt_secret: str = "dev-only-insecure-secret-change-me-before-deploy"
     jwt_algorithm: str = "HS256"
