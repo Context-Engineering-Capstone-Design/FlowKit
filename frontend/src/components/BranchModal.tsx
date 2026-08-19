@@ -13,22 +13,24 @@ const NAME_SUGGESTIONS = [
 interface Props {
   onClose: () => void
   initialBaseBlockId?: string
+  initialContextBlockIds?: string[]
   editedBaseContent?: string
 }
 
 // 브랜치 생성 모달 — 이름, 분기 지점, 포함할 Context 블록을 정한다 (REQ-009, REQ-010)
-export function BranchModal({ onClose, initialBaseBlockId, editedBaseContent }: Props) {
+export function BranchModal({ onClose, initialBaseBlockId, initialContextBlockIds, editedBaseContent }: Props) {
   const blocks = useChatStore((s) => s.blocks)
   const selectedBlockIds = useChatStore((s) => s.selectedBlockIds)
   const createBranch = useChatStore((s) => s.createBranch)
   const isCreatingBranch = useChatStore((s) => s.isCreatingBranch)
+  const branchError = useChatStore((s) => s.branchError)
 
   const [name, setName] = useState('')
   // 분기 지점 기본값은 마지막 블록 — 지금까지의 대화를 모두 이어받는다
   const [baseBlockId, setBaseBlockId] = useState(
     initialBaseBlockId ?? blocks.at(-1)?.blockId ?? '',
   )
-  const [contextIds, setContextIds] = useState<string[]>(selectedBlockIds)
+  const [contextIds, setContextIds] = useState<string[]>(initialContextBlockIds ?? selectedBlockIds)
 
   const baseBlock = blocks.find((b) => b.blockId === baseBlockId)
   // 분기 지점 이후 블록은 새 브랜치에 없으므로 Context 로 고를 수 없다
@@ -145,6 +147,7 @@ export function BranchModal({ onClose, initialBaseBlockId, editedBaseContent }: 
         </div>
 
         <footer className="flex justify-end gap-2 px-5 py-4">
+          {branchError && <p className="mr-auto self-center text-[11px] text-red">{branchError}</p>}
           <button
             type="button"
             onClick={onClose}

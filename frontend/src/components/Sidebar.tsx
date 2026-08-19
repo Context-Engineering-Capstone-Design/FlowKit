@@ -2,6 +2,7 @@ import { GitBranch, Layers, Search, SquarePen } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
+import { useInfiniteChatList } from '@/hooks/useInfiniteChatList'
 
 // 좌측 사이드바 — 새 채팅, 대화 검색, 최근 대화 목록, 현재 대화의 브랜치 목록
 export function Sidebar() {
@@ -16,8 +17,10 @@ export function Sidebar() {
   const isLoadingChats = useChatStore((s) => s.isLoadingChats)
   const isLoadingMoreChats = useChatStore((s) => s.isLoadingMoreChats)
   const loadMoreChats = useChatStore((s) => s.loadMoreChats)
+  const chatListError = useChatStore((s) => s.chatListError)
 
   const [keyword, setKeyword] = useState('')
+  const loadMoreRef = useInfiniteChatList(Boolean(nextCursor), isLoadingMoreChats, loadMoreChats)
 
   useEffect(() => {
     // 입력할 때마다 요청하지 않도록 잠시 기다렸다 검색한다
@@ -58,6 +61,12 @@ export function Sidebar() {
 
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         <SectionLabel>최근 대화</SectionLabel>
+        {chatListError && (
+          <div className="mb-1 rounded-md bg-red/10 px-2 py-2 text-[11px] text-red">
+            <p>{chatListError}</p>
+            <button type="button" onClick={() => void loadChats(keyword || undefined)} className="mt-1 underline">다시 시도</button>
+          </div>
+        )}
         {chats.length === 0 && !isLoadingChats && (
           <p className="px-2 py-1 text-[12px] text-txt-3">{keyword ? '검색 결과가 없습니다' : '대화가 없습니다'}</p>
         )}
@@ -76,14 +85,9 @@ export function Sidebar() {
           </button>
         ))}
         {nextCursor && (
-          <button
-            type="button"
-            onClick={() => void loadMoreChats()}
-            disabled={isLoadingMoreChats}
-            className="mt-1 w-full rounded-md px-2 py-2 text-[11px] text-txt-2 hover:bg-bg-2 disabled:opacity-40"
-          >
-            {isLoadingMoreChats ? '불러오는 중…' : '대화 더 보기'}
-          </button>
+          <div ref={loadMoreRef} className="py-2 text-center text-[11px] text-txt-2">
+            {isLoadingMoreChats ? '불러오는 중…' : '아래로 내리면 더 불러옵니다'}
+          </div>
         )}
 
         {branches.length > 0 && (

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import * as settingsApi from '@/api/settings'
 import { toErrorMessage } from '@/api/client'
 import type { ApiKeyStatus } from '@/types/api'
+import { useNotificationStore } from '@/store/notificationStore'
 
 type SettingsModal = 'profile' | 'apiKey' | null
 
@@ -64,6 +65,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ apiKeyStatus: settings.apiKeyStatus })
     } catch (error) {
       set({ error: toErrorMessage(error) })
+      useNotificationStore.getState().showError(error)
     } finally {
       set({ isLoading: false })
     }
@@ -77,9 +79,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         apiKeyStatus: status,
         notice: 'API 키를 안전하게 저장했습니다.',
       })
+      useNotificationStore.getState().show('API 키를 저장했습니다.', 'success')
       return true
     } catch (error) {
       set({ error: toErrorMessage(error) })
+      useNotificationStore.getState().showError(error)
       return false
     } finally {
       set({ isSaving: false })
@@ -94,9 +98,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         apiKeyStatus: result.apiKeyStatus,
         notice: '저장된 API 키를 삭제했습니다.',
       })
+      useNotificationStore.getState().show('API 키를 삭제했습니다.', 'success')
       return true
     } catch (error) {
       set({ error: toErrorMessage(error) })
+      useNotificationStore.getState().showError(error)
       return false
     } finally {
       set({ isDeleting: false })
@@ -108,8 +114,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const status = await settingsApi.checkApiKey()
       set({ apiKeyStatus: status })
+      useNotificationStore.getState().show('API 키 연결 상태를 확인했습니다.', 'success')
     } catch (error) {
       set({ error: toErrorMessage(error) })
+      useNotificationStore.getState().showError(error)
     } finally {
       set({ isChecking: false })
     }

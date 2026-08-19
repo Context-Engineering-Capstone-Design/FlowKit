@@ -4,6 +4,8 @@ import { errorCode, errorDetail, toErrorMessage } from '@/api/client'
 import * as convApi from '@/api/conversation'
 import * as inputAssistApi from '@/api/inputAssist'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useNotificationStore } from '@/store/notificationStore'
+import { useConfirmStore } from '@/store/confirmStore'
 import type {
   AiResponseRating,
   BranchListItem,
@@ -23,6 +25,8 @@ interface ChatState {
   nextCursor: string | null
   isLoadingChats: boolean
   isLoadingMoreChats: boolean
+  chatListError: string | null
+  chatListKeyword: string
 
   chatId: string | null
   chatTitle: string
@@ -35,6 +39,7 @@ interface ChatState {
   selectedBlockIds: string[]
   /** 전송 시 실제로 적용할 Context. 정제 승인 후 확정된다. */
   appliedBlockIds: string[]
+  appliedContextLabel: string | null
 
   refineJob: RefineJob | null
   /** 블록별로 원본을 보는 중인지 정제본을 보는 중인지 (REQ-031) */
@@ -45,6 +50,8 @@ interface ChatState {
 
   isSending: boolean
   isRefining: boolean
+  lastRefineInstruction: string | null
+  refineFailed: boolean
   isCreatingBranch: boolean
   /** 로그인 직후 기본 대화를 여는 중인지. 빈 화면이 잠깐 보이지 않게 한다. */
   isOpeningDefaultChat: boolean
@@ -64,7 +71,18 @@ interface ChatState {
   contextInstruction: string
   contextInstructionFocusSignal: number
   contextPanelSignal: number
-  branchDraft: { baseBlockId: string; editedBaseContent?: string } | null
+  branchDraft: {
+    baseBlockId: string
+    contextBlockIds: string[]
+    editedBaseContent?: string
+    sourceMode: 'header' | 'block' | 'edited-block'
+  } | null
+  branchError: string | null
+  editingBlockId: string | null
+  editingDraft: string
+  editingOriginal: string
+  isSavingEdit: boolean
+  sourceNavigationError: string | null
 
   loadChats: (keyword?: string) => Promise<void>
   loadMoreChats: () => Promise<void>
@@ -74,7 +92,7 @@ interface ChatState {
   /** 로그아웃·세션 만료 때 이전 사용자의 대화 상태를 비운다. */
   resetSession: () => void
   openChat: (chatId: string, branchId?: string) => Promise<void>
-  switchBranch: (branchId: string) => Promise<void>
+  switchBranch: (branchId: string) => Promise<boolean>
   toggleBlock: (blockId: string) => void
   clearSelection: () => void
   sendMessage: (prompt: string) => Promise<void>
@@ -83,7 +101,11 @@ interface ChatState {
   loadVersions: (blockId: string) => Promise<void>
   setActiveVersion: (blockId: string, versionId: string) => Promise<void>
   editBlock: (blockId: string, content: string) => Promise<boolean>
+  startEdit: (blockId: string, content: string) => Promise<void>
+  setEditingDraft: (content: string) => void
+  cancelEdit: () => void
   runRefine: (instruction: string) => Promise<void>
+  retryRefine: () => Promise<void>
   approveResult: (resultId: string) => Promise<void>
   rejectResult: (resultId: string) => Promise<void>
   approveAll: () => Promise<void>
@@ -114,9 +136,10 @@ interface ChatState {
   retryAiResponseJob: (jobId: string) => Promise<void>
   setContextInstruction: (instruction: string) => void
   focusContextInstruction: () => void
-  openBranchModal: (baseBlockId: string, editedBaseContent?: string) => void
+  openBranchModal: (baseBlockId: string, editedBaseContent?: string, sourceMode?: 'header' | 'block' | 'edited-block') => void
   closeBranchModal: () => void
   openContextEditor: (blockId: string) => void
+  clearSourceNavigationError: () => void
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -124,6 +147,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   nextCursor: null,
   isLoadingChats: false,
   isLoadingMoreChats: false,
+  chatListError: null,
+  chatListKeyword: '',
   chatId: null,
   chatTitle: '',
   branchId: null,
@@ -132,12 +157,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sourceContext: [],
   selectedBlockIds: [],
   appliedBlockIds: [],
+  appliedContextLabel: null,
   refineJob: null,
   inlineView: {},
   ratings: {},
   versionsByBlock: {},
   isSending: false,
   isRefining: false,
+  lastRefineInstruction: null,
+  refineFailed: false,
   isCreatingBranch: false,
   isOpeningDefaultChat: false,
   highlightedBlockId: null,
@@ -155,38 +183,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
   contextInstructionFocusSignal: 0,
   contextPanelSignal: 0,
   branchDraft: null,
+  branchError: null,
+  editingBlockId: null,
+  editingDraft: '',
+  editingOriginal: '',
+  isSavingEdit: false,
+  sourceNavigationError: null,
 
   async loadChats(keyword) {
-    set({ isLoadingChats: true })
+    set({ isLoadingChats: true, chatListError: null })
     try {
       const res = await chatApi.fetchChats({ keyword })
-      set({ chats: res.chats, nextCursor: res.nextCursor })
+      set({ chats: res.chats, nextCursor: res.nextCursor, chatListKeyword: keyword ?? '' })
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      set({ chatListError: toErrorMessage(e) })
     } finally {
       set({ isLoadingChats: false })
     }
   },
 
   async loadMoreChats() {
-    const { nextCursor, isLoadingMoreChats } = get()
+    const { nextCursor, isLoadingMoreChats, chatListKeyword } = get()
     if (!nextCursor || isLoadingMoreChats) return
-    set({ isLoadingMoreChats: true })
+    set({ isLoadingMoreChats: true, chatListError: null })
     try {
-      const res = await chatApi.fetchChats({ cursor: nextCursor })
+      const res = await chatApi.fetchChats({ cursor: nextCursor, keyword: chatListKeyword || undefined })
       set((s) => ({
         chats: [...s.chats, ...res.chats.filter((item) => !s.chats.some((chat) => chat.chatId === item.chatId))],
         nextCursor: res.nextCursor,
       }))
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      set({ chatListError: toErrorMessage(e) })
     } finally {
       set({ isLoadingMoreChats: false })
     }
   },
 
   async newChat() {
-    if (!confirmDraftDiscard(get())) return
+    if (!(await confirmPendingDiscard(get()))) return
     await createFreshChat(set, get)
   },
 
@@ -213,12 +247,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sourceContext: [],
       selectedBlockIds: [],
       appliedBlockIds: [],
+      appliedContextLabel: null,
       refineJob: null,
       inlineView: {},
       ratings: {},
       versionsByBlock: {},
       isSending: false,
       isRefining: false,
+      lastRefineInstruction: null,
+      refineFailed: false,
       isCreatingBranch: false,
       isOpeningDefaultChat: false,
       highlightedBlockId: null,
@@ -233,6 +270,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       contextInstructionFocusSignal: 0,
       contextPanelSignal: 0,
       branchDraft: null,
+      branchError: null,
+      editingBlockId: null,
+      editingDraft: '',
+      editingOriginal: '',
+      isSavingEdit: false,
+      sourceNavigationError: null,
+      chatListError: null,
+      chatListKeyword: '',
     })
   },
 
@@ -259,8 +304,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setContextInstruction(instruction) { set({ contextInstruction: instruction.slice(0, 2000) }) },
   focusContextInstruction() { set((s) => ({ contextInstructionFocusSignal: s.contextInstructionFocusSignal + 1 })) },
-  openBranchModal(baseBlockId, editedBaseContent) { set({ branchDraft: { baseBlockId, editedBaseContent } }) },
-  closeBranchModal() { set({ branchDraft: null }) },
+  openBranchModal(baseBlockId, editedBaseContent, sourceMode) {
+    set((state) => ({
+      branchDraft: {
+        baseBlockId,
+        contextBlockIds: [...state.selectedBlockIds],
+        editedBaseContent,
+        sourceMode: sourceMode ?? (editedBaseContent === undefined ? 'block' : 'edited-block'),
+      },
+      branchError: null,
+    }))
+  },
+  closeBranchModal() { set({ branchDraft: null, branchError: null }) },
   openContextEditor(blockId) {
     set((s) => ({
       selectedBlockIds: s.selectedBlockIds.includes(blockId)
@@ -321,7 +376,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   async openChat(chatId, branchId) {
-    if (get().chatId !== chatId && !confirmDraftDiscard(get())) return
+    if (get().chatId !== chatId && !(await confirmPendingDiscard(get()))) return
     try {
       if (get().chatId !== chatId) get().clearDraft()
       const detail = await chatApi.fetchChat(chatId, branchId)
@@ -333,14 +388,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
         detail.messageBlocks,
       )
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      if (errorCode(e) === 'CHAT_ACCESS_DENIED' || errorCode(e) === 'CHAT_NOT_FOUND') {
+        set((s) => ({ chats: s.chats.filter((item) => item.chatId !== chatId), error: toErrorMessage(e) }))
+      } else {
+        set({ error: toErrorMessage(e) })
+      }
     }
   },
 
   async switchBranch(branchId) {
     const { chatId } = get()
-    if (!chatId) return
-    if (get().branchId !== branchId && !confirmDraftDiscard(get())) return
+    if (!chatId) return false
+    if (get().branchId !== branchId && !(await confirmPendingDiscard(get()))) return false
     try {
       if (get().branchId !== branchId) get().clearDraft()
       const detail = await chatApi.fetchBranch(chatId, branchId)
@@ -357,14 +416,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ratings: {},
         versionsByBlock: {},
         contextInstruction: '',
+        appliedContextLabel: null,
+        lastRefineInstruction: null,
+        refineFailed: false,
+        editingBlockId: null,
+        editingDraft: '',
+        editingOriginal: '',
+        sourceNavigationError: null,
         branches: get().branches.map((b) => ({
           ...b,
           isActive: b.branchId === branchId,
         })),
       })
       await refreshFeedbacks(set, chatId, branchId, detail.messageBlocks)
+      return true
     } catch (e) {
       set({ error: toErrorMessage(e) })
+      return false
     }
   },
 
@@ -381,11 +449,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   applyContext() {
-    set((s) => ({ appliedBlockIds: [...s.selectedBlockIds] }))
+    set((s) => ({
+      appliedBlockIds: [...s.selectedBlockIds],
+      appliedContextLabel: s.contextInstruction.trim().slice(0, 30) || '선택한 Context',
+      focusSignal: s.focusSignal + 1,
+    }))
+    useNotificationStore.getState().show('Context를 적용했습니다.', 'success')
   },
 
   clearAppliedContext() {
-    set({ appliedBlockIds: [] })
+    set({ appliedBlockIds: [], appliedContextLabel: null })
+    useNotificationStore.getState().show('Context 적용을 해제했습니다.', 'info')
   },
 
   async sendMessage(prompt) {
@@ -415,10 +489,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // 한 번 쓴 Context 는 자동으로 해제한다. 남겨두면 다음 질문까지
         // 같은 맥락에 묶여, 사용자가 의도하지 않은 답이 나온다.
         appliedBlockIds: [],
+        appliedContextLabel: null,
         selectedBlockIds: [],
         failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([id]) => id !== res.userBlock.blockId)),
       }))
       get().clearDraft()
+      useNotificationStore.getState().show('메시지를 전송했습니다.', 'success')
       if (res.titleGenerated) await get().loadChats()
     } catch (e) {
       if (openApiKeyWhenMissing(e)) {
@@ -521,18 +597,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { chatId, branchId } = get()
     if (!chatId || !branchId || !content.trim()) return false
     try {
+      set({ isSavingEdit: true })
       const block = await convApi.editBlock(chatId, branchId, blockId, content)
       set((s) => ({ blocks: s.blocks.map((item) => item.blockId === blockId ? { ...item, ...block } : item) }))
       await get().loadVersions(blockId)
+      set({ editingBlockId: null, editingDraft: '', editingOriginal: '' })
+      useNotificationStore.getState().show('메시지를 수정했습니다.', 'success')
       return true
     } catch (e) { set({ error: toErrorMessage(e) }); return false }
+    finally { set({ isSavingEdit: false }) }
   },
+
+  async startEdit(blockId, content) {
+    const state = get()
+    if (state.editingBlockId && state.editingBlockId !== blockId && state.editingDraft !== state.editingOriginal && !(await useConfirmStore.getState().request('다른 메시지의 수정 내용을 버릴까요?'))) return
+    set({ editingBlockId: blockId, editingDraft: content, editingOriginal: content })
+  },
+
+  setEditingDraft(content) { set({ editingDraft: content }) },
+  cancelEdit() { set({ editingBlockId: null, editingDraft: '', editingOriginal: '' }) },
 
   async runRefine(instruction) {
     const { chatId, branchId, selectedBlockIds } = get()
     if (!chatId || !branchId || selectedBlockIds.length === 0) return
 
-    set({ isRefining: true, error: null })
+    set({ isRefining: true, error: null, refineFailed: false, lastRefineInstruction: instruction })
     try {
       const job = await convApi.runRefine(
         chatId,
@@ -542,16 +631,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
       )
       set({
         refineJob: job,
+        lastRefineInstruction: instruction,
+        refineFailed: false,
         inlineView: Object.fromEntries(
           job.results.map((r) => [r.blockId, 'refined' as const]),
         ),
       })
+      requestAnimationFrame(() => document.getElementById(`block-${job.results[0]?.blockId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
     } catch (e) {
       if (openApiKeyWhenMissing(e)) set({ error: null })
-      else set({ error: toErrorMessage(e) })
+      else set({ error: toErrorMessage(e), refineFailed: true })
     } finally {
       set({ isRefining: false })
     }
+  },
+
+  async retryRefine() {
+    const instruction = get().lastRefineInstruction ?? get().contextInstruction
+    if (instruction.trim()) await get().runRefine(instruction)
   },
 
   async approveResult(resultId) {
@@ -573,6 +670,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           results: s.refineJob.results.map((r) => (r.resultId === resultId ? updated : r)),
         },
       }))
+      useNotificationStore.getState().show('정제 결과를 반영했습니다.', 'success')
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -590,6 +688,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           results: s.refineJob.results.map((r) => (r.resultId === resultId ? updated : r)),
         },
       }))
+      useNotificationStore.getState().show('정제 결과를 거절했습니다.', 'info')
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -599,7 +698,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { chatId, branchId, refineJob } = get()
     if (!chatId || !branchId || !refineJob) return
     try {
-      const { processed, failed } = await convApi.approveAll(
+      const { processed, failed, actionMeta } = await convApi.approveAll(
         chatId,
         branchId,
         refineJob.refineJobId,
@@ -617,6 +716,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             ? `${failed.length}개 블록은 승인에 실패했습니다. 나머지 항목에서 다시 시도해주세요.`
             : s.error,
       }))
+      useNotificationStore.getState().show(actionMeta.message, failed.length ? 'warning' : 'success')
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -626,9 +726,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { chatId, branchId, refineJob } = get()
     if (!chatId || !branchId || !refineJob) return
     try {
-      const { processed, failed } = await convApi.rejectAll(chatId, branchId, refineJob.refineJobId)
+      const { processed, failed, actionMeta } = await convApi.rejectAll(chatId, branchId, refineJob.refineJobId)
       const byId = new Map(processed.map((item) => [item.resultId, item]))
       set((s) => ({ refineJob: s.refineJob && { ...s.refineJob, results: s.refineJob.results.map((item) => byId.get(item.resultId) ?? item) }, error: failed.length ? `${failed.length}개 항목을 거절하지 못했습니다.` : s.error }))
+      useNotificationStore.getState().show(actionMeta.message, failed.length ? 'warning' : 'success')
     } catch (e) { set({ error: toErrorMessage(e) }) }
   },
 
@@ -648,8 +749,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async createBranch(name, baseBlockId, contextBlockIds, editedBaseContent) {
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return false
+    const state = get()
+    const hasOtherUnsavedEdit = Boolean(
+      state.editingBlockId &&
+      state.editingDraft !== state.editingOriginal &&
+      editedBaseContent === undefined,
+    )
+    if (hasOtherUnsavedEdit && !(await useConfirmStore.getState().request('저장하지 않은 메시지 수정 내용을 버리고 브랜치를 만들까요?'))) return false
 
-    set({ isCreatingBranch: true, error: null })
+    set({ isCreatingBranch: true, branchError: null })
     try {
       const created = await chatApi.createBranch(chatId, {
         branchName: name,
@@ -660,10 +768,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       })
       // 만든 브랜치로 바로 들어간다. 목록만 갱신하면 어디로 갔는지 알기 어렵다
       set({ branches: await chatApi.fetchBranches(chatId) })
-      await get().switchBranch(created.branchId)
+      // 분기 전 이탈 확인을 마쳤거나 수정본이 새 브랜치에 저장됐으므로 초안을 정리한다.
+      set({ editingBlockId: null, editingDraft: '', editingOriginal: '' })
+      const switched = await get().switchBranch(created.branchId)
+      if (!switched) return false
+      useNotificationStore.getState().show('브랜치를 만들었습니다.', 'success')
       return true
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      set({ branchError: toErrorMessage(e) })
       return false
     } finally {
       set({ isCreatingBranch: false })
@@ -676,7 +788,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // 원본이 다른 브랜치에 있으면 그 브랜치로 먼저 옮긴다
     if (item.sourceBranchId && item.sourceBranchId !== branchId) {
-      await get().switchBranch(item.sourceBranchId)
+      const switched = await get().switchBranch(item.sourceBranchId)
+      if (!switched) return
     }
     set({ highlightedBlockId: item.sourceMessageBlockId })
 
@@ -684,7 +797,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     requestAnimationFrame(() => {
       const target = document.getElementById(`block-${item.sourceMessageBlockId}`)
       if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      else set({ error: '원본 메시지를 찾을 수 없습니다.' })
+      else set({ sourceNavigationError: '원본 메시지를 찾을 수 없습니다.' })
     })
 
     // 강조는 잠깐만 남긴다. 계속 켜두면 어디를 보라는 건지 흐려진다
@@ -702,6 +815,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   dismissError() {
     set({ error: null })
   },
+
+  clearSourceNavigationError() { set({ sourceNavigationError: null }) },
 }))
 
 async function createFreshChat(
@@ -731,7 +846,10 @@ function applyDetail(
     sourceContext: [],
     selectedBlockIds: [],
     appliedBlockIds: [],
+    appliedContextLabel: null,
     refineJob: null,
+    lastRefineInstruction: null,
+    refineFailed: false,
     inlineView: {},
     ratings: {},
         versionsByBlock: {},
@@ -741,6 +859,12 @@ function applyDetail(
     draftAttachments: [],
     pendingByBlockId: {},
     failedJobsByBlockId: {},
+    editingBlockId: null,
+    editingDraft: '',
+    editingOriginal: '',
+    isSavingEdit: false,
+    sourceNavigationError: null,
+    branchError: null,
   })
 }
 
@@ -773,7 +897,9 @@ function openApiKeyWhenMissing(error: unknown): boolean {
   return true
 }
 
-function confirmDraftDiscard(state: ChatState): boolean {
-  if (!state.draftText.trim() && state.draftAttachments.length === 0) return true
-  return window.confirm('전송하지 않은 입력과 첨부 파일이 있습니다. 이동하면 입력 내용이 사라집니다.')
+async function confirmPendingDiscard(state: ChatState): Promise<boolean> {
+  const hasComposerDraft = state.draftText.trim() || state.draftAttachments.length > 0
+  const hasMessageEdit = state.editingBlockId && state.editingDraft !== state.editingOriginal
+  if (!hasComposerDraft && !hasMessageEdit) return true
+  return useConfirmStore.getState().request('저장하지 않은 입력 또는 수정 내용이 있습니다. 이동하면 사라집니다.')
 }

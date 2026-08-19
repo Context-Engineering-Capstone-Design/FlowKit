@@ -1,5 +1,5 @@
 import { Check, SlidersHorizontal, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { toPreview } from '@/lib/preview'
 import { useChatStore } from '@/store/chatStore'
 import type { RefineStatus } from '@/types/api'
@@ -34,7 +34,7 @@ export function ContextPanel({ onClose, width, onResizeStart }: Props) {
   const selected = blocks.filter((b) => selectedIds.includes(b.blockId))
 
   return (
-    <aside style={{ width }} className="relative flex shrink-0 flex-col overflow-hidden bg-bg-1 shadow-2xl max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:w-[min(90vw,380px)]">
+    <aside style={{ '--panel-width': `${width}px` } as CSSProperties} className="relative flex w-[min(90vw,380px)] shrink-0 flex-col overflow-hidden bg-bg-1 shadow-2xl max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 lg:w-[var(--panel-width)]">
       <div aria-label="Context 패널 너비 조절" onPointerDown={onResizeStart} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize hover:bg-blue lg:block" />
       <header className="flex items-center justify-between px-4 py-3.5">
         <span className="flex items-center gap-2 text-[13px] font-semibold">
@@ -136,6 +136,8 @@ function RefineForm() {
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
   const isRefining = useChatStore((s) => s.isRefining)
   const runRefine = useChatStore((s) => s.runRefine)
+  const retryRefine = useChatStore((s) => s.retryRefine)
+  const refineFailed = useChatStore((s) => s.refineFailed)
   const refineJob = useChatStore((s) => s.refineJob)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -185,6 +187,9 @@ function RefineForm() {
         >
           {isRefining ? '정제 중…' : '블록별로 정제하기'}
         </button>
+        {refineFailed && !isRefining && (
+          <button type="button" onClick={() => void retryRefine()} className="mt-1 w-full rounded-lg bg-bg-3 py-2 text-[12px] text-txt-1">같은 지시로 다시 시도</button>
+        )}
         <p className="mt-2 text-[11px] leading-relaxed text-txt-3">
           선택한 블록을 각각 따로 정제합니다. 승인한 결과만 원본에 반영됩니다.
         </p>
@@ -196,6 +201,7 @@ function RefineForm() {
 // 정제 결과 미리보기 — 원본과 정제본 비교 (REQ-029)
 function RefinePreview() {
   const refineJob = useChatStore((s) => s.refineJob)
+  const blocks = useChatStore((s) => s.blocks)
   const approve = useChatStore((s) => s.approveResult)
   const reject = useChatStore((s) => s.rejectResult)
   const approveAll = useChatStore((s) => s.approveAll)
@@ -290,12 +296,15 @@ function RefinePreview() {
               >
                 <div className="p-2.5">
                   <div className="flex items-center justify-between">
-                    <p className="text-[10.5px] font-semibold text-txt-3">원본</p>
+                    <p className="text-[10.5px] font-semibold text-txt-3">
+                      원본 · {blocks.find((block) => block.blockId === r.blockId)?.role === 'user' ? 'User' : 'AI'}
+                    </p>
                     <StatusBadge status={r.status} />
                   </div>
                   <p className="mt-1 line-clamp-3 border-l-2 border-line pl-2 text-[11.5px] leading-relaxed text-txt-2">
                     {r.baseContent}
                   </p>
+                  <button type="button" onClick={() => document.getElementById(`block-${r.blockId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })} className="mt-1 text-[10.5px] text-blue hover:underline">원본 위치로 이동</button>
 
                   <p className="mt-2.5 text-[10.5px] font-semibold text-green">
                     정제 결과

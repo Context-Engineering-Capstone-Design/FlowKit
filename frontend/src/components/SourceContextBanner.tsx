@@ -1,4 +1,4 @@
-import { GitBranch } from 'lucide-react'
+import { GitBranch, X } from 'lucide-react'
 import { toPreview } from '@/lib/preview'
 import { useChatStore } from '@/store/chatStore'
 
@@ -7,6 +7,8 @@ export function SourceContextBanner() {
   const sourceContext = useChatStore((s) => s.sourceContext)
   const branches = useChatStore((s) => s.branches)
   const jumpToSource = useChatStore((s) => s.jumpToSource)
+  const navigationError = useChatStore((s) => s.sourceNavigationError)
+  const clearNavigationError = useChatStore((s) => s.clearSourceNavigationError)
 
   const active = branches.find((b) => b.isActive)
   // Context를 고르지 않고도 브랜치를 만들 수 있어, 출발 Context가 없어도
@@ -21,6 +23,7 @@ export function SourceContextBanner() {
         <GitBranch className="h-3.5 w-3.5" />
         현재 브랜치: {active.branchName}
       </p>
+      {navigationError && <div className="mt-2 flex items-center gap-2 text-[11px] text-red"><span>{navigationError}</span><button type="button" onClick={clearNavigationError} aria-label="안내 닫기"><X className="h-3 w-3" /></button></div>}
 
       {sourceContext.length > 0 && (
         <>

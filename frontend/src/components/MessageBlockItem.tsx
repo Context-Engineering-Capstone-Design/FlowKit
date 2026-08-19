@@ -2,6 +2,7 @@ import { Check, ChevronLeft, ChevronRight, Copy, Pencil, RotateCw, ThumbsDown, T
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useChatStore } from '@/store/chatStore'
+import { useNotificationStore } from '@/store/notificationStore'
 import type { MessageBlock, RefineResultItem, RefineStatus } from '@/types/api'
 
 interface Props {
@@ -19,6 +20,13 @@ export function MessageBlockItem({ block, refine }: Props) {
   const failedJobId = useChatStore((s) => s.failedJobsByBlockId[block.blockId])
   const retryAiResponseJob = useChatStore((s) => s.retryAiResponseJob)
   const saveEdit = useChatStore((s) => s.editBlock)
+  const editing = useChatStore((s) => s.editingBlockId === block.blockId)
+  const draft = useChatStore((s) => s.editingDraft)
+  const editBusy = useChatStore((s) => s.isSavingEdit)
+  const startEdit = useChatStore((s) => s.startEdit)
+  const setEditingDraft = useChatStore((s) => s.setEditingDraft)
+  const cancelEdit = useChatStore((s) => s.cancelEdit)
+  const showNotification = useNotificationStore((s) => s.show)
   const rating = useChatStore((s) => s.ratings[block.blockId])
   const setFeedback = useChatStore((s) => s.setFeedback)
   const versions = useChatStore((s) => s.versionsByBlock[block.blockId])
@@ -49,9 +57,6 @@ export function MessageBlockItem({ block, refine }: Props) {
 
   // 정제 결과가 대기 → 승인으로 바뀐 순간 잠깐 강조한다 (FE-REFINE-005)
   const [flash, setFlash] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(block.content)
-  const [editBusy, setEditBusy] = useState(false)
   const prevRefineStatus = useRef<RefineStatus | undefined>(refine?.status)
   useEffect(() => {
     const was = prevRefineStatus.current
@@ -62,6 +67,16 @@ export function MessageBlockItem({ block, refine }: Props) {
       return () => clearTimeout(timer)
     }
   }, [refine?.status])
+
+  async function copyContent() {
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard API unavailable')
+      await navigator.clipboard.writeText(block.content)
+      showNotification('메시지를 복사했습니다.', 'success')
+    } catch {
+      showNotification('메시지를 복사하지 못했습니다.', 'error')
+    }
+  }
 
   return (
     <div
@@ -109,7 +124,7 @@ export function MessageBlockItem({ block, refine }: Props) {
         <span className="text-[11px] text-txt-3">{time}</span>
       </div>
 
-      {editing ? <div className="mt-1"><textarea value={draft} onChange={(e) => setDraft(e.target.value)} className="min-h-24 w-full rounded-lg bg-bg-2 p-2 text-[13px] text-txt-0 outline-none" /><div className="mt-1 flex gap-1"><button type="button" onClick={() => { setEditing(false); setDraft(block.content) }} className="rounded px-2 py-1 text-[11px] text-txt-2">취소</button><button type="button" disabled={!draft.trim()} onClick={() => openBranchModal(block.blockId, draft)} className="rounded px-2 py-1 text-[11px] text-green">브랜치로 저장</button><button type="button" disabled={editBusy || !draft.trim()} onClick={() => void (async () => { setEditBusy(true); if (await saveEdit(block.blockId, draft)) setEditing(false); setEditBusy(false) })()} className="rounded bg-blue px-2 py-1 text-[11px] text-white disabled:opacity-40">저장</button></div></div> : <div className="markdown text-[13.5px] leading-relaxed text-txt-1"><ReactMarkdown>{shown}</ReactMarkdown></div>}
+      {editing ? <div className="mt-1"><textarea value={draft} onChange={(e) => setEditingDraft(e.target.value)} className="min-h-24 w-full rounded-lg bg-bg-2 p-2 text-[13px] text-txt-0 outline-none" /><div className="mt-1 flex gap-1"><button type="button" onClick={cancelEdit} className="rounded px-2 py-1 text-[11px] text-txt-2">취소</button><button type="button" disabled={!draft.trim()} onClick={() => openBranchModal(block.blockId, draft)} className="rounded px-2 py-1 text-[11px] text-green">브랜치로 저장</button><button type="button" disabled={editBusy || !draft.trim()} onClick={() => void saveEdit(block.blockId, draft)} className="rounded bg-blue px-2 py-1 text-[11px] text-white disabled:opacity-40">저장</button></div></div> : <div className="markdown text-[13.5px] leading-relaxed text-txt-1"><ReactMarkdown>{shown}</ReactMarkdown></div>}
 
       {isUser && failedJobId && <div className="mt-2 flex items-center gap-2 text-[11px] text-red"><span>답변 생성에 실패했습니다.</span><button type="button" onClick={() => void retryAiResponseJob(failedJobId)} className="rounded border border-red/40 px-1.5 py-0.5 hover:bg-red/10">다시 시도</button></div>}
       {!isUser && pendingAi && <div className="mt-2 text-[11px] text-txt-2">답변을 다시 생성하는 중…</div>}
@@ -117,7 +132,7 @@ export function MessageBlockItem({ block, refine }: Props) {
       {pending && <InlineRefineBar result={refine} />}
 
       {!pending && (
-        <div className="mt-2 flex gap-1 opacity-0 transition group-hover:opacity-100">
+        <div className="mt-2 flex gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100">
           {versions && versions.length > 1 && currentVersionIndex >= 0 && (
             <div className="mr-1 flex items-center rounded border border-line text-[10px] text-txt-2">
               <button
@@ -125,6 +140,7 @@ export function MessageBlockItem({ block, refine }: Props) {
                 disabled={currentVersionIndex === 0}
                 onClick={() => void setActiveVersion(block.blockId, versions[currentVersionIndex - 1].versionId)}
                 title="이전 버전"
+                aria-label="이전 버전"
                 className="rounded p-1 transition hover:bg-bg-3 disabled:cursor-default disabled:opacity-30"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
@@ -137,6 +153,7 @@ export function MessageBlockItem({ block, refine }: Props) {
                 disabled={currentVersionIndex === versions.length - 1}
                 onClick={() => void setActiveVersion(block.blockId, versions[currentVersionIndex + 1].versionId)}
                 title="다음 버전"
+                aria-label="다음 버전"
                 className="rounded p-1 transition hover:bg-bg-3 disabled:cursor-default disabled:opacity-30"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
@@ -149,6 +166,7 @@ export function MessageBlockItem({ block, refine }: Props) {
                 type="button"
                 onClick={() => void setFeedback(block.blockId, 'like')}
                 title="좋아요"
+                aria-label="좋아요"
                 aria-pressed={rating === 'like'}
                 className={`rounded p-1 transition hover:bg-bg-3 ${
                   rating === 'like' ? 'bg-blue-dim text-blue' : 'text-txt-3 hover:text-txt-1'
@@ -160,6 +178,7 @@ export function MessageBlockItem({ block, refine }: Props) {
                 type="button"
                 onClick={() => void setFeedback(block.blockId, 'dislike')}
                 title="싫어요"
+                aria-label="싫어요"
                 aria-pressed={rating === 'dislike'}
                 className={`rounded p-1 transition hover:bg-bg-3 ${
                   rating === 'dislike' ? 'bg-blue-dim text-blue' : 'text-txt-3 hover:text-txt-1'
@@ -172,16 +191,17 @@ export function MessageBlockItem({ block, refine }: Props) {
                 onClick={() => void regenerate(block.blockId)}
                 disabled={pendingAi}
                 title="답변 다시 시도"
+                aria-label="답변 다시 시도"
                 className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1 disabled:opacity-40"
               >
                 <RotateCw className="h-3.5 w-3.5" />
               </button>
             </>
           )}
-          <button type="button" onClick={() => void navigator.clipboard?.writeText(block.content)} title="복사" className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"><Copy className="h-3.5 w-3.5" /></button>
-          {!editing && <button type="button" onClick={() => { setDraft(block.content); setEditing(true) }} title="수정" className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"><Pencil className="h-3.5 w-3.5" /></button>}
-          <button type="button" onClick={() => openContextEditor(block.blockId)} title="Context 편집 시작" className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1">Context</button>
-          <button type="button" onClick={() => openBranchModal(block.blockId)} title="여기서 브랜치 생성" className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1">분기</button>
+          <button type="button" onClick={() => void copyContent()} title="복사" aria-label="메시지 복사" className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"><Copy className="h-3.5 w-3.5" /></button>
+          {!editing && <button type="button" onClick={() => void startEdit(block.blockId, block.content)} title="수정" aria-label="메시지 수정" className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"><Pencil className="h-3.5 w-3.5" /></button>}
+          <button type="button" onClick={() => openContextEditor(block.blockId)} title="Context 편집 시작" aria-label="Context 편집 시작" className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1">Context</button>
+          <button type="button" onClick={() => openBranchModal(block.blockId)} title="여기서 브랜치 생성" aria-label="여기서 브랜치 생성" className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1">분기</button>
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import * as authApi from '@/api/auth'
 import { toErrorMessage, tokenStore } from '@/api/client'
 import type { UserProfile } from '@/types/api'
+import { useNotificationStore } from '@/store/notificationStore'
 
 interface AuthState {
   user: UserProfile | null
@@ -36,6 +37,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: status.user, isChecking: false })
     } catch (e) {
       set({ user: null, isChecking: false, error: toErrorMessage(e) })
+      useNotificationStore.getState().showError(e)
     }
   },
 
@@ -44,8 +46,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await authApi.loginWithGoogle(idToken)
       set({ user: res.user })
+      useNotificationStore.getState().dismissBanner()
     } catch (e) {
       set({ error: toErrorMessage(e) })
+      useNotificationStore.getState().showError(e)
     }
   },
 
@@ -54,8 +58,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await authApi.loginForDevelopment()
       set({ user: res.user })
+      useNotificationStore.getState().dismissBanner()
     } catch (e) {
       set({ error: toErrorMessage(e) })
+      useNotificationStore.getState().showError(e)
     }
   },
 

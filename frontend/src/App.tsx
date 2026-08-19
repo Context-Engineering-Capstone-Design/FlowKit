@@ -8,6 +8,7 @@ import { Sidebar } from '@/components/Sidebar'
 import { UserProfileModal } from '@/components/UserProfileModal'
 import { Toast } from '@/components/Toast'
 import { AppErrorBoundary } from '@/components/AppErrorBoundary'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { reportClientError } from '@/lib/errorReporting'
 import { AUTH_EXPIRED_EVENT } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
@@ -24,6 +25,8 @@ export default function App() {
   const closeSettings = useSettingsStore((s) => s.closeModal)
   const resetSession = useChatStore((s) => s.resetSession)
   const showNotification = useNotificationStore((s) => s.show)
+  const showError = useNotificationStore((s) => s.showError)
+  const chatError = useChatStore((s) => s.error)
 
   useEffect(() => {
     void check()
@@ -42,6 +45,10 @@ export default function App() {
 
   useEffect(() => { const onError = (event: ErrorEvent) => reportClientError('window_error', event.error ?? event.message, { page: window.location.pathname }); const onReject = (event: PromiseRejectionEvent) => reportClientError('unhandled_rejection', event.reason, { page: window.location.pathname }); window.addEventListener('error', onError); window.addEventListener('unhandledrejection', onReject); return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onReject) } }, [])
 
+  useEffect(() => {
+    if (chatError) showError(chatError, { message: chatError })
+  }, [chatError, showError])
+
   if (isChecking) {
     return (
       <div className="flex h-full items-center justify-center text-[13px] text-txt-3">
@@ -50,7 +57,7 @@ export default function App() {
     )
   }
 
-  return <AppErrorBoundary>{user ? <Workspace /> : <LoginScreen />}<Toast /></AppErrorBoundary>
+  return <AppErrorBoundary>{user ? <Workspace /> : <LoginScreen />}<Toast /><ConfirmDialog /></AppErrorBoundary>
 }
 
 // 3단 작업 화면 — 좌측 대화·브랜치, 중앙 채팅, 우측 Context 편집 (NFR-001)
@@ -64,6 +71,11 @@ function Workspace() {
   const openBranchModal = useChatStore((s) => s.openBranchModal)
   const closeBranchModal = useChatStore((s) => s.closeBranchModal)
   const contextPanelSignal = useChatStore((s) => s.contextPanelSignal)
+  const draftText = useChatStore((s) => s.draftText)
+  const attachmentCount = useChatStore((s) => s.draftAttachments.length)
+  const editingBlockId = useChatStore((s) => s.editingBlockId)
+  const editingDraft = useChatStore((s) => s.editingDraft)
+  const editingOriginal = useChatStore((s) => s.editingOriginal)
 
   useEffect(() => {
     void openDefaultChat()
@@ -78,6 +90,14 @@ function Workspace() {
     if (contextPanelSignal) setPanelOpen(true)
   }, [contextPanelSignal])
 
+  useEffect(() => {
+    const dirty = Boolean(draftText.trim() || attachmentCount || (editingBlockId && editingDraft !== editingOriginal))
+    if (!dirty) return
+    function guard(event: BeforeUnloadEvent) { event.preventDefault() }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  }, [attachmentCount, draftText, editingBlockId, editingDraft, editingOriginal])
+
   function resizePanel(clientX: number) {
     const next = Math.min(480, Math.max(260, window.innerWidth - clientX))
     setPanelWidth(next)
@@ -90,7 +110,7 @@ function Workspace() {
       <ChatArea
         panelOpen={panelOpen}
         onTogglePanel={() => setPanelOpen((v) => !v)}
-        onCreateBranch={() => openBranchModal(blocks.at(-1)?.blockId ?? '')}
+        onCreateBranch={() => openBranchModal(blocks.at(-1)?.blockId ?? '', undefined, 'header')}
       />
       {panelOpen && <ContextPanel onClose={() => setPanelOpen(false)} width={panelWidth} onResizeStart={() => {
         function move(event: PointerEvent) { resizePanel(event.clientX) }
@@ -102,6 +122,7 @@ function Workspace() {
         <BranchModal
           onClose={closeBranchModal}
           initialBaseBlockId={branchDraft.baseBlockId}
+          initialContextBlockIds={branchDraft.contextBlockIds}
           editedBaseContent={branchDraft.editedBaseContent}
         />
       )}
