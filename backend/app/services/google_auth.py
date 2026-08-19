@@ -12,6 +12,7 @@ from app.exceptions import InvalidGoogleIdTokenError
 from app.settings import get_settings
 
 _GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
+_GOOGLE_CLOCK_SKEW_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ def verify_google_id_token(id_token_str: str) -> GoogleUser:
             id_token_str,
             google_requests.Request(),
             settings.google_client_id,
+            clock_skew_in_seconds=_GOOGLE_CLOCK_SKEW_SECONDS,
         )
     except ValueError as exc:
         # 서명 오류, 만료, audience 불일치 모두 ValueError 로 올라온다

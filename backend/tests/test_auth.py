@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.models import AuthSession, User
 from app.routers import auth as auth_router
+from app.services import google_auth
 from app.services.google_auth import GoogleUser, extract_google_user
 
 GOOGLE_USER = GoogleUser(
@@ -40,6 +41,33 @@ def login(client, stub_google) -> dict:
 
 
 # ── BE-AUTH-003: payload 추출 ──────────────────────────────────────────────
+
+
+def test_google_token_verification_allows_five_second_clock_skew(monkeypatch):
+    monkeypatch.setattr(
+        google_auth,
+        "get_settings",
+        lambda: type("Settings", (), {"google_client_id": "client-id"})(),
+    )
+
+    from google.oauth2 import id_token as google_id_token
+
+    captured: dict[str, int] = {}
+
+    def fake_verify(_token, _request, _audience, *, clock_skew_in_seconds):
+        captured["clock_skew_in_seconds"] = clock_skew_in_seconds
+        return {
+            "iss": "accounts.google.com",
+            "sub": "google-sub-1",
+            "email": "tester@example.com",
+        }
+
+    monkeypatch.setattr(google_id_token, "verify_oauth2_token", fake_verify)
+
+    user = google_auth.verify_google_id_token("id-token")
+
+    assert captured["clock_skew_in_seconds"] == 5
+    assert user.google_user_id == "google-sub-1"
 
 
 def test_extract_google_user_requires_email():
