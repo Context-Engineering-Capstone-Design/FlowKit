@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "0c50d3ec01f2"
 down_revision: str | None = "b5e3559115d8"
@@ -19,7 +20,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    rating = sa.Enum("like", "dislike", name="ai_response_rating")
+    rating = postgresql.ENUM(
+        "like", "dislike", name="ai_response_rating", create_type=False
+    )
     rating.create(op.get_bind(), checkfirst=True)
     op.create_table(
         "ai_response_feedbacks",

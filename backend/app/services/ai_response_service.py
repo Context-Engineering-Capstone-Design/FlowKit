@@ -22,7 +22,12 @@ from app.models import (
     User,
     VersionSourceType,
 )
-from app.services import chat_service, context_service, message_service
+from app.services import (
+    chat_service,
+    context_service,
+    message_service,
+    user_setting_service,
+)
 
 
 class AiResponseFailedError(AppError):
@@ -47,6 +52,7 @@ class SendResult:
 
 def send_message(
     db: Session,
+    user: User,
     chat: Chat,
     branch: Branch,
     user_prompt: str,
@@ -61,6 +67,9 @@ def send_message(
     prompt = (user_prompt or "").strip()
     if not prompt:
         raise ValidationError("질문을 입력해주세요.")
+
+    # 키가 없으면 질문을 저장하기 전에 막는다(BE-USERSET-006).
+    api_key = user_setting_service.require_api_key(db, user)
 
     context_items = context_service.build_snapshot(
         db, branch, context_block_ids or []
@@ -84,11 +93,11 @@ def send_message(
     db.commit()
 
     try:
-        answer = _generate(prompt, prior_flow, context_items, answerer)
+        answer = _generate(prompt, prior_flow, context_items, api_key, answerer)
     except Exception as exc:
         # 질문은 남겨 둔다. 지워 버리면 사용자가 다시 입력해야 한다.
         db.commit()
-        raise AiResponseFailedError(detail=str(exc)) from exc
+        raise AiResponseFailedError() from exc
 
     assistant_block = message_service.create_block(
         db, chat, branch, MessageRole.ASSISTANT, answer
@@ -96,7 +105,7 @@ def send_message(
 
     title_generated = False
     if is_first_message and chat.title == chat_service.DEFAULT_TITLE:
-        title_generated = _try_generate_title(db, chat, prompt, titler)
+        title_generated = _try_generate_title(db, chat, prompt, api_key, titler)
 
     return SendResult(
         user_block=user_block,
@@ -108,6 +117,7 @@ def send_message(
 
 def regenerate(
     db: Session,
+    user: User,
     chat: Chat,
     branch: Branch,
     block_id: uuid.UUID,
@@ -118,6 +128,7 @@ def regenerate(
     새 블록을 만들지 않고 같은 블록에 버전을 추가한다. 사용자는 버전 이동으로
     이전 답변과 비교할 수 있다(REQ-050).
     """
+    api_key = user_setting_service.require_api_key(db, user)
     block = message_service.get_editable_block(db, branch, block_id)
     if block.role is not MessageRole.ASSISTANT:
         raise NotAssistantBlockError()
@@ -142,9 +153,9 @@ def regenerate(
     history = preceding[:last_user_index]
 
     try:
-        answer = _generate(prompt, history, [], answerer)
+        answer = _generate(prompt, history, [], api_key, answerer)
     except Exception as exc:
-        raise AiResponseFailedError(detail=str(exc)) from exc
+        raise AiResponseFailedError() from exc
 
     return message_service.add_version(
         db, chat, block, answer, VersionSourceType.AI_REGENERATE
@@ -211,6 +222,7 @@ def _generate(
     prompt: str,
     flow: list[message_service.ActiveTurn],
     context_items: list[context_service.ContextItem],
+    api_key: str,
     answerer=None,
 ) -> str:
     from modeling import generate_answer
@@ -224,14 +236,16 @@ def _generate(
     )
     # 모델링은 답변 본문과 검색 근거를 함께 돌려준다. 근거 저장은 아직 없어
     # 본문만 쓴다. 테스트가 문자열을 돌려주는 가짜 함수를 넣는 경우도 받는다.
-    result = call(request)
+    result = call(request, api_key=api_key)
     answer = (getattr(result, "text", result) or "").strip()
     if not answer:
         raise ValueError("답변이 비어 있습니다.")
     return answer
 
 
-def _try_generate_title(db: Session, chat: Chat, prompt: str, titler=None) -> bool:
+def _try_generate_title(
+    db: Session, chat: Chat, prompt: str, api_key: str, titler=None
+) -> bool:
     """첫 질문으로 대화 제목을 짓는다 (BE-CHAT-004).
 
     제목은 부가 정보라, 실패해도 대화 자체는 정상 진행되어야 한다.
@@ -240,7 +254,7 @@ def _try_generate_title(db: Session, chat: Chat, prompt: str, titler=None) -> bo
 
     call = titler or generate_title
     try:
-        chat_service.update_title(db, chat, call(prompt))
+        chat_service.update_title(db, chat, call(prompt, api_key=api_key))
         return True
     except Exception:
         return False

@@ -21,6 +21,27 @@ export interface TokenResponse {
   isNewUser: boolean
 }
 
+export type ApiKeyConnectionStatus = 'unchecked' | 'connected' | 'failed'
+
+export interface ApiKeyStatus {
+  hasApiKey: boolean
+  provider: string
+  last4: string | null
+  connectedStatus: ApiKeyConnectionStatus | null
+  checkedAt: string | null
+  message: string | null
+}
+
+export interface UserSettingResponse {
+  userProfile: UserProfile
+  apiKeyStatus: ApiKeyStatus
+}
+
+export interface DeleteApiKeyResponse {
+  deleteSuccess: boolean
+  apiKeyStatus: ApiKeyStatus
+}
+
 export interface ChatSummary {
   chatId: string
   title: string

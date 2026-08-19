@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import * as chatApi from '@/api/chat'
-import { toErrorMessage } from '@/api/client'
+import { errorCode, toErrorMessage } from '@/api/client'
 import * as convApi from '@/api/conversation'
+import { useSettingsStore } from '@/store/settingsStore'
 import type {
   AiResponseRating,
   BranchListItem,
@@ -198,9 +199,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }))
       if (res.titleGenerated) await get().loadChats()
     } catch (e) {
-      // 질문은 서버에 남아 있으므로 화면을 다시 맞춘다
-      set({ error: toErrorMessage(e) })
-      await get().openChat(chatId, branchId)
+      if (openApiKeyWhenMissing(e)) {
+        set({ error: null })
+      } else {
+        // 모델 호출 중 실패했다면 질문은 서버에 남아 있으므로 화면을 다시 맞춘다
+        set({ error: toErrorMessage(e) })
+        await get().openChat(chatId, branchId)
+      }
     } finally {
       set({ isSending: false })
     }
@@ -219,7 +224,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }))
       await get().loadVersions(blockId)
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      if (openApiKeyWhenMissing(e)) set({ error: null })
+      else set({ error: toErrorMessage(e) })
     } finally {
       set({ isSending: false })
     }
@@ -294,7 +300,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       })
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      if (openApiKeyWhenMissing(e)) set({ error: null })
+      else set({ error: toErrorMessage(e) })
     } finally {
       set({ isRefining: false })
     }
@@ -476,4 +483,12 @@ async function refreshFeedbacks(
       ),
     ),
   })
+}
+
+function openApiKeyWhenMissing(error: unknown): boolean {
+  if (errorCode(error) !== 'API_KEY_NOT_REGISTERED') return false
+  useSettingsStore
+    .getState()
+    .openApiKey('AI 기능을 사용하려면 먼저 Google AI API 키를 등록해주세요.')
+  return true
 }

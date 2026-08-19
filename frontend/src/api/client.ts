@@ -3,6 +3,7 @@ import type { ApiError, TokenResponse } from '@/types/api'
 
 const ACCESS_KEY = 'flowkit_access_token'
 const REFRESH_KEY = 'flowkit_refresh_token'
+export const AUTH_EXPIRED_EVENT = 'flowkit:auth-expired'
 
 export const tokenStore = {
   get access() {
@@ -53,6 +54,7 @@ async function refreshAccessToken(): Promise<string | null> {
     return data.accessToken
   } catch {
     tokenStore.clear()
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
     return null
   }
 }

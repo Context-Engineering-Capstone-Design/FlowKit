@@ -20,7 +20,7 @@ export async function fetchMe(): Promise<UserProfile> {
 export async function updateMe(payload: {
   name?: string
   email?: string
-  memo?: string
+  memo?: string | null
 }): Promise<UserProfile> {
   const { data } = await api.patch<UserProfile>('/api/auth/me', payload)
   return data

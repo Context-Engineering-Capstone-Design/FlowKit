@@ -135,6 +135,10 @@ def test_update_profile(client, stub_google):
     assert res.json()["name"] == "새이름"
     assert res.json()["memo"] == "메모"
 
+    cleared = client.patch("/api/auth/me", json={"memo": None}, headers=headers)
+    assert cleared.status_code == 200
+    assert cleared.json()["memo"] is None
+
 
 def test_update_profile_rejects_duplicate_email(client, stub_google, db_session):
     db_session.add(User(google_user_id="other", email="taken@example.com", name="다른사람"))

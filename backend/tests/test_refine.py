@@ -18,7 +18,14 @@ USER = GoogleUser("sub-refine", "refine@example.com", "정제테스터", None)
 def auth(client, monkeypatch) -> dict:
     monkeypatch.setattr(auth_router, "verify_google_id_token", lambda _t: USER)
     res = client.post("/api/auth/google", json={"idToken": "dummy"})
-    return {"Authorization": f"Bearer {res.json()['accessToken']}"}
+    headers = {"Authorization": f"Bearer {res.json()['accessToken']}"}
+    saved = client.put(
+        "/api/settings/api-keys/google",
+        json={"apiKey": "test-api-key-1234567890"},
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+    return headers
 
 
 @pytest.fixture
@@ -27,7 +34,7 @@ def fake_ai(monkeypatch):
     import modeling
     from modeling.types import RefineResult
 
-    def _refine(targets, instruction):
+    def _refine(targets, instruction, **_kwargs):
         return [
             RefineResult(block_id=t.block_id, refined_content=f"[정제] {t.content}")
             for t in targets
@@ -157,7 +164,7 @@ def test_refine_rejects_block_outside_branch(client, auth, chat, blocks, fake_ai
 def test_ai_failure_marks_job_failed(client, auth, chat, blocks, monkeypatch):
     import modeling
 
-    def _boom(targets, instruction):
+    def _boom(targets, instruction, **_kwargs):
         raise RuntimeError("모델 호출 실패")
 
     monkeypatch.setattr(modeling, "refine_blocks", _boom)
@@ -176,7 +183,7 @@ def test_mismatched_ai_result_is_rejected(client, auth, chat, blocks, monkeypatc
     import modeling
     from modeling.types import RefineResult
 
-    def _partial(targets, instruction):
+    def _partial(targets, instruction, **_kwargs):
         return [
             RefineResult(block_id=targets[0].block_id, refined_content="일부만")
         ]

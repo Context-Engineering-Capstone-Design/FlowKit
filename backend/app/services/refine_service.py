@@ -18,8 +18,9 @@ from app.models import (
     RefineJobStatus,
     RefineResultStatus,
     VersionSourceType,
+    User,
 )
-from app.services import branch_service, message_service
+from app.services import branch_service, message_service, user_setting_service
 
 MAX_INSTRUCTION_LENGTH = 2_000
 MAX_BLOCKS_PER_JOB = 20
@@ -63,6 +64,7 @@ def normalize_instruction(instruction: str) -> str:
 
 def run_refine(
     db: Session,
+    user: User,
     chat: Chat,
     branch: Branch,
     block_ids: list[uuid.UUID],
@@ -75,6 +77,7 @@ def run_refine(
     사용자가 원본을 수정하더라도, 승인 시점에 비교·반영되는 기준은 흔들리지 않는다.
     """
     instruction = normalize_instruction(instruction)
+    api_key = user_setting_service.require_api_key(db, user)
 
     if not block_ids:
         raise ValidationError("정제할 블록을 선택해주세요.")
@@ -117,11 +120,11 @@ def run_refine(
     db.flush()
 
     try:
-        refined = _call_refiner(targets, instruction, refiner)
+        refined = _call_refiner(targets, instruction, api_key, refiner)
     except Exception as exc:
         job.status = RefineJobStatus.FAILED
         db.commit()
-        raise AiRefineFailedError(detail=str(exc)) from exc
+        raise AiRefineFailedError() from exc
 
     for target in targets:
         db.add(
@@ -142,7 +145,10 @@ def run_refine(
 
 
 def _call_refiner(
-    targets: list[BlockRefineTarget], instruction: str, refiner=None
+    targets: list[BlockRefineTarget],
+    instruction: str,
+    api_key: str,
+    refiner=None,
 ) -> dict[uuid.UUID, str]:
     """AI 모델링 파트에 정제를 요청한다 (BE-REFINE-002).
 
@@ -161,6 +167,7 @@ def _call_refiner(
             for t in targets
         ],
         instruction,
+        api_key=api_key,
     )
 
     mapped = {uuid.UUID(r.block_id): r.refined_content.strip() for r in results}

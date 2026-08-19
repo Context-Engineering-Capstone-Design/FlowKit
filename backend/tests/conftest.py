@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault(
+    "API_KEY_ENCRYPTION_KEY",
+    "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+)
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

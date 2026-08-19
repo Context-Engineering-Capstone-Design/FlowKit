@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 14
 
-    # BYOK는 후순위. 현재는 서버 공용 키로 동작한다.
-    google_api_key: str = ""
+    # 사용자 API 키 암호화용 Fernet 키. API 키 기능을 쓸 때 반드시 설정한다.
+    api_key_encryption_key: str = ""
 
     cors_origins: list[str] = ["http://localhost:5173"]
 

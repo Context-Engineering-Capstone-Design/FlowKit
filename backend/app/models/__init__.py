@@ -22,6 +22,7 @@ from app.models.refine import (
     RefineResultStatus,
 )
 from app.models.user import AuthSession, User
+from app.models.user_setting import ApiKeyConnectionStatus, UserApiKey
 
 __all__ = [
     "Base",
@@ -45,4 +46,6 @@ __all__ = [
     "AppliedContextItem",
     "AiResponseFeedback",
     "AiResponseRating",
+    "UserApiKey",
+    "ApiKeyConnectionStatus",
 ]

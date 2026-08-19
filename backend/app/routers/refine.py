@@ -64,7 +64,7 @@ def run_refine(
     """BE-REFINE-001~003: 선택 블록을 각각 정제하고 결과를 대기 상태로 저장한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.run_refine(
-        db, chat, branch, payload.selected_block_ids, payload.instruction_text
+        db, user, chat, branch, payload.selected_block_ids, payload.instruction_text
     )
     return _job_response(db, job)
 

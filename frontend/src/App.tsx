@@ -1,21 +1,36 @@
 import { useEffect, useState } from 'react'
 import { BranchModal } from '@/components/BranchModal'
+import { ApiKeyModal } from '@/components/ApiKeyModal'
 import { ChatArea } from '@/components/ChatArea'
 import { ContextPanel } from '@/components/ContextPanel'
 import { LoginScreen } from '@/components/LoginScreen'
 import { Sidebar } from '@/components/Sidebar'
+import { UserProfileModal } from '@/components/UserProfileModal'
+import { AUTH_EXPIRED_EVENT } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import { useChatStore } from '@/store/chatStore'
+import { useSettingsStore } from '@/store/settingsStore'
 
 // 앱 최상단 틀 — 로그인 여부에 따라 로그인 화면 또는 3단 작업 화면을 보여준다
 export default function App() {
   const user = useAuthStore((s) => s.user)
   const isChecking = useAuthStore((s) => s.isChecking)
   const check = useAuthStore((s) => s.check)
+  const clearSession = useAuthStore((s) => s.clearSession)
+  const closeSettings = useSettingsStore((s) => s.closeModal)
 
   useEffect(() => {
     void check()
   }, [check])
+
+  useEffect(() => {
+    function expireSession() {
+      clearSession()
+      closeSettings()
+    }
+    window.addEventListener(AUTH_EXPIRED_EVENT, expireSession)
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, expireSession)
+  }, [clearSession, closeSettings])
 
   if (isChecking) {
     return (
@@ -56,6 +71,8 @@ function Workspace() {
       {branchModalOpen && (
         <BranchModal onClose={() => setBranchModalOpen(false)} />
       )}
+      <UserProfileModal />
+      <ApiKeyModal />
     </div>
   )
 }

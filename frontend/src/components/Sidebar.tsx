@@ -1,6 +1,6 @@
 import { GitBranch, Layers, Search, SquarePen } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useAuthStore } from '@/store/authStore'
+import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
 
 // 좌측 사이드바 — 새 채팅, 대화 검색, 최근 대화 목록, 현재 대화의 브랜치 목록
@@ -96,7 +96,7 @@ export function Sidebar() {
         )}
       </div>
 
-      <ProfileArea />
+      <ProfileMenu />
     </aside>
   )
 }
@@ -106,36 +106,5 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <p className="px-2 pb-1 pt-3 text-[10.5px] font-semibold uppercase tracking-wide text-txt-3">
       {children}
     </p>
-  )
-}
-
-// 사이드바 하단 프로필 영역 — 사용자 정보와 로그아웃
-function ProfileArea() {
-  const user = useAuthStore((s) => s.user)
-  const logout = useAuthStore((s) => s.logout)
-
-  if (!user) return null
-
-  return (
-    <div className="flex items-center gap-2.5 px-3 py-3">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue text-[12px] font-semibold text-white">
-        {user.name.charAt(0).toUpperCase()}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12.5px] font-semibold">
-          {user.name}
-        </span>
-        <span className="block truncate text-[11px] text-txt-3">
-          {user.email}
-        </span>
-      </span>
-      <button
-        type="button"
-        onClick={() => void logout()}
-        className="shrink-0 text-[11px] text-txt-3 transition hover:text-txt-1"
-      >
-        로그아웃
-      </button>
-    </div>
   )
 }

@@ -42,7 +42,7 @@ def send_message(
     """
     chat, branch = _load(db, user, chat_id, branch_id)
     result = ai_response_service.send_message(
-        db, chat, branch, payload.user_prompt, payload.context_block_ids
+        db, user, chat, branch, payload.user_prompt, payload.context_block_ids
     )
     return SendMessageResponse(
         user_block=BlockResponse.of(result.user_block),
@@ -68,7 +68,7 @@ def regenerate(
 ) -> BlockResponse:
     """BE-AIRESP-003: 답변을 다시 생성해 같은 블록의 새 버전으로 추가한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
-    block = ai_response_service.regenerate(db, chat, branch, block_id)
+    block = ai_response_service.regenerate(db, user, chat, branch, block_id)
     return BlockResponse.of(block)
 
 

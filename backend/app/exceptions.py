@@ -99,6 +99,42 @@ class EmailAlreadyExistsError(AppError):
     message = "이미 사용 중인 이메일입니다."
 
 
+class ApiKeyNotRegisteredError(AppError):
+    status_code = 400
+    error_code = "API_KEY_NOT_REGISTERED"
+    message = "API 키가 등록되지 않았습니다. API 키를 등록해주세요."
+
+
+class ApiKeyNotFoundError(AppError):
+    status_code = 404
+    error_code = "API_KEY_NOT_FOUND"
+    message = "등록된 API 키를 찾을 수 없습니다."
+
+
+class ApiKeyInvalidFormatError(AppError):
+    status_code = 400
+    error_code = "API_KEY_INVALID_FORMAT"
+    message = "API 키 형식이 올바르지 않습니다."
+
+
+class ApiKeyEncryptionError(AppError):
+    status_code = 500
+    error_code = "API_KEY_ENCRYPTION_FAILED"
+    message = "API 키를 안전하게 저장하지 못했습니다."
+
+
+class ApiKeyDecryptionError(AppError):
+    status_code = 500
+    error_code = "API_KEY_DECRYPTION_FAILED"
+    message = "저장된 API 키를 읽지 못했습니다. 다시 등록해주세요."
+
+
+class ProviderNotConfiguredError(AppError):
+    status_code = 400
+    error_code = "PROVIDER_NOT_CONFIGURED"
+    message = "지원하지 않는 AI Provider입니다."
+
+
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,

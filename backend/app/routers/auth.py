@@ -72,7 +72,12 @@ def update_me(
 ) -> UserProfile:
     """BE-AUTH-008: 계정 기본 정보 수정."""
     updated = auth_service.update_profile(
-        db, user, name=payload.name, email=payload.email, memo=payload.memo
+        db,
+        user,
+        name=payload.name,
+        email=payload.email,
+        memo=payload.memo,
+        memo_present="memo" in payload.model_fields_set,
     )
     return UserProfile.model_validate(updated)
 

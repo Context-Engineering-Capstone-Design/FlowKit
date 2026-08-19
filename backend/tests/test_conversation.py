@@ -14,7 +14,14 @@ USER = GoogleUser("sub-conv", "conv@example.com", "대화테스터", None)
 def auth(client, monkeypatch) -> dict:
     monkeypatch.setattr(auth_router, "verify_google_id_token", lambda _t: USER)
     res = client.post("/api/auth/google", json={"idToken": "dummy"})
-    return {"Authorization": f"Bearer {res.json()['accessToken']}"}
+    headers = {"Authorization": f"Bearer {res.json()['accessToken']}"}
+    saved = client.put(
+        "/api/settings/api-keys/google",
+        json={"apiKey": "test-api-key-1234567890"},
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+    return headers
 
 
 @pytest.fixture
@@ -23,12 +30,14 @@ def captured(monkeypatch) -> list:
     calls = []
     import modeling
 
-    def _answer(request):
+    def _answer(request, **_kwargs):
         calls.append(request)
         return f"답변({len(calls)})"
 
     monkeypatch.setattr(modeling, "generate_answer", _answer)
-    monkeypatch.setattr(modeling, "generate_title", lambda p: f"제목: {p[:10]}")
+    monkeypatch.setattr(
+        modeling, "generate_title", lambda p, **_kwargs: f"제목: {p[:10]}"
+    )
     return calls
 
 
@@ -113,7 +122,7 @@ def test_question_survives_ai_failure(client, auth, chat, monkeypatch):
     """답변 생성이 실패해도 질문은 남아야 다시 입력하지 않는다."""
     import modeling
 
-    def _boom(request):
+    def _boom(request, **_kwargs):
         raise RuntimeError("모델 오류")
 
     monkeypatch.setattr(modeling, "generate_answer", _boom)
@@ -274,7 +283,7 @@ def test_pending_refine_result_is_not_used_as_context(
     monkeypatch.setattr(
         modeling,
         "refine_blocks",
-        lambda targets, instruction: [
+        lambda targets, instruction, **_kwargs: [
             RefineResult(block_id=t.block_id, refined_content="정제된 내용")
             for t in targets
         ],
@@ -312,9 +321,9 @@ def test_conversation_continues_when_title_fails(client, auth, chat, monkeypatch
     """제목은 부가 정보라 실패해도 대화는 정상이어야 한다."""
     import modeling
 
-    monkeypatch.setattr(modeling, "generate_answer", lambda r: "답변")
+    monkeypatch.setattr(modeling, "generate_answer", lambda r, **_kwargs: "답변")
 
-    def _boom(prompt):
+    def _boom(prompt, **_kwargs):
         raise RuntimeError("제목 생성 실패")
 
     monkeypatch.setattr(modeling, "generate_title", _boom)

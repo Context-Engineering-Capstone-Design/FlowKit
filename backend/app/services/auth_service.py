@@ -117,6 +117,7 @@ def update_profile(
     name: str | None = None,
     email: str | None = None,
     memo: str | None = None,
+    memo_present: bool = False,
 ) -> User:
     """계정 기본 정보 수정 (BE-AUTH-008)."""
     if email is not None and email != user.email:
@@ -126,7 +127,7 @@ def update_profile(
         user.email = email
     if name is not None:
         user.name = name
-    if memo is not None:
+    if memo_present:
         user.memo = memo
 
     db.commit()
