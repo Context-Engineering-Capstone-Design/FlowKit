@@ -3,12 +3,14 @@ import * as chatApi from '@/api/chat'
 import { toErrorMessage } from '@/api/client'
 import * as convApi from '@/api/conversation'
 import type {
+  AiResponseRating,
   BranchListItem,
   ChatDetail,
   ChatSummary,
   MessageBlock,
   RefineJob,
   SourceContextItem,
+  VersionItem,
 } from '@/types/api'
 
 interface ChatState {
@@ -30,6 +32,9 @@ interface ChatState {
   refineJob: RefineJob | null
   /** 블록별로 원본을 보는 중인지 정제본을 보는 중인지 (REQ-031) */
   inlineView: Record<string, 'original' | 'refined'>
+  /** 서버에 저장된 현재 사용자의 AI 답변 평가 상태. */
+  ratings: Record<string, AiResponseRating | undefined>
+  versionsByBlock: Record<string, VersionItem[] | undefined>
 
   isSending: boolean
   isRefining: boolean
@@ -44,6 +49,9 @@ interface ChatState {
   clearSelection: () => void
   sendMessage: (prompt: string) => Promise<void>
   regenerate: (blockId: string) => Promise<void>
+  setFeedback: (blockId: string, rating: AiResponseRating) => Promise<void>
+  loadVersions: (blockId: string) => Promise<void>
+  setActiveVersion: (blockId: string, versionId: string) => Promise<void>
   runRefine: (instruction: string) => Promise<void>
   approveResult: (resultId: string) => Promise<void>
   rejectResult: (resultId: string) => Promise<void>
@@ -76,6 +84,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   appliedBlockIds: [],
   refineJob: null,
   inlineView: {},
+  ratings: {},
+  versionsByBlock: {},
   isSending: false,
   isRefining: false,
   isCreatingBranch: false,
@@ -102,7 +112,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   async openChat(chatId, branchId) {
     try {
-      applyDetail(set, await chatApi.fetchChat(chatId, branchId))
+      const detail = await chatApi.fetchChat(chatId, branchId)
+      applyDetail(set, detail)
+      await refreshFeedbacks(
+        set,
+        detail.chatMeta.chatId,
+        detail.branchMeta.branchId,
+        detail.messageBlocks,
+      )
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -122,11 +139,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         appliedBlockIds: [],
         refineJob: null,
         inlineView: {},
+        ratings: {},
+        versionsByBlock: {},
         branches: get().branches.map((b) => ({
           ...b,
           isActive: b.branchId === branchId,
         })),
       })
+      await refreshFeedbacks(set, chatId, branchId, detail.messageBlocks)
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -190,13 +210,64 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const block = await convApi.regenerate(chatId, branchId, blockId)
       set((s) => ({
         blocks: s.blocks.map((b) =>
-          b.blockId === blockId ? { ...b, content: block.content } : b,
+          b.blockId === blockId ? { ...b, ...block } : b,
         ),
       }))
+      await get().loadVersions(blockId)
     } catch (e) {
       set({ error: toErrorMessage(e) })
     } finally {
       set({ isSending: false })
+    }
+  },
+
+  async setFeedback(blockId, rating) {
+    const { chatId, branchId, ratings } = get()
+    if (!chatId || !branchId) return
+    try {
+      // 같은 버튼을 다시 누르면 평가를 해제한다.
+      const nextRating = ratings[blockId] === rating ? null : rating
+      const result = await convApi.setFeedback(chatId, branchId, blockId, nextRating)
+      set((s) => ({
+        ratings: { ...s.ratings, [blockId]: result.rating ?? undefined },
+      }))
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+    }
+  },
+
+  async loadVersions(blockId) {
+    const { chatId, branchId } = get()
+    if (!chatId || !branchId) return
+    try {
+      const versions = await convApi.fetchVersions(chatId, branchId, blockId)
+      set((s) => ({
+        versionsByBlock: { ...s.versionsByBlock, [blockId]: versions },
+      }))
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+    }
+  },
+
+  async setActiveVersion(blockId, versionId) {
+    const { chatId, branchId } = get()
+    if (!chatId || !branchId) return
+    try {
+      const block = await convApi.setActiveVersion(chatId, branchId, blockId, versionId)
+      set((s) => ({
+        blocks: s.blocks.map((item) =>
+          item.blockId === blockId ? { ...item, ...block } : item,
+        ),
+        versionsByBlock: {
+          ...s.versionsByBlock,
+          [blockId]: (s.versionsByBlock[blockId] ?? []).map((version) => ({
+            ...version,
+            isCurrent: version.versionId === versionId,
+          })),
+        },
+      }))
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
     }
   },
 
@@ -362,6 +433,29 @@ function applyDetail(
     appliedBlockIds: [],
     refineJob: null,
     inlineView: {},
+    ratings: {},
+    versionsByBlock: {},
     error: null,
+  })
+}
+
+async function refreshFeedbacks(
+  set: (partial: Partial<ChatState>) => void,
+  chatId: string,
+  branchId: string,
+  blocks: MessageBlock[],
+) {
+  const assistantBlocks = blocks.filter((block) => block.role === 'assistant')
+  const results = await Promise.all(
+    assistantBlocks.map((block) =>
+      convApi.fetchFeedback(chatId, branchId, block.blockId),
+    ),
+  )
+  set({
+    ratings: Object.fromEntries(
+      results.flatMap((result) =>
+        result.rating ? [[result.aiMessageBlockId, result.rating] as const] : [],
+      ),
+    ),
   })
 }

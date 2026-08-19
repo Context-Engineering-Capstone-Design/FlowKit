@@ -9,6 +9,8 @@ from fastapi import APIRouter
 from app.deps import CurrentUser, DbSession
 from app.schemas.conversation import (
     AppliedContextOut,
+    FeedbackRequest,
+    FeedbackResponse,
     SendMessageRequest,
     SendMessageResponse,
 )
@@ -68,3 +70,47 @@ def regenerate(
     chat, branch = _load(db, user, chat_id, branch_id)
     block = ai_response_service.regenerate(db, chat, branch, block_id)
     return BlockResponse.of(block)
+
+
+@router.get("/blocks/{block_id}/feedback", response_model=FeedbackResponse)
+def get_feedback(
+    chat_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    block_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+) -> FeedbackResponse:
+    """BE-AIRESP-004: 현재 사용자의 해당 AI 답변 평가를 조회한다."""
+    _, branch = _load(db, user, chat_id, branch_id)
+    feedback = ai_response_service.get_feedback(db, user, branch, block_id)
+    return _feedback_response(block_id, feedback)
+
+
+@router.put("/blocks/{block_id}/feedback", response_model=FeedbackResponse)
+def set_feedback(
+    chat_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    block_id: uuid.UUID,
+    payload: FeedbackRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> FeedbackResponse:
+    """BE-AIRESP-004: like/dislike 저장·변경 또는 null로 해제한다."""
+    _, branch = _load(db, user, chat_id, branch_id)
+    rating = (
+        None
+        if payload.rating is None
+        else ai_response_service.AiResponseRating(payload.rating)
+    )
+    feedback = ai_response_service.set_feedback(db, user, branch, block_id, rating)
+    return _feedback_response(block_id, feedback)
+
+
+def _feedback_response(
+    block_id: uuid.UUID, feedback
+) -> FeedbackResponse:
+    return FeedbackResponse(
+        ai_message_block_id=block_id,
+        rating=feedback.rating.value if feedback else None,
+        updated_at=feedback.updated_at if feedback else None,
+    )

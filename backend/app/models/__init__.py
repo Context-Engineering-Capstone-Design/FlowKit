@@ -7,6 +7,7 @@ from app.models.chat import (
     Chat,
 )
 from app.models.context import AppliedContextItem, AppliedContextLog
+from app.models.feedback import AiResponseFeedback, AiResponseRating
 from app.models.message import (
     MessageBlock,
     MessageBlockVersion,
@@ -42,4 +43,6 @@ __all__ = [
     "RefineResultStatus",
     "AppliedContextLog",
     "AppliedContextItem",
+    "AiResponseFeedback",
+    "AiResponseRating",
 ]

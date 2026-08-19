@@ -117,6 +117,14 @@ export interface SendMessageResponse {
   titleGenerated: boolean
 }
 
+export type AiResponseRating = 'like' | 'dislike'
+
+export interface FeedbackResponse {
+  aiMessageBlockId: string
+  rating: AiResponseRating | null
+  updatedAt: string | null
+}
+
 export type RefineStatus = 'pending' | 'approved' | 'rejected'
 
 export interface RefineResultItem {

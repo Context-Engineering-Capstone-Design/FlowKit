@@ -54,6 +54,13 @@ def send(client, auth, chat, prompt: str, context_ids=None) -> dict:
     return res.json()
 
 
+def feedback_url(chat: dict, block_id: str) -> str:
+    return (
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}/blocks/{block_id}/feedback"
+    )
+
+
 # ── BE-AIRESP-001, 002: 전송과 저장 ───────────────────────────────────────
 
 
@@ -117,6 +124,44 @@ def test_question_survives_ai_failure(client, auth, chat, monkeypatch):
 
     detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
     assert [b["content"] for b in detail.json()["messageBlocks"]] == ["질문"]
+
+
+# ── BE-AIRESP-004: AI 답변 평가 ───────────────────────────────────────────
+
+
+def test_feedback_can_be_saved_changed_and_cleared(client, auth, chat, captured):
+    answer_id = send(client, auth, chat, "질문")["assistantBlock"]["blockId"]
+    url = feedback_url(chat, answer_id)
+
+    liked = client.put(url, json={"rating": "like"}, headers=auth)
+    assert liked.status_code == 200
+    assert liked.json()["rating"] == "like"
+    assert liked.json()["updatedAt"] is not None
+
+    disliked = client.put(url, json={"rating": "dislike"}, headers=auth)
+    assert disliked.status_code == 200
+    assert disliked.json()["rating"] == "dislike"
+
+    loaded = client.get(url, headers=auth)
+    assert loaded.status_code == 200
+    assert loaded.json()["rating"] == "dislike"
+
+    cleared = client.put(url, json={"rating": None}, headers=auth)
+    assert cleared.status_code == 200
+    assert cleared.json()["rating"] is None
+    assert client.get(url, headers=auth).json()["rating"] is None
+
+
+def test_feedback_rejects_user_block_and_invalid_rating(client, auth, chat, captured):
+    sent = send(client, auth, chat, "질문")
+    user_url = feedback_url(chat, sent["userBlock"]["blockId"])
+    bad_role = client.put(user_url, json={"rating": "like"}, headers=auth)
+    assert bad_role.status_code == 400
+    assert bad_role.json()["errorCode"] == "NOT_ASSISTANT_BLOCK"
+
+    answer_url = feedback_url(chat, sent["assistantBlock"]["blockId"])
+    bad_rating = client.put(answer_url, json={"rating": "neutral"}, headers=auth)
+    assert bad_rating.status_code == 422
 
 
 # ── BE-CTXAPPLY-001~003: Context 적용 ─────────────────────────────────────

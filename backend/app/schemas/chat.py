@@ -71,6 +71,7 @@ class MessageBlockOut(BaseModel):
     current_version_id: uuid.UUID | None = Field(
         None, serialization_alias="currentVersionId"
     )
+    version_no: int | None = Field(None, serialization_alias="versionNo")
     order_index: int = Field(..., serialization_alias="orderIndex")
     created_at: datetime = Field(..., serialization_alias="createdAt")
 
@@ -84,6 +85,7 @@ class MessageBlockOut(BaseModel):
             role=block.role.value,
             content=version.content if version else "",
             current_version_id=block.current_version_id,
+            version_no=version.version_no if version else None,
             order_index=block.order_index,
             created_at=block.created_at,
         )

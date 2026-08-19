@@ -1,5 +1,12 @@
 import { api } from './client'
-import type { BlockResponse, RefineJob, SendMessageResponse } from '@/types/api'
+import type {
+  AiResponseRating,
+  BlockResponse,
+  FeedbackResponse,
+  RefineJob,
+  SendMessageResponse,
+  VersionItem,
+} from '@/types/api'
 
 export async function sendMessage(
   chatId: string,
@@ -21,6 +28,54 @@ export async function regenerate(
 ): Promise<BlockResponse> {
   const { data } = await api.post<BlockResponse>(
     `/api/chats/${chatId}/branches/${branchId}/blocks/${blockId}/regenerate`,
+  )
+  return data
+}
+
+export async function fetchFeedback(
+  chatId: string,
+  branchId: string,
+  blockId: string,
+): Promise<FeedbackResponse> {
+  const { data } = await api.get<FeedbackResponse>(
+    `/api/chats/${chatId}/branches/${branchId}/blocks/${blockId}/feedback`,
+  )
+  return data
+}
+
+export async function setFeedback(
+  chatId: string,
+  branchId: string,
+  blockId: string,
+  rating: AiResponseRating | null,
+): Promise<FeedbackResponse> {
+  const { data } = await api.put<FeedbackResponse>(
+    `/api/chats/${chatId}/branches/${branchId}/blocks/${blockId}/feedback`,
+    { rating },
+  )
+  return data
+}
+
+export async function fetchVersions(
+  chatId: string,
+  branchId: string,
+  blockId: string,
+): Promise<VersionItem[]> {
+  const { data } = await api.get<VersionItem[]>(
+    `/api/chats/${chatId}/branches/${branchId}/blocks/${blockId}/versions`,
+  )
+  return data
+}
+
+export async function setActiveVersion(
+  chatId: string,
+  branchId: string,
+  blockId: string,
+  targetVersionId: string,
+): Promise<BlockResponse> {
+  const { data } = await api.patch<BlockResponse>(
+    `/api/chats/${chatId}/branches/${branchId}/blocks/${blockId}/version`,
+    { targetVersionId },
   )
   return data
 }

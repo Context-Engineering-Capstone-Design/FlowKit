@@ -1,4 +1,4 @@
-"""AI 응답 관리 서비스 (BE-AIRESP-001, 002, 003, 005).
+"""AI 응답 관리 서비스 (BE-AIRESP-001~005).
 
 답변 생성은 정제와 마찬가지로 요청 한 번 안에서 동기로 처리한다.
 """
@@ -8,14 +8,18 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.exceptions import AppError, ValidationError
 from app.models import (
     Branch,
     Chat,
+    AiResponseFeedback,
+    AiResponseRating,
     MessageBlock,
     MessageRole,
+    User,
     VersionSourceType,
 )
 from app.services import chat_service, context_service, message_service
@@ -145,6 +149,62 @@ def regenerate(
     return message_service.add_version(
         db, chat, block, answer, VersionSourceType.AI_REGENERATE
     )
+
+
+def get_feedback(
+    db: Session, user: User, branch: Branch, block_id: uuid.UUID
+) -> AiResponseFeedback | None:
+    """현재 사용자의 AI 답변 평가를 조회한다 (BE-AIRESP-004)."""
+    _require_assistant_block(db, branch, block_id)
+    return db.scalar(
+        select(AiResponseFeedback).where(
+            AiResponseFeedback.user_id == user.id,
+            AiResponseFeedback.message_block_id == block_id,
+        )
+    )
+
+
+def set_feedback(
+    db: Session,
+    user: User,
+    branch: Branch,
+    block_id: uuid.UUID,
+    rating: AiResponseRating | None,
+) -> AiResponseFeedback | None:
+    """좋아요·싫어요를 저장·변경하고, null이면 기존 평가를 해제한다."""
+    _require_assistant_block(db, branch, block_id)
+    feedback = db.scalar(
+        select(AiResponseFeedback).where(
+            AiResponseFeedback.user_id == user.id,
+            AiResponseFeedback.message_block_id == block_id,
+        )
+    )
+
+    if rating is None:
+        if feedback is not None:
+            db.delete(feedback)
+            db.commit()
+        return None
+
+    if feedback is None:
+        feedback = AiResponseFeedback(
+            user_id=user.id, message_block_id=block_id, rating=rating
+        )
+        db.add(feedback)
+    else:
+        feedback.rating = rating
+    db.commit()
+    db.refresh(feedback)
+    return feedback
+
+
+def _require_assistant_block(
+    db: Session, branch: Branch, block_id: uuid.UUID
+) -> MessageBlock:
+    block = message_service.get_editable_block(db, branch, block_id)
+    if block.role is not MessageRole.ASSISTANT:
+        raise NotAssistantBlockError()
+    return block
 
 
 def _generate(

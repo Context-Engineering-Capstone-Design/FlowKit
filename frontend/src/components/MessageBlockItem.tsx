@@ -1,4 +1,5 @@
-import { Check, RotateCw, X } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, RotateCw, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useChatStore } from '@/store/chatStore'
 import type { MessageBlock, RefineResultItem } from '@/types/api'
@@ -14,6 +15,11 @@ export function MessageBlockItem({ block, refine }: Props) {
   const applied = useChatStore((s) => s.appliedBlockIds.includes(block.blockId))
   const toggleBlock = useChatStore((s) => s.toggleBlock)
   const regenerate = useChatStore((s) => s.regenerate)
+  const rating = useChatStore((s) => s.ratings[block.blockId])
+  const setFeedback = useChatStore((s) => s.setFeedback)
+  const versions = useChatStore((s) => s.versionsByBlock[block.blockId])
+  const loadVersions = useChatStore((s) => s.loadVersions)
+  const setActiveVersion = useChatStore((s) => s.setActiveVersion)
   const view = useChatStore((s) => s.inlineView[block.blockId] ?? 'refined')
   const highlighted = useChatStore(
     (s) => s.highlightedBlockId === block.blockId,
@@ -22,6 +28,13 @@ export function MessageBlockItem({ block, refine }: Props) {
   const isUser = block.role === 'user'
   const pending = refine?.status === 'pending'
   const shown = pending && view === 'refined' ? refine.refinedContent : block.content
+  const currentVersionIndex = versions?.findIndex((version) => version.isCurrent) ?? -1
+
+  useEffect(() => {
+    if (!isUser && (block.versionNo ?? 0) > 1 && !versions) {
+      void loadVersions(block.blockId)
+    }
+  }, [block.blockId, block.versionNo, isUser, loadVersions, versions])
 
   return (
     <div
@@ -72,6 +85,53 @@ export function MessageBlockItem({ block, refine }: Props) {
 
       {!isUser && !pending && (
         <div className="mt-2 flex gap-1 opacity-0 transition group-hover:opacity-100">
+          {versions && versions.length > 1 && currentVersionIndex >= 0 && (
+            <div className="mr-1 flex items-center rounded border border-line text-[10px] text-txt-2">
+              <button
+                type="button"
+                disabled={currentVersionIndex === 0}
+                onClick={() => void setActiveVersion(block.blockId, versions[currentVersionIndex - 1].versionId)}
+                title="이전 답변 버전"
+                className="rounded p-1 transition hover:bg-bg-3 disabled:cursor-default disabled:opacity-30"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span className="min-w-9 text-center">
+                {currentVersionIndex + 1}/{versions.length}
+              </span>
+              <button
+                type="button"
+                disabled={currentVersionIndex === versions.length - 1}
+                onClick={() => void setActiveVersion(block.blockId, versions[currentVersionIndex + 1].versionId)}
+                title="다음 답변 버전"
+                className="rounded p-1 transition hover:bg-bg-3 disabled:cursor-default disabled:opacity-30"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => void setFeedback(block.blockId, 'like')}
+            title="좋아요"
+            aria-pressed={rating === 'like'}
+            className={`rounded p-1 transition hover:bg-bg-3 ${
+              rating === 'like' ? 'bg-blue-dim text-blue' : 'text-txt-3 hover:text-txt-1'
+            }`}
+          >
+            <ThumbsUp className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void setFeedback(block.blockId, 'dislike')}
+            title="싫어요"
+            aria-pressed={rating === 'dislike'}
+            className={`rounded p-1 transition hover:bg-bg-3 ${
+              rating === 'dislike' ? 'bg-blue-dim text-blue' : 'text-txt-3 hover:text-txt-1'
+            }`}
+          >
+            <ThumbsDown className="h-3.5 w-3.5" />
+          </button>
           <button
             type="button"
             onClick={() => void regenerate(block.blockId)}

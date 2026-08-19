@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,5 +35,17 @@ class SendMessageResponse(BaseModel):
     )
     chat_title: str = Field(..., serialization_alias="chatTitle")
     title_generated: bool = Field(..., serialization_alias="titleGenerated")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class FeedbackRequest(BaseModel):
+    rating: Literal["like", "dislike"] | None
+
+
+class FeedbackResponse(BaseModel):
+    ai_message_block_id: uuid.UUID = Field(..., serialization_alias="aiMessageBlockId")
+    rating: Literal["like", "dislike"] | None
+    updated_at: datetime | None = Field(None, serialization_alias="updatedAt")
 
     model_config = ConfigDict(populate_by_name=True)
