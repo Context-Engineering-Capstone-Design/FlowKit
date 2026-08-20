@@ -26,6 +26,7 @@ from app.routers import (
     message,
     observability,
     refine,
+    side_chat,
     user_setting,
 )
 from app.services import ai_response_service
@@ -75,6 +76,7 @@ async def trace_request(request: Request, call_next):
 
 app.include_router(auth.router)
 app.include_router(chat.router)
+app.include_router(side_chat.router)
 app.include_router(message.router)
 app.include_router(refine.router)
 app.include_router(conversation.router)

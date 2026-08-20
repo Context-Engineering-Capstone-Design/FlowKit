@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.exceptions import (
     ChatAccessDeniedError,
     ChatNotFoundError,
+    MessageBlockNotFoundError,
     ValidationError,
 )
 from app.models import (
@@ -27,12 +28,14 @@ from app.models import (
     BranchSourceContextItem,
     BranchType,
     Chat,
+    ChatKind,
     MessageBlock,
     MessageBlockVersion,
     User,
 )
 
 DEFAULT_TITLE = "새 대화"
+DEFAULT_SIDE_TITLE = "새 사이드 채팅"
 MAX_TITLE_LENGTH = 200
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
@@ -55,6 +58,100 @@ def create_chat_with_main_branch(db: Session, user: User) -> tuple[Chat, Branch]
     db.refresh(chat)
     db.refresh(main_branch)
     return chat, main_branch
+
+
+def create_side_chat(
+    db: Session,
+    user: User,
+    parent_chat: Chat,
+    parent_branch: Branch,
+    anchor_message_block_id: uuid.UUID | None,
+    title: str | None,
+) -> tuple[Chat, Branch]:
+    """부모 대화 흐름의 한 지점에서 사이드 채팅을 만든다 (0820_08 A1, A3).
+
+    anchor_message_block_id 를 주지 않으면 부모의 최신 메시지를 생성 시점으로
+    기록한다. 자식은 루트 메인 채팅의 공통 컨텍스트만 자동 참고하므로, 부모가
+    이미 사이드 채팅이면 그 root_chat_id/root_branch_id 를 그대로 물려받는다.
+    """
+    from app.services import branch_service
+
+    visible = branch_service.resolve_blocks(db, parent_branch)
+    if anchor_message_block_id is not None:
+        anchor = next((b for b in visible if b.id == anchor_message_block_id), None)
+        if anchor is None:
+            raise MessageBlockNotFoundError("사이드 채팅을 만들 지점을 찾을 수 없습니다.")
+    else:
+        anchor = visible[-1] if visible else None
+
+    if parent_chat.kind is ChatKind.SIDE:
+        root_chat_id = parent_chat.root_chat_id
+        root_branch_id = parent_chat.root_branch_id
+    else:
+        root_chat_id = parent_chat.id
+        root_branch_id = parent_branch.id
+
+    name = (title or "").strip()
+    if len(name) > MAX_TITLE_LENGTH:
+        raise ValidationError(f"제목은 {MAX_TITLE_LENGTH}자를 넘을 수 없습니다.")
+
+    chat = Chat(
+        owner_id=user.id,
+        title=name or DEFAULT_SIDE_TITLE,
+        kind=ChatKind.SIDE,
+        parent_chat_id=parent_chat.id,
+        parent_branch_id=parent_branch.id,
+        parent_message_block_id=anchor.id if anchor else None,
+        root_chat_id=root_chat_id,
+        root_branch_id=root_branch_id,
+    )
+    db.add(chat)
+    db.flush()
+
+    main_branch = Branch(chat_id=chat.id, name="Main", branch_type=BranchType.MAIN)
+    db.add(main_branch)
+    db.commit()
+    db.refresh(chat)
+    db.refresh(main_branch)
+    return chat, main_branch
+
+
+def list_side_chat_children(db: Session, chat: Chat) -> list[Chat]:
+    """chat 바로 아래의 자식 사이드 채팅 (0820_08 A2)."""
+    return list(
+        db.scalars(
+            select(Chat)
+            .where(Chat.parent_chat_id == chat.id)
+            .order_by(Chat.created_at)
+        ).all()
+    )
+
+
+def list_side_chat_siblings(db: Session, chat: Chat) -> list[Chat]:
+    """chat 과 같은 부모를 공유하는 다른 사이드 채팅 (0820_08 A2)."""
+    if chat.parent_chat_id is None:
+        return []
+    return list(
+        db.scalars(
+            select(Chat)
+            .where(Chat.parent_chat_id == chat.parent_chat_id, Chat.id != chat.id)
+            .order_by(Chat.created_at)
+        ).all()
+    )
+
+
+def list_side_chat_tree(db: Session, root_chat: Chat) -> list[Chat]:
+    """root_chat 아래 모든 사이드 채팅을 트리 그래프용으로 평탄화한다 (0820_08 A2, B3).
+
+    각 항목의 parent_chat_id 를 따라가면 화면에서 트리를 그릴 수 있다.
+    """
+    return list(
+        db.scalars(
+            select(Chat)
+            .where(Chat.root_chat_id == root_chat.id)
+            .order_by(Chat.created_at)
+        ).all()
+    )
 
 
 def get_owned_chat(db: Session, user: User, chat_id: uuid.UUID) -> Chat:
@@ -84,7 +181,8 @@ def list_chats(
     """
     limit = max(1, min(limit, MAX_LIMIT))
 
-    stmt = select(Chat).where(Chat.owner_id == user.id)
+    # 사이드 채팅은 좌측 트리 패널에서 따로 관리하므로 최근 대화 목록엔 안 낀다 (0820_08).
+    stmt = select(Chat).where(Chat.owner_id == user.id, Chat.kind == ChatKind.MAIN)
 
     if keyword:
         keyword = keyword.strip()
@@ -143,6 +241,19 @@ def delete_chat(db: Session, chat: Chat) -> None:
 
     chat_id = chat.id
     input_assist_service.delete_attachments_for_chat(db, chat)
+
+    # 이 채팅을 부모/루트로 참조하는 다른 사이드 채팅의 연결을 끊는다 (0820_08).
+    # 사이드 채팅은 독립된 대화라 부모가 지워져도 내용은 그대로 남긴다.
+    db.execute(
+        update(Chat)
+        .where(Chat.parent_chat_id == chat_id)
+        .values(parent_chat_id=None, parent_branch_id=None, parent_message_block_id=None)
+    )
+    db.execute(
+        update(Chat)
+        .where(Chat.root_chat_id == chat_id)
+        .values(root_chat_id=None, root_branch_id=None)
+    )
 
     branch_ids = list(db.scalars(select(Branch.id).where(Branch.chat_id == chat_id)))
     block_ids = list(db.scalars(select(MessageBlock.id).where(MessageBlock.chat_id == chat_id)))

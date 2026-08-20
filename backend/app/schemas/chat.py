@@ -35,12 +35,31 @@ class ChatMeta(BaseModel):
     chat_id: uuid.UUID = Field(..., serialization_alias="chatId")
     title: str
     created_at: datetime = Field(..., serialization_alias="createdAt")
+    # 사이드 채팅 트리 (0820_08). 메인 채팅은 kind만 채워지고 나머지는 비어 있다.
+    kind: Literal["MAIN", "SIDE"] = "MAIN"
+    parent_chat_id: uuid.UUID | None = Field(None, serialization_alias="parentChatId")
+    parent_branch_id: uuid.UUID | None = Field(None, serialization_alias="parentBranchId")
+    parent_message_block_id: uuid.UUID | None = Field(
+        None, serialization_alias="parentMessageBlockId"
+    )
+    root_chat_id: uuid.UUID | None = Field(None, serialization_alias="rootChatId")
+    root_branch_id: uuid.UUID | None = Field(None, serialization_alias="rootBranchId")
 
     model_config = ConfigDict(populate_by_name=True)
 
     @classmethod
     def of(cls, chat: Chat) -> ChatMeta:
-        return cls(chat_id=chat.id, title=chat.title, created_at=chat.created_at)
+        return cls(
+            chat_id=chat.id,
+            title=chat.title,
+            created_at=chat.created_at,
+            kind=chat.kind.value,
+            parent_chat_id=chat.parent_chat_id,
+            parent_branch_id=chat.parent_branch_id,
+            parent_message_block_id=chat.parent_message_block_id,
+            root_chat_id=chat.root_chat_id,
+            root_branch_id=chat.root_branch_id,
+        )
 
 
 class BranchMeta(BaseModel):
@@ -199,3 +218,56 @@ class CreateBranchResponse(BranchMeta):
         ..., serialization_alias="sourceContextRefId"
     )
     action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
+class CreateSideChatRequest(BaseModel):
+    """지정한 지점에서 사이드 채팅을 만든다 (0820_08 A3).
+
+    anchorMessageBlockId 를 비우면 요청 시점의 부모 최신 메시지를 생성 시점으로 쓴다.
+    """
+
+    anchor_message_block_id: uuid.UUID | None = Field(
+        None, alias="anchorMessageBlockId"
+    )
+    title: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class CreateSideChatResponse(ChatDetailResponse):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
+class SideChatSummary(BaseModel):
+    """좌측 트리 그래프의 노드 하나 (0820_08 A2, B3)."""
+
+    chat_id: uuid.UUID = Field(..., serialization_alias="chatId")
+    title: str
+    kind: Literal["MAIN", "SIDE"]
+    parent_chat_id: uuid.UUID | None = Field(None, serialization_alias="parentChatId")
+    parent_branch_id: uuid.UUID | None = Field(None, serialization_alias="parentBranchId")
+    parent_message_block_id: uuid.UUID | None = Field(
+        None, serialization_alias="parentMessageBlockId"
+    )
+    root_chat_id: uuid.UUID | None = Field(None, serialization_alias="rootChatId")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @classmethod
+    def of(cls, chat: Chat) -> SideChatSummary:
+        return cls(
+            chat_id=chat.id,
+            title=chat.title,
+            kind=chat.kind.value,
+            parent_chat_id=chat.parent_chat_id,
+            parent_branch_id=chat.parent_branch_id,
+            parent_message_block_id=chat.parent_message_block_id,
+            root_chat_id=chat.root_chat_id,
+        )
+
+
+class SideChatTreeResponse(BaseModel):
+    root_chat_id: uuid.UUID | None = Field(None, serialization_alias="rootChatId")
+    chats: list[SideChatSummary]
+
+    model_config = ConfigDict(populate_by_name=True)

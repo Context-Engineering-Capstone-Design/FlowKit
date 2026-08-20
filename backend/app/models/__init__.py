@@ -13,6 +13,7 @@ from app.models.chat import (
     BranchSourceContextItem,
     BranchType,
     Chat,
+    ChatKind,
 )
 from app.models.context import AppliedContextItem, AppliedContextLog
 from app.models.feedback import AiResponseFeedback, AiResponseRating
@@ -46,6 +47,7 @@ __all__ = [
     "User",
     "AuthSession",
     "Chat",
+    "ChatKind",
     "Branch",
     "BranchType",
     "BranchSourceContext",

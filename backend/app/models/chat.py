@@ -15,6 +15,13 @@ class BranchType(str, enum.Enum):
     CHILD = "CHILD"
 
 
+class ChatKind(str, enum.Enum):
+    """대화 세션의 트리상 역할 (0820_08). MAIN 은 부모가 없는 최상위 대화다."""
+
+    MAIN = "MAIN"
+    SIDE = "SIDE"
+
+
 class Chat(Base, TimestampMixin):
     __tablename__ = "chats"
 
@@ -35,8 +42,55 @@ class Chat(Base, TimestampMixin):
         index=True,
     )
 
+    # 사이드 채팅 트리 (0820_08).
+    kind: Mapped[ChatKind] = mapped_column(
+        Enum(ChatKind, name="chat_kind"),
+        default=ChatKind.MAIN,
+        server_default=ChatKind.MAIN.value,
+    )
+    # 구조적 부모(좌측 트리 그래프 표시용). 메인이거나 부모가 삭제되면 NULL.
+    parent_chat_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chats.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # 부모 안에서 이 사이드 채팅이 갈라져 나온 지점(생성 시점 북마크).
+    # chats <-> branches 는 순환 참조이므로 use_alter 로 제약 생성을 분리한다.
+    parent_branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "branches.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_chats_parent_branch",
+        ),
+        nullable=True,
+    )
+    parent_message_block_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "message_blocks.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_chats_parent_message_block",
+        ),
+        nullable=True,
+    )
+    # 공통 컨텍스트로 자동 참고하는 루트 메인 채팅과 그 브랜치. 중간 사이드
+    # 채팅을 거치지 않고 항상 최상위 메인을 직접 가리킨다.
+    root_chat_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chats.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    root_branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "branches.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_chats_root_branch",
+        ),
+        nullable=True,
+    )
+
     branches: Mapped[list[Branch]] = relationship(
-        back_populates="chat", cascade="all, delete-orphan"
+        back_populates="chat",
+        cascade="all, delete-orphan",
+        foreign_keys="Branch.chat_id",
     )
 
 
@@ -72,7 +126,9 @@ class Branch(Base, TimestampMixin):
         nullable=True,
     )
 
-    chat: Mapped[Chat] = relationship(back_populates="branches")
+    chat: Mapped[Chat] = relationship(
+        back_populates="branches", foreign_keys=[chat_id]
+    )
     source_context: Mapped[BranchSourceContext | None] = relationship(
         back_populates="branch",
         cascade="all, delete-orphan",

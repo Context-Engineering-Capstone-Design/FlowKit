@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.exceptions import AiInputSnapshotIncompleteError, AiInputSnapshotNotFoundError, AiJobNotFoundError, AiJobNotRetryableError, AppError, ValidationError
-from app.models import AiResponseFeedback, AiResponseJob, AiResponseJobStatus, AiResponseJobType, AiResponseRating, Branch, BlockGenerationStatus, Chat, MessageBlock, MessageRole, User, VersionSourceType
+from app.models import AiResponseFeedback, AiResponseJob, AiResponseJobStatus, AiResponseJobType, AiResponseRating, Branch, BlockGenerationStatus, Chat, ChatKind, MessageBlock, MessageRole, User, VersionSourceType
 from app.services import ai_execution_service, chat_service, context_service, input_assist_service, message_service, streaming_service, user_setting_service
 from modeling import EmptyAnswerError
 
@@ -70,8 +70,10 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     model = input_assist_service.validate_options(selected_model_id, web_search_mode, bool(attachments))
     api_key = user_setting_service.require_api_key(db, user)
     context_items = context_service.build_snapshot(db, branch, context_block_ids or [])
-    flow = message_service.active_message_flow(db, branch); is_first = not flow
-    if context_items: flow = []
+    own_flow = message_service.active_message_flow(db, branch); is_first = not own_flow
+    if context_items: own_flow = []
+    parent_flow = _root_context_flow(db, chat) if chat.kind is ChatKind.SIDE else []
+    flow = parent_flow + own_flow
     user_block = message_service.create_block(db, chat, branch, MessageRole.USER, prompt, commit=False)
     context_service.save_log(db, chat, branch, user_block.id, context_items)
     input_assist_service.attach_to_message(db, user_block, attachments)
@@ -92,6 +94,20 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     _start_job(job.id, assistant_block.id, assistant_block.current_version_id, chat.id, user.id, snapshot, api_key, answerer)
 
     return SendResult(user_block, assistant_block, context_items, bool(titled), model.model_id, web_search_mode, reasoning_effort, attachments, [], job)
+
+
+def _root_context_flow(db: Session, chat: Chat) -> list:
+    """사이드 채팅이 자동 참고하는 루트 메인 채팅의 최신 흐름 (0820_08 A4).
+
+    스냅샷을 저장해두지 않고 전송 시점마다 다시 읽어, 그 사이 부모에 쌓인
+    새 메시지까지 자연히 포함되게 한다.
+    """
+    if chat.root_branch_id is None:
+        return []
+    root_branch = db.get(Branch, chat.root_branch_id)
+    if root_branch is None:
+        return []
+    return message_service.active_message_flow(db, root_branch)
 
 
 def regenerate(db: Session, user: User, chat: Chat, branch: Branch, block_id: uuid.UUID, answerer=None) -> RegenerateResult:
