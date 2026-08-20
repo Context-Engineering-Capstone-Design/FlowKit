@@ -1,6 +1,8 @@
-import { Check, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Check, Copy, ExternalLink, Paperclip, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react'
 import ReactMarkdown from 'react-markdown'
+import rehypeHighlight from 'rehype-highlight'
+import remarkGfm from 'remark-gfm'
 import { MessageBlockActions } from '@/components/MessageBlockActions'
 import { MessageEditForm } from '@/components/MessageEditForm'
 import { useChatStore } from '@/store/chatStore'
@@ -125,9 +127,18 @@ export function MessageBlockItem({ block, refine }: Props) {
         />
       ) : (
         <div className="markdown text-[13.5px] leading-relaxed text-txt-1">
-          <ReactMarkdown>{shown}</ReactMarkdown>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeHighlight]}
+            components={{ pre: CodeBlock }}
+          >
+            {shown}
+          </ReactMarkdown>
         </div>
       )}
+
+      {block.attachments.length > 0 && <AttachmentList attachments={block.attachments} />}
+      {!isUser && block.searchSources.length > 0 && <SearchSourceList sources={block.searchSources} />}
 
       {isUser && failedJobId && <div className="mt-2 flex items-center gap-2 text-[11px] text-red"><span>답변 생성에 실패했습니다.</span><button type="button" onClick={() => void retryAiResponseJob(failedJobId)} className="rounded border border-red/40 px-1.5 py-0.5 hover:bg-red/10">다시 시도</button></div>}
       {!isUser && pendingAi && <div className="mt-2 text-[11px] text-txt-2">답변을 다시 생성하는 중…</div>}
@@ -201,6 +212,75 @@ function InlineRefineBar({ result }: { result: RefineResultItem }) {
       >
         <X className="h-3 w-3" /> 거절
       </button>
+    </div>
+  )
+}
+
+// 코드 블록 — 언어별 색 구분에 더해 블록 하나만 복사하는 버튼을 얹는다
+function CodeBlock(props: ComponentPropsWithoutRef<'pre'>) {
+  const ref = useRef<HTMLPreElement>(null)
+  const [copied, setCopied] = useState(false)
+
+  async function copyCode() {
+    const text = (ref.current?.textContent ?? '').replace(/\n$/, '')
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard API unavailable')
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // 실패해도 코드 블록 자체는 이미 보이므로 조용히 무시한다
+    }
+  }
+
+  return (
+    <div className="group/code relative">
+      <button
+        type="button"
+        onClick={() => void copyCode()}
+        className="absolute right-2 top-2 flex items-center gap-1 rounded-md border border-line bg-bg-3 px-1.5 py-1 text-[11px] text-txt-2 opacity-0 transition group-hover/code:opacity-100 hover:text-txt-0"
+      >
+        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      </button>
+      <pre ref={ref} {...props} />
+    </div>
+  )
+}
+
+// 메시지에 붙은 첨부 파일 이름 목록 (읽기 전용)
+function AttachmentList({ attachments }: { attachments: MessageBlock['attachments'] }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {attachments.map((attachment) => (
+        <span
+          key={attachment.attachmentId}
+          className="flex items-center gap-1 rounded-md border border-line bg-bg-2 px-2 py-1 text-[11px] text-txt-2"
+        >
+          <Paperclip className="h-3 w-3" />
+          {attachment.fileName}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+// 웹 검색으로 답했을 때 참고한 자료 목록
+function SearchSourceList({ sources }: { sources: MessageBlock['searchSources'] }) {
+  return (
+    <div className="mt-2.5 flex flex-col gap-1 rounded-lg bg-bg-2 px-2.5 py-2">
+      <span className="text-[11px] font-semibold text-txt-2">참고 자료</span>
+      {sources.map((source, index) => (
+        <a
+          key={`${source.url}-${index}`}
+          href={source.url}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1.5 text-[11.5px] text-blue hover:underline"
+        >
+          <ExternalLink className="h-3 w-3 shrink-0" />
+          <span className="truncate">{source.title}</span>
+        </a>
+      ))}
     </div>
   )
 }

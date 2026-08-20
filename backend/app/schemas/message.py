@@ -6,6 +6,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import MessageBlock, MessageBlockVersion
+from app.schemas.input_assist import AttachmentOut, SearchSourceOut
 from app.schemas.notification import ActionMeta
 
 
@@ -52,6 +53,10 @@ class BlockResponse(BaseModel):
     version_no: int | None = Field(None, serialization_alias="versionNo")
     order_index: int = Field(..., serialization_alias="orderIndex")
     created_at: datetime = Field(..., serialization_alias="createdAt")
+    attachments: list[AttachmentOut] = Field(default_factory=list)
+    search_sources: list[SearchSourceOut] = Field(
+        default_factory=list, serialization_alias="searchSources"
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -66,6 +71,20 @@ class BlockResponse(BaseModel):
             version_no=version.version_no if version else None,
             order_index=block.order_index,
             created_at=block.created_at,
+            attachments=[
+                AttachmentOut(
+                    attachment_id=link.attachment.id,
+                    file_name=link.attachment.file_name,
+                    mime_type=link.attachment.mime_type,
+                    file_size=link.attachment.file_size,
+                    status=link.attachment.status.value,
+                    expires_at=link.attachment.expires_at,
+                )
+                for link in block.attachment_links
+            ],
+            search_sources=[
+                SearchSourceOut(**item) for item in (version.search_sources if version else None) or []
+            ],
         )
 
 

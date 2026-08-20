@@ -45,7 +45,7 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     try: answer, sources = _generate_snapshot(db, user, chat, snapshot, api_key, answerer)
     except Exception as exc:
         _fail_job(db, job, exc); raise _failure_error(job) from exc
-    assistant = message_service.create_block(db, chat, branch, MessageRole.ASSISTANT, answer, commit=False)
+    assistant = message_service.create_block(db, chat, branch, MessageRole.ASSISTANT, answer, commit=False, search_sources=_sources_payload(sources))
     job.assistant_message_block_id, job.result_version_id, job.status = assistant.id, assistant.current_version_id, AiResponseJobStatus.COMPLETED
     db.commit(); db.refresh(assistant); db.refresh(job)
     titled = is_first and chat.title == chat_service.DEFAULT_TITLE and _try_generate_title(db, chat, prompt, api_key, titler)
@@ -62,7 +62,7 @@ def regenerate(db: Session, user: User, chat: Chat, branch: Branch, block_id: uu
     try: answer, sources = _generate_snapshot(db, user, chat, origin.input_snapshot, api_key, answerer)
     except Exception as exc:
         _fail_job(db, job, exc); raise _failure_error(job) from exc
-    updated = message_service.add_version(db, chat, block, answer, VersionSourceType.AI_REGENERATE)
+    updated = message_service.add_version(db, chat, block, answer, VersionSourceType.AI_REGENERATE, search_sources=_sources_payload(sources))
     job.result_version_id, job.status = updated.current_version_id, AiResponseJobStatus.COMPLETED; db.commit(); db.refresh(job)
     return RegenerateResult(updated, sources, job)
 
@@ -75,7 +75,7 @@ def retry_failed_job(db: Session, user: User, chat: Chat, branch: Branch, job_id
     try: answer, sources = _generate_snapshot(db, user, chat, failed.input_snapshot, user_setting_service.require_api_key(db, user), answerer)
     except Exception as exc:
         _fail_job(db, job, exc); raise _failure_error(job) from exc
-    assistant = message_service.create_block(db, chat, branch, MessageRole.ASSISTANT, answer, commit=False)
+    assistant = message_service.create_block(db, chat, branch, MessageRole.ASSISTANT, answer, commit=False, search_sources=_sources_payload(sources))
     job.assistant_message_block_id, job.result_version_id, job.status = assistant.id, assistant.current_version_id, AiResponseJobStatus.COMPLETED; db.commit(); db.refresh(assistant); db.refresh(job)
     snapshot = failed.input_snapshot
     titled = (
@@ -106,6 +106,11 @@ def _generate_snapshot(db, user, chat, snapshot, api_key, answerer=None):
     result = (answerer or generate_answer)(req, api_key=api_key); text = (getattr(result, "text", result) or "").strip()
     if not text: raise ValueError("empty")
     return text, list(getattr(result, "search_sources", []) or [])
+
+def _sources_payload(sources: list) -> list[dict] | None:
+    """검색 근거를 버전에 저장할 JSON 형태로 바꾼다. 없으면 None (AI-SEARCH-002)."""
+    return [{"title": s.title, "url": s.url} for s in sources] or None
+
 
 def _new_job(user, chat, branch, user_block_id, kind, snapshot, source=None):
     return AiResponseJob(user_id=user.id, chat_id=chat.id, branch_id=branch.id, user_message_block_id=user_block_id, source_job_id=source, job_type=kind, status=AiResponseJobStatus.REQUESTED, input_snapshot=snapshot)

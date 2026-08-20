@@ -89,6 +89,8 @@ export interface MessageBlock {
   versionNo?: number | null
   orderIndex: number
   createdAt: string
+  attachments: AttachmentResponse[]
+  searchSources: SearchSource[]
 }
 
 export interface ChatDetail {
@@ -175,6 +177,8 @@ export interface BlockResponse {
   versionNo: number | null
   orderIndex: number
   createdAt: string
+  attachments: AttachmentResponse[]
+  searchSources: SearchSource[]
 }
 
 export interface AppliedContextOut {
@@ -198,7 +202,7 @@ export interface SendMessageResponse {
 }
 
 export interface AiResponseFailureDetail { aiResponseJobId: string; userMessageBlockId: string; retryable: boolean }
-export interface RegenerateResponse extends BlockResponse { searchSources: SearchSource[]; aiResponseJobId: string; jobStatus: string }
+export interface RegenerateResponse extends BlockResponse { aiResponseJobId: string; jobStatus: string }
 
 export interface ModelOption { modelId: string; displayName: string; provider: string; supportsWebSearch: boolean; supportsAttachment: boolean; isDefault: boolean; isAvailable: boolean; description: string; tags: string[] }
 export interface AttachmentResponse { attachmentId: string; fileName: string; mimeType: string; fileSize: number; status: 'temporary' | 'attached' | 'expired'; expiresAt: string | null }

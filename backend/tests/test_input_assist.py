@@ -69,6 +69,12 @@ def test_upload_delete_and_send_attachment(client, auth, chat, monkeypatch):
     assert deleted.status_code == 409
     assert deleted.json()["errorCode"] == "ATTACHMENT_ALREADY_USED"
 
+    chat_id = chat["chatMeta"]["chatId"]
+    reopened = client.get(f"/api/chats/{chat_id}", headers=auth)
+    user_block = next(b for b in reopened.json()["messageBlocks"] if b["role"] == "user")
+    assert user_block["attachments"][0]["fileName"] == "notes.md"
+    assert user_block["attachments"][0]["status"] == "attached"
+
 
 def test_delete_temporary_attachment_returns_compatible_success_body(
     client, auth, chat

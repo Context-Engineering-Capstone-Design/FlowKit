@@ -45,6 +45,7 @@ def create_block(
     content: str,
     source_type: VersionSourceType = VersionSourceType.ORIGINAL,
     commit: bool = True,
+    search_sources: list[dict] | None = None,
 ) -> MessageBlock:
     """메시지 블록과 최초 버전을 함께 만든다 (BE-MSG-001)."""
     text = (content or "").strip()
@@ -63,7 +64,11 @@ def create_block(
     db.flush()
 
     version = MessageBlockVersion(
-        block_id=block.id, version_no=1, content=text, source_type=source_type
+        block_id=block.id,
+        version_no=1,
+        content=text,
+        source_type=source_type,
+        search_sources=search_sources,
     )
     db.add(version)
     db.flush()
@@ -150,6 +155,7 @@ def add_version(
     block: MessageBlock,
     content: str,
     source_type: VersionSourceType,
+    search_sources: list[dict] | None = None,
 ) -> MessageBlock:
     """새 버전을 추가하고 활성 버전으로 삼는다.
 
@@ -166,6 +172,7 @@ def add_version(
         version_no=(last_no or 0) + 1,
         content=content,
         source_type=source_type,
+        search_sources=search_sources,
     )
     db.add(version)
     db.flush()

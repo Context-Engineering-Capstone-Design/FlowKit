@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import Enum, ForeignKey, Integer, JSON, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -51,6 +51,13 @@ class MessageBlock(Base, TimestampMixin):
     current_version: Mapped[MessageBlockVersion | None] = relationship(
         foreign_keys=[current_version_id], post_update=True
     )
+    # 이 블록에 붙은 첨부 (AI-ATTACH-001, 002). 조회 전용이며 연결은
+    # input_assist_service.attach_to_message 가 만든다.
+    attachment_links: Mapped[list["MessageAttachment"]] = relationship(
+        foreign_keys="MessageAttachment.message_block_id",
+        order_by="MessageAttachment.order_index",
+        viewonly=True,
+    )
 
     __table_args__ = (
         UniqueConstraint("branch_id", "order_index", name="uq_block_branch_order"),
@@ -70,6 +77,9 @@ class MessageBlockVersion(Base, TimestampMixin):
         Enum(VersionSourceType, name="version_source_type"),
         default=VersionSourceType.ORIGINAL,
     )
+    # 웹 검색으로 답했을 때 참고한 자료 (AI-SEARCH-002). [{"title", "url"}] 형태이며
+    # 검색을 안 썼거나 근거가 없으면 None 이다.
+    search_sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     block: Mapped[MessageBlock] = relationship(
         back_populates="versions", foreign_keys=[block_id]

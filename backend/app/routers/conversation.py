@@ -95,7 +95,6 @@ def regenerate(
     result = ai_response_service.regenerate(db, user, chat, branch, block_id)
     return RegenerateResponse(
         **BlockResponse.of(result.block).model_dump(),
-        search_sources=[SearchSourceOut(title=item.title, url=item.url) for item in result.search_sources],
         ai_response_job_id=result.job.id,
         job_status=result.job.status.value,
         action_meta=ActionMeta(

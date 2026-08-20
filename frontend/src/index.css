@@ -78,6 +78,39 @@ body {
   background: none;
   padding: 0;
 }
+.markdown pre code.hljs {
+  color: var(--color-txt-1);
+}
+.markdown .hljs-comment,
+.markdown .hljs-quote {
+  color: var(--color-txt-2);
+}
+.markdown .hljs-keyword,
+.markdown .hljs-selector-tag,
+.markdown .hljs-literal,
+.markdown .hljs-type {
+  color: var(--color-blue);
+}
+.markdown .hljs-string,
+.markdown .hljs-addition,
+.markdown .hljs-regexp {
+  color: var(--color-green);
+}
+.markdown .hljs-number,
+.markdown .hljs-attr,
+.markdown .hljs-attribute {
+  color: var(--color-orange);
+}
+.markdown .hljs-title,
+.markdown .hljs-title.function_,
+.markdown .hljs-title.class_,
+.markdown .hljs-section {
+  color: var(--color-txt-0);
+  font-weight: 600;
+}
+.markdown .hljs-deletion {
+  color: var(--color-red);
+}
 .markdown table {
   width: 100%;
   border-collapse: collapse;

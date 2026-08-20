@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 
@@ -44,6 +44,8 @@ class MessageAttachment(Base, TimestampMixin):
         ForeignKey("attachments.id", ondelete="RESTRICT"), unique=True, index=True
     )
     order_index: Mapped[int] = mapped_column(Integer)
+
+    attachment: Mapped[Attachment] = relationship(foreign_keys=[attachment_id])
 
     __table_args__ = (
         UniqueConstraint("message_block_id", "attachment_id", name="uq_message_attachment"),

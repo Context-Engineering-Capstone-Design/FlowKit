@@ -391,6 +391,15 @@ def test_regenerate_returns_search_sources(client, auth, chat, captured, monkeyp
     assert res.status_code == 200
     assert res.json()["searchSources"] == [{"title": source.title, "url": source.url}]
 
+    reopened = client.get(
+        f"/api/chats/{chat['chatMeta']['chatId']}?branchId={chat['branchMeta']['branchId']}",
+        headers=auth,
+    )
+    reopened_block = next(
+        b for b in reopened.json()["messageBlocks"] if b["blockId"] == block_id
+    )
+    assert reopened_block["searchSources"] == [{"title": source.title, "url": source.url}]
+
 
 def test_regenerate_reuses_the_original_question(client, auth, chat, captured):
     send(client, auth, chat, "첫 질문")
