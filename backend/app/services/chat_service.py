@@ -125,9 +125,8 @@ def create_side_chat(
     if len(name) > MAX_TITLE_LENGTH:
         raise ValidationError(f"제목은 {MAX_TITLE_LENGTH}자를 넘을 수 없습니다.")
 
-    # 메인에서 만든 첫 자식만 사용자가 일반/Temporary를 고를 수 있다. 그 아래
-    # 모든 자식은 반드시 Temporary다.
-    is_temporary = requested_temporary or parent_chat.kind is ChatKind.SIDE
+    # 어느 깊이에서든 사용자가 고른 Temporary 여부를 그대로 적용한다.
+    is_temporary = requested_temporary
     chat = Chat(
         owner_id=user.id,
         title=name or DEFAULT_SIDE_TITLE,

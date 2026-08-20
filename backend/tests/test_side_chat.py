@@ -141,7 +141,7 @@ def test_child_of_side_chat_inherits_root_from_grandparent_not_immediate_parent(
     assert meta["parentChatId"] == side_a["chatMeta"]["chatId"]  # 구조적 부모는 A
     assert meta["rootChatId"] == chat["chatMeta"]["chatId"]  # 공통 컨텍스트는 루트 메인
     assert meta["rootBranchId"] == chat["branchMeta"]["branchId"]
-    assert meta["isTemporary"] is True
+    assert meta["isTemporary"] is False
 
 
 def test_first_child_can_be_temporary_but_is_hidden_from_tree_and_recent_list(client, auth, chat):
@@ -187,9 +187,10 @@ def test_side_chat_tree_includes_root_and_all_descendants(client, auth, chat):
     ids = {item["chatId"] for item in body["chats"]}
     assert ids == {
         chat["chatMeta"]["chatId"], child_a["chatMeta"]["chatId"],
+        grandchild_b["chatMeta"]["chatId"],
         child_c["chatMeta"]["chatId"],
     }
-    assert grandchild_b["chatMeta"]["isTemporary"] is True
+    assert grandchild_b["chatMeta"]["isTemporary"] is False
 
     # 사이드 채팅 자신을 기준으로 물어도 같은 루트·같은 트리를 돌려준다
     res2 = client.get(

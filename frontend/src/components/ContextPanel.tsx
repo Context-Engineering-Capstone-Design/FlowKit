@@ -124,12 +124,10 @@ function SideChatSection() {
           </button>
         </div>
       ) : (
-        <>
-          <p className="mt-2.5 text-[11px] text-amber">하위 채팅은 Temporary로만 만들 수 있으며 탭 종료 뒤 보존되지 않습니다.</p>
-          <button type="button" onClick={() => void createSideChatTab()} disabled={isCreating} className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50">
-            <Split className="h-3.5 w-3.5" />{isCreating ? '만드는 중…' : 'Temporary Chat 만들기'}
-          </button>
-        </>
+        <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+          <button type="button" onClick={() => void createSideChatTab()} disabled={isCreating} className="rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50"><Split className="mr-1 inline h-3.5 w-3.5" />새 사이드 채팅 만들기</button>
+          <button type="button" onClick={() => void createSideChatTab(undefined, undefined, true)} disabled={isCreating} className="rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50">Temporary</button>
+        </div>
       )}
 
       {children.length > 0 && (
