@@ -74,20 +74,9 @@ it('Esc를 누르면 상단 제목 변경을 취소한다', () => {
   expect(screen.getByRole('button', { name: '기존 제목' })).toBeTruthy()
 })
 
-// 0820_13: 하단 채팅 패널의 선택 안내와 범위 태그
+// 0820_13: 하단 채팅 패널의 범위 태그
 
-it('채팅에 추가 버튼을 누르면 선택 안내 배너가 뜨고, 다시 누르면 닫힌다 (A2)', () => {
-  renderChat()
-  expect(screen.queryByText('메시지에서 원하는 부분을 드래그해 선택하세요.')).toBeNull()
-
-  fireEvent.click(screen.getByTitle('채팅에 추가'))
-  expect(screen.getByText('메시지에서 원하는 부분을 드래그해 선택하세요.')).toBeTruthy()
-
-  fireEvent.click(screen.getByTitle('채팅에 추가'))
-  expect(screen.queryByText('메시지에서 원하는 부분을 드래그해 선택하세요.')).toBeNull()
-})
-
-it('선택 범위 태그를 짧은 미리보기로 보여주고 X로 제거할 수 있다 (B1, D3)', () => {
+it('선택 범위 태그를 짧은 미리보기로 보여주고 X로 제거할 수 있다 (B1, D2)', () => {
   const selectedText = '원본 문장의 아주 중요한 일부분입니다'
   useChatStore.setState({
     contextRangeTags: [{
@@ -104,7 +93,7 @@ it('선택 범위 태그를 짧은 미리보기로 보여주고 X로 제거할 �
   expect(useChatStore.getState().contextRangeTags).toEqual([])
 })
 
-it('태그에 호버하면 선택 당시 스냅샷 기준으로 고른 범위를 강조해 보여준다 (B2, D4)', () => {
+it('태그에 호버하면 선택 당시 스냅샷 기준으로 고른 범위를 강조해 보여준다 (B2, D3)', () => {
   const selectedText = '골라둔 부분'
   const snapshotText = `앞부분 ${selectedText} 뒷부분`
   useChatStore.setState({

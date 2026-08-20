@@ -93,7 +93,7 @@ export function MessageBlockItem({ block, refine }: Props) {
     }
   }, [refine?.status])
 
-  // 이 메시지 안에서 드래그로 고른 범위 (0820_13 A1~A6). 첨부 미리보기는 이 안에 두지 않아 선택할 수 없다.
+  // 이 메시지 안에서 드래그로 고른 범위 (0820_13 A1~A4). 첨부 미리보기는 이 안에 두지 않아 선택할 수 없다.
   const contentRef = useRef<HTMLDivElement>(null)
   const toggleRef = useRef<HTMLDivElement>(null)
   const [pendingSelection, setPendingSelection] = useState<{
@@ -267,7 +267,7 @@ export function MessageBlockItem({ block, refine }: Props) {
               // rehypeSanitize(기본 허용 목록)로 걸러 스크립트·이벤트 속성을 없앤 뒤에야
               // rehypeHighlight 가 코드 블록에 강조 클래스를 붙인다. sanitize를 강조보다
               // 뒤에 두면 강조가 붙인 클래스까지 함께 지워진다. 드래그로 고른 범위 강조는
-              // 이미 정제된 트리 위에 마지막으로 얹는다 (0820_13 A5, A6).
+              // 이미 정제된 트리 위에 마지막으로 얹는다 (0820_13 A3, A4).
               rehypePlugins={[
                 rehypeRaw,
                 rehypeSanitize,

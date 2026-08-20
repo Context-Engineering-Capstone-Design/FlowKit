@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, GitBranch, MessageSquarePlus, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, GitBranch, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
@@ -232,7 +232,6 @@ export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePane
       </header>
 
       <SourceContextBanner />
-      <SelectionHintBanner />
 
       <div className="relative flex-1 overflow-hidden">
         <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto pb-4">
@@ -277,22 +276,6 @@ function EmptyState() {
   )
 }
 
-// 하단 채팅 패널의 "채팅에 추가"를 눌렀을 때 뜨는 선택 안내 (0820_13 A2)
-function SelectionHintBanner() {
-  const isOpen = useChatStore((s) => s.isSelectionHintOpen)
-  const toggleSelectionHint = useChatStore((s) => s.toggleSelectionHint)
-  if (!isOpen) return null
-
-  return (
-    <div className="mx-5 mb-2 flex items-center justify-between rounded-lg bg-blue-dim px-3 py-2 text-[12px] text-blue">
-      <span>메시지에서 원하는 부분을 드래그해 선택하세요.</span>
-      <button type="button" onClick={toggleSelectionHint} title="안내 닫기" aria-label="선택 안내 닫기" className="text-blue">
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  )
-}
-
 // 입력창 — 적용 중인 Context 표시와 질문 전송
 function Composer() {
   const text = useChatStore((s) => s.draftText)
@@ -322,8 +305,6 @@ function Composer() {
   const isModelListLoading = useChatStore((s) => s.isModelListLoading)
   const loadInputAssist = useChatStore((s) => s.loadInputAssist)
   const focusSignal = useChatStore((s) => s.focusSignal)
-  const isSelectionHintOpen = useChatStore((s) => s.isSelectionHintOpen)
-  const toggleSelectionHint = useChatStore((s) => s.toggleSelectionHint)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -392,18 +373,6 @@ function Composer() {
         />
         <div className="mt-2 flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={toggleSelectionHint}
-              disabled={!chatId}
-              title="채팅에 추가"
-              aria-pressed={isSelectionHintOpen}
-              className={`flex items-center gap-1 rounded-md p-1.5 transition disabled:opacity-30 ${
-                isSelectionHintOpen ? 'bg-blue-dim text-blue' : 'text-txt-2 hover:bg-bg-3 hover:text-txt-0'
-              }`}
-            >
-              <MessageSquarePlus className="h-4 w-4" />
-            </button>
             <AttachmentMenu disabled={!chatId || isSending || selectedModel?.supportsAttachment === false} onSelect={(files) => void addFiles(files)} />
             <WebSearchToggle mode={webSearchMode} disabled={!selectedModel?.supportsWebSearch} reason={selectedModel?.supportsWebSearch ? undefined : '선택한 모델은 웹 검색을 지원하지 않습니다.'} onChange={setWebSearchMode} />
             <ReasoningEffortSelector value={reasoningEffort} onChange={setReasoningEffort} />

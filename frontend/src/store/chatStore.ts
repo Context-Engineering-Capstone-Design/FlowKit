@@ -196,8 +196,6 @@ interface ChatState {
 
   /** 드래그로 고른 부분 범위 태그 (0820_13). 전송하면 비워진다. */
   contextRangeTags: ContextRangeTag[]
-  /** 하단 채팅 패널의 "채팅에 추가"를 눌러 선택을 안내하는 배너를 보이는 중인지. */
-  isSelectionHintOpen: boolean
 
   refineJob: RefineJob | null
   /** 블록별로 원본을 보는 중인지 정제본을 보는 중인지 (REQ-031) */
@@ -327,12 +325,10 @@ interface ChatState {
   /** 사이드 채팅과 같은 지점에서 부모 아래 형제 브랜치를 만든다 (0820_08 C3). */
   createSiblingBranchFromSideChat: (branchName: string, editedBaseContent: string) => Promise<boolean>
 
-  /** 드래그로 고른 범위를 하단 채팅 패널의 태그로 추가한다 (0820_13 A5, B1). */
+  /** 드래그로 고른 범위를 하단 채팅 패널의 태그로 추가한다 (0820_13 A3, B1). */
   addContextRangeTag: (tag: Omit<ContextRangeTag, 'id'>) => void
   /** 태그를 제거한다 — 태그의 X 버튼, 또는 메시지 안 강조 표시를 다시 눌렀을 때 쓴다. */
   removeContextRangeTag: (id: string) => void
-  /** 하단 채팅 패널의 "채팅에 추가" UI로 선택 안내 배너를 켜고 끈다 (0820_13 A2). */
-  toggleSelectionHint: () => void
   /** 선택 범위 태그를 포함한 빈 사이드 채팅 패널을 로컬로 연다. 첫 메시지를 보낼 때까지는
    *  서버에 아무 것도 만들지 않는다 (0820_13 C1, C2). */
   openDraftSideChatWithRange: (tag: Omit<ContextRangeTag, 'id'>) => Promise<void>
@@ -368,7 +364,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   appliedBlockIds: [],
   appliedContextLabel: null,
   contextRangeTags: [],
-  isSelectionHintOpen: false,
   refineJob: null,
   inlineView: {},
   ratings: {},
@@ -501,7 +496,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       appliedBlockIds: [],
       appliedContextLabel: null,
       contextRangeTags: [],
-      isSelectionHintOpen: false,
       refineJob: null,
       inlineView: {},
       ratings: {},
@@ -810,16 +804,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addContextRangeTag(tag) {
     set((s) => ({
       contextRangeTags: [...s.contextRangeTags, { ...tag, id: crypto.randomUUID() }],
-      isSelectionHintOpen: false,
     }))
   },
 
   removeContextRangeTag(id) {
     set((s) => ({ contextRangeTags: s.contextRangeTags.filter((t) => t.id !== id) }))
-  },
-
-  toggleSelectionHint() {
-    set((s) => ({ isSelectionHintOpen: !s.isSelectionHintOpen }))
   },
 
   async openDraftSideChatWithRange(tag) {
@@ -848,7 +837,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       parentBranchId: branchId,
       parentMessageBlockId: tag.messageBlockId,
       contextRangeTags: [{ ...tag, id: crypto.randomUUID() }],
-      isSelectionHintOpen: false,
     })
   },
 
@@ -1566,7 +1554,6 @@ function resetToDraftFields(
     appliedBlockIds: [],
     appliedContextLabel: null,
     contextRangeTags: [],
-    isSelectionHintOpen: false,
     refineJob: null,
     lastRefineInstruction: null,
     refineFailed: false,
@@ -1627,7 +1614,6 @@ function applyDetail(
     appliedBlockIds: [],
     appliedContextLabel: null,
     contextRangeTags: [],
-    isSelectionHintOpen: false,
     refineJob: null,
     lastRefineInstruction: null,
     refineFailed: false,

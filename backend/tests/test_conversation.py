@@ -473,7 +473,7 @@ def test_range_context_can_combine_with_multiple_snippets_from_same_block(client
 
 
 def test_range_context_keeps_snapshot_of_its_pinned_version_after_edit(client, auth, chat, captured):
-    """0820_13 D4: 원문이 나중에 수정돼도 선택 당시(구 버전) 스냅샷을 Context로 쓴다."""
+    """0820_13 D3: 원문이 나중에 수정돼도 선택 당시(구 버전) 스냅샷을 Context로 쓴다."""
     first = send_and_wait(client, auth, chat, "질문")
     block_id = first["assistantBlock"]["blockId"]
     old_version_id = first["assistantBlock"]["currentVersionId"]

@@ -203,7 +203,7 @@ function selectWithinContent(container: HTMLElement, startOffset: number, endOff
   fireEvent.mouseUp(root)
 }
 
-it('메시지 안 텍스트를 드래그하면 채팅에 추가·사이드 채팅에 질문 토글이 뜬다 (A1, A3)', () => {
+it('메시지 안 텍스트를 드래그하면 채팅에 추가·사이드 채팅에 질문 토글이 뜬다 (A1)', () => {
   const content = { ...block, role: 'assistant' as const, content: '안녕하세요' }
   const { container } = render(<MessageBlockItem block={content} />)
 
@@ -213,7 +213,7 @@ it('메시지 안 텍스트를 드래그하면 채팅에 추가·사이드 채�
   expect(screen.getByText('사이드 채팅에 질문')).toBeTruthy()
 })
 
-it('채팅에 추가를 누르면 선택 범위를 태그로 추가한다 (A5)', () => {
+it('채팅에 추가를 누르면 선택 범위를 태그로 추가한다 (A3)', () => {
   const addContextRangeTag = vi.fn()
   useChatStore.setState({ addContextRangeTag })
   const content = { ...block, role: 'assistant' as const, content: '안녕하세요', currentVersionId: 'v9' }
@@ -228,7 +228,7 @@ it('채팅에 추가를 누르면 선택 범위를 태그로 추가한다 (A5)',
   expect(screen.queryByText('채팅에 추가')).toBeNull()
 })
 
-it('사이드 채팅에 질문을 누르면 선택 범위 태그를 담아 빈 사이드 채팅 패널을 연다 (A3)', () => {
+it('사이드 채팅에 질문을 누르면 선택 범위 태그를 담아 빈 사이드 채팅 패널을 연다 (A1)', () => {
   const openDraftSideChatWithRange = vi.fn()
   useChatStore.setState({ openDraftSideChatWithRange })
   const content = { ...block, role: 'assistant' as const, content: '안녕하세요' }
@@ -270,7 +270,7 @@ it('이미 태그가 붙어 강조된 범위를 다시 누르면 그 태그를 �
   expect(removeContextRangeTag).toHaveBeenCalledWith('tag-1')
 })
 
-it('원문이 수정돼 버전이 바뀌면, 예전 버전을 가리키던 태그의 강조는 더는 표시하지 않는다 (D4)', () => {
+it('원문이 수정돼 버전이 바뀌면, 예전 버전을 가리키던 태그의 강조는 더는 표시하지 않는다 (D3)', () => {
   const edited = { ...block, role: 'assistant' as const, content: '수정된 내용', currentVersionId: 'v10' }
   useChatStore.setState({
     contextRangeTags: [{
