@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from app.models import MessageBlock, MessageBlockVersion, MessageRole, VersionSourceType
+from app.models import Branch, Chat, MessageBlock, MessageBlockVersion, MessageRole, User, VersionSourceType
 from app.routers import auth as auth_router
 from app.services.google_auth import GoogleUser
 from modeling.types import AnswerChunk, AnswerResult
@@ -88,7 +88,7 @@ def test_create_side_chat_from_main_records_parent_and_root(client, auth, chat, 
     assert meta["rootChatId"] == chat["chatMeta"]["chatId"]
     assert meta["rootBranchId"] == chat["branchMeta"]["branchId"]
     assert side["branchMeta"]["branchName"] == "Main"
-    assert side["messageBlocks"] == []
+    assert [item["content"] for item in side["messageBlocks"]] == ["질문"]
     assert side["actionMeta"]["successCode"] == "SIDE_CHAT_CREATED"
 
 
@@ -100,6 +100,46 @@ def test_create_side_chat_without_anchor_uses_latest_message(client, auth, chat,
     side = _create_side_chat(client, auth, chat)
 
     assert side["chatMeta"]["parentMessageBlockId"] == str(latest.id)
+
+
+def test_create_conversation_node_makes_sibling_with_frozen_snapshot(client, auth, chat, db_session):
+    first = _add_block(db_session, chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"], 0, "첫 질문")
+    side_a = _create_side_chat(client, auth, chat, anchor_id=str(first.id), title="A")
+    second = _add_block(db_session, side_a["chatMeta"]["chatId"], side_a["branchMeta"]["branchId"], 1, "A의 질문")
+    side_b = _create_side_chat(client, auth, side_a, anchor_id=str(second.id), title="B")
+    side_b_detail = client.get(f"/api/chats/{side_b['chatMeta']['chatId']}", headers=auth).json()
+
+    res = client.post(
+        f"/api/chats/{side_b['chatMeta']['chatId']}/nodes",
+        json={"baseMessageBlockId": side_b_detail["messageBlocks"][-1]["blockId"]},
+        headers=auth,
+    )
+    assert res.status_code == 201, res.text
+    node = res.json()
+    assert node["chatMeta"]["title"] == "분기 1"
+    assert node["chatMeta"]["parentChatId"] == side_a["chatMeta"]["chatId"]
+    assert node["chatMeta"]["forkedFromChatId"] == side_b["chatMeta"]["chatId"]
+    assert [item["content"] for item in node["messageBlocks"]] == ["첫 질문", "A의 질문"]
+
+
+def test_legacy_child_branch_migration_preserves_its_identifier_and_snapshot(client, auth, chat, db_session):
+    from sqlalchemy import select
+    from app.services import branch_service
+    from app.services.conversation_node_migration import migrate_legacy_child_branches
+
+    root_block = _add_block(db_session, chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"], 0, "원본")
+    owner = db_session.scalar(select(User).where(User.email == USER_A.email))
+    source_chat = db_session.get(Chat, uuid.UUID(chat["chatMeta"]["chatId"]))
+    result = branch_service.create_branch(
+        db_session, owner, source_chat, "기존 분기", uuid.UUID(chat["branchMeta"]["branchId"]), root_block.id, [],
+    )
+
+    assert migrate_legacy_child_branches(db_session) == 1
+    moved = db_session.get(Branch, result.branch.id)
+    node = db_session.scalar(select(Chat).where(Chat.legacy_branch_id == result.branch.id))
+    assert moved.chat_id == node.id
+    assert moved.parent_branch_id is None
+    assert [item.current_version.content for item in branch_service.resolve_blocks(db_session, moved)] == ["원본"]
 
 
 def test_create_side_chat_with_custom_title(client, auth, chat, db_session):
@@ -132,8 +172,8 @@ def test_child_of_side_chat_inherits_root_from_grandparent_not_immediate_parent(
     block = _add_block(db_session, chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"], 0, "질문")
     side_a = _create_side_chat(client, auth, chat, anchor_id=str(block.id))
 
-    # A 자신의 대화 흐름에 블록을 하나 쌓는다 — B는 이걸 참고하면 안 된다.
-    _add_block(db_session, side_a["chatMeta"]["chatId"], side_a["branchMeta"]["branchId"], 0, "A 안에서의 질문")
+    # A는 출발 스냅샷(순번 0)을 이미 가졌으므로 뒤에 새 흐름을 쌓는다.
+    _add_block(db_session, side_a["chatMeta"]["chatId"], side_a["branchMeta"]["branchId"], 1, "A 안에서의 질문")
 
     side_b = _create_side_chat(client, auth, side_a)
 
@@ -213,18 +253,14 @@ def test_recent_chat_list_excludes_side_chats(client, auth, chat):
 # ── A3: 삭제 ────────────────────────────────────────────────────────────────
 
 
-def test_deleting_parent_chat_orphans_side_chat_without_deleting_it(client, auth, chat):
+def test_deleting_parent_chat_deletes_side_chat_subtree(client, auth, chat):
     side = _create_side_chat(client, auth, chat)
 
     res = client.delete(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
     assert res.status_code == 200
 
     detail = client.get(f"/api/chats/{side['chatMeta']['chatId']}", headers=auth)
-    assert detail.status_code == 200
-    meta = detail.json()["chatMeta"]
-    assert meta["kind"] == "SIDE"
-    assert meta["parentChatId"] is None
-    assert meta["rootChatId"] is None
+    assert detail.status_code == 404
 
 
 # ── A4: 부모 메인 채팅의 최신 흐름 자동 참고 ──────────────────────────────────
@@ -284,7 +320,7 @@ def test_side_chat_message_includes_root_chat_flow(client, ai_auth, captured):
     assert side_request.user_prompt == "사이드 질문"
 
 
-def test_side_chat_message_flow_reflects_new_parent_messages(client, ai_auth, captured):
+def test_side_chat_message_flow_keeps_creation_snapshot(client, ai_auth, captured):
     main = client.post("/api/chats", headers=ai_auth).json()
     _send(client, ai_auth, main, "메인 질문 1")
 
@@ -296,9 +332,7 @@ def test_side_chat_message_flow_reflects_new_parent_messages(client, ai_auth, ca
     _send(client, ai_auth, side, "사이드 질문")
 
     side_request = captured[-1]
-    assert [t.content for t in side_request.message_flow] == [
-        "메인 질문 1", "답변(1)", "메인 질문 2", "답변(2)",
-    ]
+    assert [t.content for t in side_request.message_flow] == ["메인 질문 1", "답변(1)"]
 
 
 def test_grandchild_side_chat_includes_root_and_direct_ancestor_flow(client, ai_auth, captured):

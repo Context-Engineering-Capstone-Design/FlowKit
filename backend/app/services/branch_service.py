@@ -52,6 +52,17 @@ def get_branch_in_chat(db: Session, chat: Chat, branch_id: uuid.UUID) -> Branch:
     return branch
 
 
+def get_branch_with_legacy_compatibility(db: Session, chat: Chat, branch_id: uuid.UUID) -> Branch:
+    """한 릴리스 동안 이전 chat/branch URL을 이동된 노드의 Main 흐름으로 해석한다."""
+    branch = db.get(Branch, branch_id)
+    if branch is not None and branch.chat_id == chat.id:
+        return branch
+    node = db.scalar(select(Chat).where(Chat.legacy_branch_id == branch_id, Chat.owner_id == chat.owner_id))
+    if node is None:
+        raise BranchNotFoundError()
+    return get_main_branch(db, node)
+
+
 def get_main_branch(db: Session, chat: Chat) -> Branch:
     branch = db.scalar(
         select(Branch).where(

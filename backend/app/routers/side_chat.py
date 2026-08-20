@@ -14,6 +14,8 @@ from app.schemas.chat import (
     ChatMeta,
     CreateSideChatRequest,
     CreateSideChatResponse,
+    CreateConversationNodeRequest,
+    CreateConversationNodeResponse,
     ImportBlocksRequest,
     ImportBlocksResponse,
     MessageBlockOut,
@@ -24,6 +26,34 @@ from app.schemas.notification import ActionMeta
 from app.services import branch_service, chat_service, side_chat_service
 
 router = APIRouter(prefix="/api/chats", tags=["SideChat"])
+
+
+@router.post("/{chat_id}/nodes", response_model=CreateConversationNodeResponse, status_code=201)
+def create_conversation_node(
+    chat_id: uuid.UUID,
+    payload: CreateConversationNodeRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> CreateConversationNodeResponse:
+    """통합 대화 노드 생성. 새 분기는 현재 노드의 부모 아래에 놓인다."""
+    source_chat = chat_service.get_owned_chat(db, user, chat_id)
+    source_branch = branch_service.get_main_branch(db, source_chat)
+    chat, main_branch = chat_service.create_conversation_node(
+        db, user, source_chat, source_branch, payload.base_message_block_id,
+        payload.title, payload.is_temporary,
+    )
+    return CreateConversationNodeResponse(
+        chat_meta=ChatMeta.of(chat),
+        branch_meta=BranchMeta.of(main_branch),
+        message_blocks=chat_router._block_list(db, branch_service.resolve_blocks(db, main_branch)),
+        branch_list=chat_router._branch_list(db, chat, main_branch.id),
+        action_meta=ActionMeta(
+            action_type="conversation_node_create",
+            success_code="CONVERSATION_NODE_CREATED",
+            message="분기 대화를 만들었습니다.",
+            affected_resource_id=chat.id,
+        ),
+    )
 
 
 @router.post(
@@ -53,7 +83,7 @@ def create_side_chat(
     return CreateSideChatResponse(
         chat_meta=ChatMeta.of(chat),
         branch_meta=BranchMeta.of(main_branch),
-        message_blocks=[],
+        message_blocks=chat_router._block_list(db, branch_service.resolve_blocks(db, main_branch)),
         branch_list=chat_router._branch_list(db, chat, main_branch.id),
         action_meta=ActionMeta(
             action_type="side_chat_create",

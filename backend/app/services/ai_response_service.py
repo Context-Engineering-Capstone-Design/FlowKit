@@ -110,6 +110,11 @@ def _ancestor_context_flow(db: Session, chat: Chat) -> tuple[list, list[dict]]:
     자식 메시지는 부모 대화에 기록하거나 다음 부모 입력으로 되돌려 쓰지 않는다.
     snapshot에는 출처와 시각만 함께 남겨 실행 중 어떤 맥락을 썼는지 확인할 수 있다.
     """
+    # 통합 노드는 출발 흐름을 자체 블록으로 이미 고정했다. 여기서 조상을 다시
+    # 합치면 이후 원본 변경이 섞이므로 추가 자동 참고를 하지 않는다.
+    if chat.forked_from_chat_id is not None:
+        return [], []
+
     chain: list[tuple[Chat, uuid.UUID | None]] = []
     current = chat
     while current.parent_chat_id is not None:

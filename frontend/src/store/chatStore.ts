@@ -1359,7 +1359,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
   async createBranchAt(baseBlockId) {
-    return get().createBranch('', baseBlockId, [])
+    const { chatId } = get()
+    if (!chatId) return false
+    if (!(await confirmPendingDiscard(get()))) return false
+    set({ isCreatingBranch: true, branchError: null })
+    try {
+      const created = await chatApi.createConversationNode(chatId, { baseMessageBlockId: baseBlockId })
+      applyDetail(set, created)
+      upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
+      void get().loadSideChatContext()
+      useNotificationStore.getState().show('분기 대화를 만들었습니다.', 'success')
+      return true
+    } catch (e) {
+      set({ branchError: toErrorMessage(e) })
+      showChatError(e, 'branch', () => void get().createBranchAt(baseBlockId))
+      return false
+    } finally {
+      set({ isCreatingBranch: false })
+    }
   },
 
   async jumpToSource(item) {

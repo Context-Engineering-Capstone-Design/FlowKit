@@ -52,6 +52,8 @@ class ChatMeta(BaseModel):
     )
     root_chat_id: uuid.UUID | None = Field(None, serialization_alias="rootChatId")
     root_branch_id: uuid.UUID | None = Field(None, serialization_alias="rootBranchId")
+    forked_from_chat_id: uuid.UUID | None = Field(None, serialization_alias="forkedFromChatId")
+    forked_from_message_block_id: uuid.UUID | None = Field(None, serialization_alias="forkedFromMessageBlockId")
     is_temporary: bool = Field(False, serialization_alias="isTemporary")
     project_id: uuid.UUID | None = Field(None, serialization_alias="projectId")
 
@@ -69,6 +71,8 @@ class ChatMeta(BaseModel):
             parent_message_block_id=chat.parent_message_block_id,
             root_chat_id=chat.root_chat_id,
             root_branch_id=chat.root_branch_id,
+            forked_from_chat_id=chat.forked_from_chat_id,
+            forked_from_message_block_id=chat.forked_from_message_block_id,
             is_temporary=chat.is_temporary,
             project_id=chat.project_id,
         )
@@ -247,6 +251,20 @@ class CreateSideChatRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class CreateConversationNodeRequest(BaseModel):
+    """메시지 시점에서 독립된 대화 노드를 만든다."""
+
+    base_message_block_id: uuid.UUID | None = Field(None, alias="baseMessageBlockId")
+    title: str | None = None
+    is_temporary: bool = Field(False, alias="isTemporary")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class CreateConversationNodeResponse(ChatDetailResponse):
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+
 class CreateSideChatResponse(ChatDetailResponse):
     action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
 
@@ -263,6 +281,8 @@ class SideChatSummary(BaseModel):
         None, serialization_alias="parentMessageBlockId"
     )
     root_chat_id: uuid.UUID | None = Field(None, serialization_alias="rootChatId")
+    forked_from_chat_id: uuid.UUID | None = Field(None, serialization_alias="forkedFromChatId")
+    forked_from_message_block_id: uuid.UUID | None = Field(None, serialization_alias="forkedFromMessageBlockId")
     is_temporary: bool = Field(False, serialization_alias="isTemporary")
 
     model_config = ConfigDict(populate_by_name=True)
@@ -277,6 +297,8 @@ class SideChatSummary(BaseModel):
             parent_branch_id=chat.parent_branch_id,
             parent_message_block_id=chat.parent_message_block_id,
             root_chat_id=chat.root_chat_id,
+            forked_from_chat_id=chat.forked_from_chat_id,
+            forked_from_message_block_id=chat.forked_from_message_block_id,
             is_temporary=chat.is_temporary,
         )
 

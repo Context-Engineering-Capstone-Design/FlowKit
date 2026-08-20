@@ -1,4 +1,4 @@
-import { ChevronDown, Folder, FolderCog, FolderPlus, GitBranch, MessageSquare, PanelLeft, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
+import { ChevronDown, Folder, FolderCog, FolderPlus, MessageSquare, PanelLeft, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
@@ -520,10 +520,8 @@ function ProjectChatRow({
   )
 }
 
-// 현재 대화의 브랜치와 루트 메인 아래 사이드 채팅을 한 목록으로 보여준다
+// 현재 대화 계열의 통합 대화 노드를 트리로 보여준다
 function ConversationStructureSection() {
-  const branches = useChatStore((s) => s.branches)
-  const switchBranch = useChatStore((s) => s.switchBranch)
   const sideChatTree = useChatStore((s) => s.sideChatTree)
   const sideChatTreeRootId = useChatStore((s) => s.sideChatTreeRootId)
   const activeTabId = useChatStore((s) => s.activeTabId)
@@ -532,23 +530,11 @@ function ConversationStructureSection() {
   const deletingChatId = useChatStore((s) => s.deletingChatId)
 
   const nodes = buildSideChatTreeOrder(sideChatTree, sideChatTreeRootId)
-  if (branches.length === 0 && nodes.length < 2) return null
+  if (nodes.length < 2) return null
 
   return (
     <>
       <SectionLabel>대화 구조</SectionLabel>
-      {branches.map((branch) => (
-        <button
-          key={branch.branchId}
-          type="button"
-          onClick={() => void switchBranch(branch.branchId)}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-[7px] text-left text-[12.5px] transition ${branch.isActive ? 'bg-bg-3 text-txt-0' : 'text-txt-1 hover:bg-bg-2'}`}
-        >
-          <GitBranch className={`h-3.5 w-3.5 shrink-0 ${branch.branchType === 'MAIN' ? 'text-blue' : 'text-green'}`} />
-          <span className="truncate">{branch.branchName}</span>
-        </button>
-      ))}
-      {branches.length > 0 && nodes.length > 1 && <div className="mx-2 my-1 border-t border-line" />}
       {nodes.map(({ chat, depth }) => (
         <div
           key={chat.chatId}

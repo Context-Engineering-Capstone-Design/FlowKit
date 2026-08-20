@@ -96,7 +96,7 @@ def get_chat(
     chat = chat_service.get_owned_chat(db, user, chat_id)
     chat_service.mark_chat_seen(db, user, chat)
     branch = (
-        branch_service.get_branch_in_chat(db, chat, branch_id)
+        branch_service.get_branch_with_legacy_compatibility(db, chat, branch_id)
         if branch_id
         else branch_service.get_main_branch(db, chat)
     )
@@ -165,7 +165,7 @@ def get_branch(
 ) -> BranchDetailResponse:
     """BE-BRANCH-002: 브랜치 전환. 출발 Context 와 원본 위치 정보를 함께 준다."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
-    branch = branch_service.get_branch_in_chat(db, chat, branch_id)
+    branch = branch_service.get_branch_with_legacy_compatibility(db, chat, branch_id)
     blocks = branch_service.resolve_blocks(db, branch)
     info = branch_service.build_source_context_info(db, branch)
     return BranchDetailResponse(

@@ -90,6 +90,27 @@ class Chat(Base, TimestampMixin):
         ),
         nullable=True,
     )
+    # 통합 대화 노드의 출발 흐름. 새 노드는 생성 시점의 내용을 자체 블록으로
+    # 복제하므로 이 값들은 추적·표시용 북마크이며, 이후 원본을 다시 읽지 않는다.
+    forked_from_chat_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chats.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    forked_from_message_block_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "message_blocks.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_chats_forked_from_message_block",
+        ),
+        nullable=True,
+    )
+    # 한 릴리스 동안 기존 branchId 링크를 새 노드로 해석하기 위한 보관 키다.
+    legacy_branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("branches.id", ondelete="SET NULL", use_alter=True, name="fk_chats_legacy_branch"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
     # Temporary 사이드 채팅은 활성 탭에서만 쓰고 목록·검색·재사용 대상으로 남기지 않는다.
     is_temporary: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     temporary_expires_at: Mapped[datetime | None] = mapped_column(

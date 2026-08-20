@@ -32,6 +32,8 @@ from app.models import (
     ChatKind,
     MessageBlock,
     MessageBlockVersion,
+    VersionSourceType,
+    MessageBlockVersion,
     User,
 )
 
@@ -136,6 +138,8 @@ def create_side_chat(
         parent_message_block_id=anchor.id if anchor else None,
         root_chat_id=root_chat_id,
         root_branch_id=root_branch_id,
+        forked_from_chat_id=parent_chat.id,
+        forked_from_message_block_id=anchor.id if anchor else None,
         project_id=parent_chat.project_id,
         is_temporary=is_temporary,
         temporary_expires_at=(datetime.now(UTC) + TEMPORARY_CHAT_TTL) if is_temporary else None,
@@ -145,10 +149,113 @@ def create_side_chat(
 
     main_branch = Branch(chat_id=chat.id, name="Main", branch_type=BranchType.MAIN)
     db.add(main_branch)
+    db.flush()
+    _copy_snapshot_blocks(db, visible, main_branch, chat.id, anchor.id if anchor else None)
     db.commit()
     db.refresh(chat)
     db.refresh(main_branch)
     return chat, main_branch
+
+
+def create_conversation_node(
+    db: Session,
+    user: User,
+    source_chat: Chat,
+    source_branch: Branch,
+    base_message_block_id: uuid.UUID | None,
+    title: str | None,
+    requested_temporary: bool = False,
+) -> tuple[Chat, Branch]:
+    """현재 노드의 메시지 시점에서 이웃 분기 노드를 만든다.
+
+    부모가 있으면 그 부모 아래, 루트면 루트 아래에 배치한다. 출발 흐름은 새 Main
+    branch에 물리적으로 복제해 원본의 이후 수정·추가와 완전히 분리한다.
+    """
+    from app.services import branch_service
+
+    visible = branch_service.resolve_blocks(db, source_branch)
+    if base_message_block_id is not None:
+        anchor = next((item for item in visible if item.id == base_message_block_id), None)
+        if anchor is None:
+            raise MessageBlockNotFoundError("분기 지점 메시지를 찾을 수 없습니다.")
+    else:
+        anchor = visible[-1] if visible else None
+
+    parent_id = source_chat.parent_chat_id or source_chat.id
+    root_id = source_chat.root_chat_id or source_chat.id
+    name = (title or "").strip()
+    if len(name) > MAX_TITLE_LENGTH:
+        raise ValidationError(f"제목은 {MAX_TITLE_LENGTH}자를 넘을 수 없습니다.")
+    if not name:
+        # 이름 충돌을 피하면서도 삭제된 번호를 재사용하지 않도록 현재 최대 번호 뒤를 쓴다.
+        existing = [c.title for c in db.scalars(select(Chat).where(Chat.owner_id == user.id)).all()]
+        number = 1
+        while f"분기 {number}" in existing:
+            number += 1
+        name = f"분기 {number}"
+
+    chat = Chat(
+        owner_id=user.id,
+        title=name,
+        kind=ChatKind.SIDE,
+        parent_chat_id=parent_id,
+        parent_branch_id=source_branch.id,
+        parent_message_block_id=anchor.id if anchor else None,
+        root_chat_id=root_id,
+        root_branch_id=source_chat.root_branch_id or source_branch.id,
+        forked_from_chat_id=source_chat.id,
+        forked_from_message_block_id=anchor.id if anchor else None,
+        project_id=source_chat.project_id,
+        is_temporary=requested_temporary,
+        temporary_expires_at=(datetime.now(UTC) + TEMPORARY_CHAT_TTL) if requested_temporary else None,
+    )
+    db.add(chat)
+    db.flush()
+    main_branch = Branch(chat_id=chat.id, name="Main", branch_type=BranchType.MAIN)
+    db.add(main_branch)
+    db.flush()
+    _copy_snapshot_blocks(db, visible, main_branch, chat.id, anchor.id if anchor else None)
+    db.add(ChatReadState(user_id=user.id, chat_id=chat.id, last_seen_at=datetime.now(UTC)))
+    db.commit()
+    db.refresh(chat)
+    db.refresh(main_branch)
+    return chat, main_branch
+
+
+def _copy_snapshot_blocks(
+    db: Session,
+    visible: list[MessageBlock],
+    target_branch: Branch,
+    target_chat_id: uuid.UUID,
+    anchor_id: uuid.UUID | None,
+) -> None:
+    """anchor까지의 활성 메시지 버전을 새 노드 전용 블록으로 고정한다."""
+    cutoff = next((block.order_index for block in visible if block.id == anchor_id), None)
+    for source in visible:
+        if cutoff is not None and source.order_index > cutoff:
+            continue
+        version = source.current_version
+        if version is None:
+            continue
+        copy = MessageBlock(
+            chat_id=target_chat_id,
+            branch_id=target_branch.id,
+            role=source.role,
+            order_index=source.order_index,
+            generation_status=source.generation_status,
+        )
+        db.add(copy)
+        db.flush()
+        copied_version = MessageBlockVersion(
+            block_id=copy.id,
+            version_no=1,
+            content=version.content,
+            source_type=VersionSourceType.ORIGINAL,
+            search_sources=version.search_sources,
+        )
+        db.add(copied_version)
+        db.flush()
+        copy.current_version_id = copied_version.id
 
 
 def list_side_chat_children(db: Session, chat: Chat) -> list[Chat]:
@@ -325,24 +432,30 @@ def touch_activity(db: Session, chat: Chat) -> None:
 
 
 def delete_chat(db: Session, chat: Chat) -> None:
-    """채팅과 하위 브랜치·메시지·첨부를 실제로 삭제한다 (BE-CHAT-009)."""
+    """명시적으로 선택한 노드와 모든 하위 노드를 함께 삭제한다."""
+    descendants: list[Chat] = []
+    pending = [chat.id]
+    seen: set[uuid.UUID] = set()
+    while pending:
+        parent_id = pending.pop()
+        if parent_id in seen:
+            continue
+        seen.add(parent_id)
+        children = list(db.scalars(select(Chat).where(Chat.parent_chat_id == parent_id)))
+        descendants.extend(children)
+        pending.extend(child.id for child in children)
+    # 자식부터 지워야 연결을 끊거나 자동 승격할 일이 없다.
+    for item in reversed(descendants):
+        _delete_single_chat(db, item)
+    _delete_single_chat(db, chat)
+
+
+def _delete_single_chat(db: Session, chat: Chat) -> None:
+    """하위 노드가 없는 Chat 하나의 데이터만 정리한다."""
     from app.services import input_assist_service
 
     chat_id = chat.id
     input_assist_service.delete_attachments_for_chat(db, chat)
-
-    # 이 채팅을 부모/루트로 참조하는 다른 사이드 채팅의 연결을 끊는다 (0820_08).
-    # 사이드 채팅은 독립된 대화라 부모가 지워져도 내용은 그대로 남긴다.
-    db.execute(
-        update(Chat)
-        .where(Chat.parent_chat_id == chat_id)
-        .values(parent_chat_id=None, parent_branch_id=None, parent_message_block_id=None)
-    )
-    db.execute(
-        update(Chat)
-        .where(Chat.root_chat_id == chat_id)
-        .values(root_chat_id=None, root_branch_id=None)
-    )
 
     branch_ids = list(db.scalars(select(Branch.id).where(Branch.chat_id == chat_id)))
     block_ids = list(db.scalars(select(MessageBlock.id).where(MessageBlock.chat_id == chat_id)))

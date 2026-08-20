@@ -78,6 +78,8 @@ export interface ChatMeta {
   parentMessageBlockId: string | null
   rootChatId: string | null
   rootBranchId: string | null
+  forkedFromChatId?: string | null
+  forkedFromMessageBlockId?: string | null
   isTemporary?: boolean
   projectId?: string | null
 }
@@ -307,6 +309,8 @@ export interface SideChatSummary {
   parentBranchId: string | null
   parentMessageBlockId: string | null
   rootChatId: string | null
+  forkedFromChatId?: string | null
+  forkedFromMessageBlockId?: string | null
   isTemporary?: boolean
 }
 
