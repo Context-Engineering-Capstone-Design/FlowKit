@@ -141,6 +141,19 @@ def delete_temporary_attachment(db: Session, user: User, chat: Chat, attachment_
     db.commit()
 
 
+def read_attachment_file(db: Session, user: User, chat: Chat, attachment_id: uuid.UUID) -> tuple[Attachment, bytes]:
+    attachment = _owned_attachment(db, user, chat, attachment_id)
+    expired = attachment.status is AttachmentStatus.EXPIRED or (
+        attachment.status is AttachmentStatus.TEMPORARY and _is_expired(attachment.expires_at)
+    )
+    if expired:
+        raise AttachmentNotFoundError()
+    try:
+        return attachment, _storage().read(attachment.storage_key)
+    except OSError as exc:
+        raise AttachmentReadError() from exc
+
+
 def get_attachments_for_message(db: Session, user: User, chat: Chat, attachment_ids: list[uuid.UUID]) -> list[Attachment]:
     ids = list(dict.fromkeys(attachment_ids))
     if len(ids) > get_settings().attachment_max_per_message:

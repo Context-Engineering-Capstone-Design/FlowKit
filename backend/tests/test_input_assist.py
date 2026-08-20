@@ -53,17 +53,23 @@ def test_upload_delete_and_send_attachment(client, auth, chat, monkeypatch):
     }
 
     import modeling
+    from modeling.types import AnswerChunk, AnswerResult
     calls = []
-    monkeypatch.setattr(modeling, "generate_answer", lambda request, **_kwargs: calls.append(request) or "답변")
+
+    def _answer_stream(request, **_kwargs):
+        calls.append(request)
+        yield AnswerChunk(type="done", result=AnswerResult(text="답변", search_sources=[]))
+
+    monkeypatch.setattr(modeling, "generate_answer_stream", _answer_stream)
     monkeypatch.setattr(modeling, "generate_title", lambda *_args, **_kwargs: "제목")
     sent = client.post(message_url(chat), json={
         "userPrompt": "첨부를 읽어줘", "attachmentIds": [attachment["attachmentId"]],
-        "webSearchEnabled": True,
+        "webSearchMode": "auto",
     }, headers=auth)
     assert sent.status_code == 201, sent.text
     assert sent.json()["attachments"][0]["status"] == "attached"
     assert calls[0].attachments[0].content == "# FlowKit\n첨부 본문".encode()
-    assert calls[0].web_search_enabled is True
+    assert calls[0].web_search_mode == "auto"
 
     deleted = client.delete(f"{attachment_url(chat)}/{attachment['attachmentId']}", headers=auth)
     assert deleted.status_code == 409
@@ -74,6 +80,46 @@ def test_upload_delete_and_send_attachment(client, auth, chat, monkeypatch):
     user_block = next(b for b in reopened.json()["messageBlocks"] if b["role"] == "user")
     assert user_block["attachments"][0]["fileName"] == "notes.md"
     assert user_block["attachments"][0]["status"] == "attached"
+
+
+MIN_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
+)
+
+
+def test_download_uploaded_image(client, auth, chat):
+    uploaded = client.post(
+        attachment_url(chat),
+        files={"file": ("shot.png", MIN_PNG, "image/png")},
+        headers=auth,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    attachment_id = uploaded.json()["attachmentId"]
+
+    downloaded = client.get(
+        f"{attachment_url(chat)}/{attachment_id}/file",
+        headers=auth,
+    )
+    assert downloaded.status_code == 200
+    assert downloaded.headers["content-type"].startswith("image/png")
+    assert downloaded.content == MIN_PNG
+
+
+def test_other_user_cannot_download_attachment(client, auth, chat, monkeypatch):
+    created = client.post(
+        attachment_url(chat),
+        files={"file": ("shot.png", MIN_PNG, "image/png")},
+        headers=auth,
+    ).json()
+    other = GoogleUser("sub-other-download", "other-download@example.com", "다른사람", None)
+    monkeypatch.setattr(auth_router, "verify_google_id_token", lambda _t: other)
+    token = client.post("/api/auth/google", json={"idToken": "other"}).json()["accessToken"]
+    result = client.get(
+        f"{attachment_url(chat)}/{created['attachmentId']}/file",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert result.status_code == 403
 
 
 def test_delete_temporary_attachment_returns_compatible_success_body(

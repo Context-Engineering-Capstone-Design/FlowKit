@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import Response
 
 from app.deps import CurrentUser, DbSession
 from app.schemas.input_assist import (
@@ -53,6 +54,22 @@ def upload_attachment(
             message="파일을 첨부했습니다.",
             affected_resource_id=attachment.id,
         ),
+    )
+
+
+@router.get("/api/chats/{chat_id}/attachments/{attachment_id}/file")
+def download_attachment(
+    chat_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+) -> Response:
+    chat = chat_service.get_owned_chat(db, user, chat_id)
+    attachment, content = input_assist_service.read_attachment_file(db, user, chat, attachment_id)
+    return Response(
+        content=content,
+        media_type=attachment.mime_type,
+        headers={"Content-Disposition": f'inline; filename="{attachment.file_name}"'},
     )
 
 
