@@ -300,3 +300,9 @@ export interface SideChatTreeResponse {
 export interface CreateSideChatResponse extends ChatDetail {
   actionMeta: ActionMeta
 }
+
+/** 사이드 채팅의 메시지를 부모 채팅으로 가져온 결과 (0820_08 C2). */
+export interface ImportBlocksResponse {
+  importedBlocks: MessageBlock[]
+  actionMeta: ActionMeta
+}

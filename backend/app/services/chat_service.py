@@ -154,6 +154,42 @@ def list_side_chat_tree(db: Session, root_chat: Chat) -> list[Chat]:
     )
 
 
+def list_chat_family(db: Session, chat: Chat) -> list[Chat]:
+    """chat과 같은 사이드 채팅 트리에 속한 모든 채팅(루트 메인 + 모든 사이드) (0820_08 C1, C2).
+
+    선택적 메인 반영(Context 추가, 메시지 가져오기)이 이 트리 전체를 소스로
+    허용할 때, 어디까지가 "같은 계열"인지 판단하는 기준이다.
+    """
+    if chat.kind is ChatKind.MAIN:
+        root = chat
+    elif chat.root_chat_id is not None:
+        root = db.get(Chat, chat.root_chat_id)
+        if root is None:
+            return [chat]
+    else:
+        return [chat]
+    return [root] + list_side_chat_tree(db, root)
+
+
+def family_block_map(
+    db: Session, chat: Chat, block_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, MessageBlock]:
+    """block_ids 중 chat과 같은 사이드 채팅 트리에 속한 채팅 소유 블록만 골라 돌려준다.
+
+    사이드 채팅 탐색 결과를 부모 쪽 Context·메시지로 가져올 때, 원본 채팅의
+    현재 브랜치에 없는 블록이라도 같은 트리 안이면 소스로 허용한다.
+    """
+    if not block_ids:
+        return {}
+    family_ids = {c.id for c in list_chat_family(db, chat)}
+    found: dict[uuid.UUID, MessageBlock] = {}
+    for block_id in block_ids:
+        block = db.get(MessageBlock, block_id)
+        if block is not None and block.chat_id in family_ids:
+            found[block_id] = block
+    return found
+
+
 def get_owned_chat(db: Session, user: User, chat_id: uuid.UUID) -> Chat:
     """채팅 접근 권한 공통 검증 (BE-CHAT-008).
 

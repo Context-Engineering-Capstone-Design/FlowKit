@@ -305,3 +305,144 @@ def test_main_chat_message_flow_has_no_parent_prefix(client, ai_auth, captured):
 
     second_request = captured[-1]
     assert [t.content for t in second_request.message_flow] == ["첫 질문", "답변(1)"]
+
+
+# ── C1~C4: 사이드 채팅 결과의 선택적 메인 반영 ────────────────────────────────
+
+
+def _send_with_context(client, headers, chat: dict, prompt: str, context_ids: list[str]) -> dict:
+    res = client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}/messages",
+        json={"userPrompt": prompt, "contextBlockIds": context_ids},
+        headers=headers,
+    )
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def test_main_chat_can_use_side_chat_answer_as_context(client, ai_auth, captured):
+    """C1: 사이드 답변을 기존 Context 추가 흐름(contextBlockIds)으로 그대로 넘길 수 있다."""
+    main = client.post("/api/chats", headers=ai_auth).json()
+    _send(client, ai_auth, main, "메인 질문")
+    side = _create_side_chat(client, ai_auth, main)
+    side_answer = _send(client, ai_auth, side, "사이드 탐색 질문")
+    side_answer_block_id = side_answer["assistantBlock"]["blockId"]
+
+    _send_with_context(client, ai_auth, main, "이 내용 참고해서 답해줘", [side_answer_block_id])
+
+    request = captured[-1]
+    assert request.applied_context == ["답변(2)"]
+    assert request.user_prompt == "이 내용 참고해서 답해줘"
+
+
+def test_context_from_unrelated_chat_is_rejected(client, ai_auth, captured):
+    """C1: 같은 사이드 채팅 트리가 아닌 다른 채팅의 블록은 Context 로 못 쓴다."""
+    main = client.post("/api/chats", headers=ai_auth).json()
+    other = client.post("/api/chats", headers=ai_auth).json()
+    other_sent = _send(client, ai_auth, other, "다른 대화 질문")
+
+    res = client.post(
+        f"/api/chats/{main['chatMeta']['chatId']}/branches/{main['branchMeta']['branchId']}/messages",
+        json={"userPrompt": "질문", "contextBlockIds": [other_sent["assistantBlock"]["blockId"]]},
+        headers=ai_auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+def test_import_side_chat_messages_into_parent(client, ai_auth, captured):
+    """C2: 사이드 채팅의 질문·답변을 부모 채팅 메시지로 실제로 복사해 가져온다."""
+    main = client.post("/api/chats", headers=ai_auth).json()
+    side = _create_side_chat(client, ai_auth, main)
+    sent = _send(client, ai_auth, side, "사이드 질문")
+
+    res = client.post(
+        f"/api/chats/{main['chatMeta']['chatId']}/branches/{main['branchMeta']['branchId']}/import-blocks",
+        json={"blockIds": [sent["userBlock"]["blockId"], sent["assistantBlock"]["blockId"]]},
+        headers=ai_auth,
+    )
+    assert res.status_code == 201, res.text
+    body = res.json()
+    assert [b["role"] for b in body["importedBlocks"]] == ["user", "assistant"]
+    assert [b["content"] for b in body["importedBlocks"]] == ["사이드 질문", "답변(1)"]
+    assert body["actionMeta"]["successCode"] == "SIDE_CHAT_BLOCKS_IMPORTED"
+
+    detail = client.get(f"/api/chats/{main['chatMeta']['chatId']}", headers=ai_auth)
+    contents = [b["content"] for b in detail.json()["messageBlocks"]]
+    assert contents == ["사이드 질문", "답변(1)"]
+
+    # 사이드 채팅 자신의 메시지는 그대로 남아 있다 — 복사이지 이동이 아니다
+    side_detail = client.get(f"/api/chats/{side['chatMeta']['chatId']}", headers=ai_auth)
+    assert [b["content"] for b in side_detail.json()["messageBlocks"]] == ["사이드 질문", "답변(1)"]
+
+
+def test_import_rejects_blocks_outside_family(client, ai_auth, captured):
+    """C2: 같은 사이드 채팅 트리가 아니면 가져오기 대상이 될 수 없다."""
+    main = client.post("/api/chats", headers=ai_auth).json()
+    other = client.post("/api/chats", headers=ai_auth).json()
+    other_sent = _send(client, ai_auth, other, "다른 대화 질문")
+
+    res = client.post(
+        f"/api/chats/{main['chatMeta']['chatId']}/branches/{main['branchMeta']['branchId']}/import-blocks",
+        json={"blockIds": [other_sent["userBlock"]["blockId"]]},
+        headers=ai_auth,
+    )
+    assert res.status_code == 404
+    assert res.json()["errorCode"] == "MESSAGE_BLOCK_NOT_FOUND"
+
+
+def test_import_rejects_empty_selection(client, ai_auth):
+    main = client.post("/api/chats", headers=ai_auth).json()
+    res = client.post(
+        f"/api/chats/{main['chatMeta']['chatId']}/branches/{main['branchMeta']['branchId']}/import-blocks",
+        json={"blockIds": []},
+        headers=ai_auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+def test_sibling_branch_from_side_chat_shares_its_fork_point(client, ai_auth, captured):
+    """C3: 사이드 채팅 기준 새 브랜치는 그 사이드 채팅과 같은 부모·분기점 아래 형제로 붙는다.
+
+    기존 브랜치 생성 API를 그대로 재사용한다 — 대상만 사이드 채팅의 부모 채팅·
+    부모 브랜치·생성 시점(anchor)으로 잡으면 된다.
+    """
+    main = client.post("/api/chats", headers=ai_auth).json()
+    sent = _send(client, ai_auth, main, "메인 질문")
+    side = _create_side_chat(client, ai_auth, main, anchor_id=sent["assistantBlock"]["blockId"])
+
+    res = client.post(
+        f"/api/chats/{main['chatMeta']['chatId']}/branches",
+        json={
+            "branchName": "탐색 결과 반영",
+            "baseBranchId": side["chatMeta"]["parentBranchId"],
+            "baseMessageBlockId": side["chatMeta"]["parentMessageBlockId"],
+            "contextBlockIds": [],
+            "editedBaseContent": "사이드 채팅에서 가져온 더 나은 답변",
+        },
+        headers=ai_auth,
+    )
+    assert res.status_code == 201, res.text
+    branch = res.json()
+    assert branch["parentBranchId"] == side["chatMeta"]["parentBranchId"]
+
+    detail = client.get(
+        f"/api/chats/{main['chatMeta']['chatId']}/branches/{branch['branchId']}", headers=ai_auth,
+    )
+    contents = [b["content"] for b in detail.json()["messageBlocks"]]
+    assert contents == ["메인 질문", "사이드 채팅에서 가져온 더 나은 답변"]
+
+
+def test_side_chat_activity_never_changes_parent_until_explicit_action(client, ai_auth, captured):
+    """C4: 사이드 채팅을 만들고 메시지를 보내는 동안, 명시적으로 반영하기 전엔 부모가 그대로다."""
+    main = client.post("/api/chats", headers=ai_auth).json()
+    _send(client, ai_auth, main, "메인 질문")
+    before = client.get(f"/api/chats/{main['chatMeta']['chatId']}", headers=ai_auth).json()
+
+    side = _create_side_chat(client, ai_auth, main)
+    _send(client, ai_auth, side, "사이드 질문")
+
+    after = client.get(f"/api/chats/{main['chatMeta']['chatId']}", headers=ai_auth).json()
+    assert after["messageBlocks"] == before["messageBlocks"]
+    assert after["branchList"] == before["branchList"]

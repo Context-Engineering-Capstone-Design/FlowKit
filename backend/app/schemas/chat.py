@@ -271,3 +271,18 @@ class SideChatTreeResponse(BaseModel):
     chats: list[SideChatSummary]
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class ImportBlocksRequest(BaseModel):
+    """사이드 채팅의 질문·답변을 부모(메인) 채팅 메시지로 가져온다 (0820_08 C2)."""
+
+    block_ids: list[uuid.UUID] = Field(..., alias="blockIds")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ImportBlocksResponse(BaseModel):
+    imported_blocks: list[MessageBlockOut] = Field(..., serialization_alias="importedBlocks")
+    action_meta: ActionMeta = Field(..., serialization_alias="actionMeta")
+
+    model_config = ConfigDict(populate_by_name=True)

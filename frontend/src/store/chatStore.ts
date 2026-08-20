@@ -124,6 +124,14 @@ interface ChatState {
   blocks: MessageBlock[]
   sourceContext: SourceContextItem[]
 
+  /** 지금 열린 채팅의 사이드 채팅 트리 관계 (0820_08 A1, C1~C3). 메인 채팅이면 kind만 채워진다. */
+  chatKind: ChatKind
+  parentChatId: string | null
+  parentBranchId: string | null
+  parentMessageBlockId: string | null
+  rootChatId: string | null
+  rootBranchId: string | null
+
   /** 열려 있는 메인·사이드 채팅 탭 (0820_08 B1). 메인·사이드는 동등한 탭이다. */
   tabs: ChatTab[]
   activeTabId: string | null
@@ -260,6 +268,13 @@ interface ChatState {
   createSideChatTab: (anchorMessageBlockId?: string, title?: string) => Promise<void>
   /** 지금 보이는 채팅·브랜치 기준으로 사이드 채팅 북마크·트리를 다시 불러온다. */
   loadSideChatContext: () => Promise<void>
+
+  /** 선택한 사이드 채팅 블록을 부모 채팅으로 옮겨 다음 질문의 Context 로 적용한다 (0820_08 C1). */
+  sendSelectedToParentAsContext: () => Promise<boolean>
+  /** 선택한 사이드 채팅 블록을 부모 채팅 메시지로 실제로 복사해 가져온다 (0820_08 C2). */
+  importSelectedToParentAsMessages: () => Promise<boolean>
+  /** 사이드 채팅과 같은 지점에서 부모 아래 형제 브랜치를 만든다 (0820_08 C3). */
+  createSiblingBranchFromSideChat: (branchName: string, editedBaseContent: string) => Promise<boolean>
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -275,6 +290,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   branches: [],
   blocks: [],
   sourceContext: [],
+  chatKind: 'MAIN',
+  parentChatId: null,
+  parentBranchId: null,
+  parentMessageBlockId: null,
+  rootChatId: null,
+  rootBranchId: null,
   tabs: [],
   activeTabId: null,
   sideChatsByBlockId: {},
@@ -1300,6 +1321,60 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // 트리 조회 실패는 화면을 막을 만한 문제가 아니다 — 다음 조회 때 다시 시도된다
     }
   },
+
+  async sendSelectedToParentAsContext() {
+    const { parentChatId, parentBranchId, selectedBlockIds } = get()
+    if (!parentChatId || !parentBranchId || selectedBlockIds.length === 0) return false
+    const blockIds = [...selectedBlockIds]
+    const parentTab = get().tabs.find((t) => t.chatId === parentChatId)
+    await get().openChat(parentChatId, parentTab?.branchId ?? parentBranchId)
+    set({
+      appliedBlockIds: blockIds,
+      appliedContextLabel: '사이드 채팅에서 가져온 Context',
+      focusSignal: get().focusSignal + 1,
+    })
+    useNotificationStore.getState().show('사이드 채팅 내용을 부모 채팅의 Context로 추가했습니다.', 'success')
+    return true
+  },
+
+  async importSelectedToParentAsMessages() {
+    const { parentChatId, parentBranchId, selectedBlockIds } = get()
+    if (!parentChatId || !parentBranchId || selectedBlockIds.length === 0) return false
+    const blockIds = [...selectedBlockIds]
+    try {
+      const result = await sideChatApi.importBlocksAsMessages(parentChatId, parentBranchId, blockIds)
+      const parentTab = get().tabs.find((t) => t.chatId === parentChatId)
+      await get().openChat(parentChatId, parentTab?.branchId ?? parentBranchId)
+      useNotificationStore.getState().showAction(result.actionMeta)
+      return true
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+      return false
+    }
+  },
+
+  async createSiblingBranchFromSideChat(branchName, editedBaseContent) {
+    const { parentChatId, parentBranchId, parentMessageBlockId } = get()
+    if (!parentChatId || !parentBranchId || !parentMessageBlockId) return false
+    set({ isCreatingBranch: true, branchError: null })
+    try {
+      const created = await chatApi.createBranch(parentChatId, {
+        branchName,
+        baseBranchId: parentBranchId,
+        baseMessageBlockId: parentMessageBlockId,
+        contextBlockIds: [],
+        editedBaseContent,
+      })
+      await get().openChat(parentChatId, created.branchId)
+      useNotificationStore.getState().show('부모 아래 형제 브랜치를 만들었습니다.', 'success')
+      return true
+    } catch (e) {
+      set({ branchError: toErrorMessage(e) })
+      return false
+    } finally {
+      set({ isCreatingBranch: false })
+    }
+  },
 }))
 
 /** 대화 관련 필드만 빈 상태로 되돌린다. 탭 목록 자체는 건드리지 않는다. */
@@ -1315,6 +1390,12 @@ function resetToDraftFields(
     branches: [],
     blocks: [],
     sourceContext: [],
+    chatKind: 'MAIN',
+    parentChatId: null,
+    parentBranchId: null,
+    parentMessageBlockId: null,
+    rootChatId: null,
+    rootBranchId: null,
     sideChatsByBlockId: {},
     sideChatTree: [],
     sideChatTreeRootId: null,
@@ -1367,6 +1448,12 @@ function applyDetail(
     branches: detail.branchList,
     blocks: detail.messageBlocks,
     sourceContext: [],
+    chatKind: detail.chatMeta.kind,
+    parentChatId: detail.chatMeta.parentChatId,
+    parentBranchId: detail.chatMeta.parentBranchId,
+    parentMessageBlockId: detail.chatMeta.parentMessageBlockId,
+    rootChatId: detail.chatMeta.rootChatId,
+    rootBranchId: detail.chatMeta.rootBranchId,
     sideChatsByBlockId: {},
     sideChatTree: [],
     sideChatTreeRootId: null,

@@ -91,6 +91,7 @@ export function ContextPanel({ open = true, onClose, width, onResizeStart }: Pro
       </div>
 
       {selected.length > 0 && !refineJob && <PanelFooter />}
+      {selected.length > 0 && !refineJob && <ReflectToParentSection />}
       </div>
     </aside>
   )
@@ -494,6 +495,94 @@ function PanelFooter() {
       >
         이 Context로 브랜치 생성
       </button>
+    </div>
+  )
+}
+
+// 사이드 채팅에서 고른 블록을 부모(메인) 채팅에 선택적으로 반영 (0820_08 C1~C3)
+function ReflectToParentSection() {
+  const parentChatId = useChatStore((s) => s.parentChatId)
+  const selectedIds = useChatStore((s) => s.selectedBlockIds)
+  const blocks = useChatStore((s) => s.blocks)
+  const sendSelectedToParentAsContext = useChatStore((s) => s.sendSelectedToParentAsContext)
+  const importSelectedToParentAsMessages = useChatStore((s) => s.importSelectedToParentAsMessages)
+  const createSiblingBranchFromSideChat = useChatStore((s) => s.createSiblingBranchFromSideChat)
+  const isCreatingBranch = useChatStore((s) => s.isCreatingBranch)
+  const branchError = useChatStore((s) => s.branchError)
+  const [branchName, setBranchName] = useState('')
+  const [showBranchForm, setShowBranchForm] = useState(false)
+
+  if (!parentChatId) return null
+
+  const selectedContent = blocks.filter((b) => selectedIds.includes(b.blockId)).at(-1)?.content ?? ''
+
+  async function createBranch() {
+    const ok = await createSiblingBranchFromSideChat(branchName, selectedContent)
+    if (ok) {
+      setBranchName('')
+      setShowBranchForm(false)
+    }
+  }
+
+  return (
+    <div className="space-y-1.5 border-t border-line px-4 py-3">
+      <p className="pb-1 text-[10.5px] font-semibold uppercase tracking-wide text-txt-3">
+        부모 채팅에 반영
+      </p>
+      <button
+        type="button"
+        onClick={() => void sendSelectedToParentAsContext()}
+        className="w-full rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3"
+      >
+        부모 Context로 추가 ({selectedIds.length})
+      </button>
+      <button
+        type="button"
+        onClick={() => void importSelectedToParentAsMessages()}
+        className="w-full rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3"
+      >
+        부모 메시지로 가져오기
+      </button>
+
+      {showBranchForm ? (
+        <div className="space-y-1.5 rounded-lg bg-bg-2 p-2.5">
+          <input
+            value={branchName}
+            onChange={(e) => setBranchName(e.target.value)}
+            placeholder="형제 브랜치 이름"
+            className="w-full rounded-md bg-bg-3 px-2.5 py-1.5 text-[12px] text-txt-0 outline-none placeholder:text-txt-3"
+          />
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => void createBranch()}
+              disabled={isCreatingBranch || !branchName.trim()}
+              className="flex-1 rounded-md bg-green py-1.5 text-[11.5px] font-semibold text-white transition disabled:opacity-40"
+            >
+              {isCreatingBranch ? '만드는 중…' : '만들기'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowBranchForm(false)}
+              className="rounded-md px-2.5 text-[11.5px] text-txt-2 transition hover:text-txt-0"
+            >
+              취소
+            </button>
+          </div>
+          {branchError && <p className="text-[11px] text-red">{branchError}</p>}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowBranchForm(true)}
+          className="w-full rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3"
+        >
+          부모 아래 형제 브랜치 만들기
+        </button>
+      )}
+      <p className="text-[11px] leading-relaxed text-txt-3">
+        선택한 블록 중 가장 최근 것을 브랜치의 시작 내용으로 씁니다.
+      </p>
     </div>
   )
 }
