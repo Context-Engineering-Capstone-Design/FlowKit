@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -101,6 +101,17 @@ class Chat(Base, TimestampMixin):
         cascade="all, delete-orphan",
         foreign_keys="Branch.chat_id",
     )
+
+
+class ChatReadState(Base, TimestampMixin):
+    """사용자가 대화를 마지막으로 확인한 시각."""
+
+    __tablename__ = "chat_read_states"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    chat_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (UniqueConstraint("user_id", "chat_id", name="uq_chat_read_state_user_chat"),)
 
 
 class Branch(Base, TimestampMixin):

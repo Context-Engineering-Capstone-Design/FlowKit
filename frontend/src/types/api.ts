@@ -46,6 +46,8 @@ export interface ChatSummary {
   chatId: string
   title: string
   projectId?: string | null
+  isGenerating?: boolean
+  hasUnseenCompletion?: boolean
 }
 
 export interface ProjectSummary { projectId: string; name: string; chatCount: number }

@@ -48,6 +48,17 @@ function newDraftId() {
 
 let latestChatListRequestId: string | null = null
 let latestChatMoreRequestId: string | null = null
+let chatStatusPoll: ReturnType<typeof setInterval> | null = null
+
+function syncChatStatusPolling(get: () => ChatState) {
+  const shouldPoll = get().chats.some((chat) => chat.isGenerating)
+  if (shouldPoll && chatStatusPoll === null) {
+    chatStatusPoll = setInterval(() => void get().loadChats(get().chatListKeyword || undefined), 2500)
+  } else if (!shouldPoll && chatStatusPoll !== null) {
+    clearInterval(chatStatusPoll)
+    chatStatusPoll = null
+  }
+}
 
 // 답변 블록별로 지금 붙어 있는 스트리밍 연결. AbortController는 직렬화할 수
 // 없는 값이라 Zustand 상태 밖(모듈 스코프)에 둔다 (BE-AIRESP-007, FE-AIRESP-005).
@@ -369,6 +380,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (latestChatListRequestId !== res.requestId) return
       useNotificationStore.getState().dismissBanner('chat-list')
       set({ chats: res.result.chats, nextCursor: res.result.nextCursor, chatListKeyword: normalizedKeyword ?? '' })
+      syncChatStatusPolling(get)
     } catch (e) {
       if (requestId && latestChatListRequestId !== requestId) return
       set({ chatListError: toErrorMessage(e) })
@@ -401,6 +413,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         chats: [...s.chats, ...res.result.chats.filter((item) => !s.chats.some((chat) => chat.chatId === item.chatId))],
         nextCursor: res.result.nextCursor,
       }))
+      syncChatStatusPolling(get)
     } catch (e) {
       if (requestId && latestChatMoreRequestId !== requestId) return
       set({ chatListError: toErrorMessage(e) })
@@ -938,6 +951,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (payload.status === 'failed' && payload.error) {
           useNotificationStore.getState().show(payload.error.message, 'error')
         }
+        void get().loadChats(get().chatListKeyword || undefined)
         flushDeliveryTiming(chatId, branchId, jobId, payload.status)
       },
     }

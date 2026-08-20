@@ -28,6 +28,7 @@ from app.models import (
     BranchSourceContextItem,
     BranchType,
     Chat,
+    ChatReadState,
     ChatKind,
     MessageBlock,
     MessageBlockVersion,
@@ -55,10 +56,37 @@ def create_chat_with_main_branch(db: Session, user: User) -> tuple[Chat, Branch]
         chat_id=chat.id, name="Main", branch_type=BranchType.MAIN
     )
     db.add(main_branch)
+    db.add(ChatReadState(user_id=user.id, chat_id=chat.id, last_seen_at=datetime.now(UTC)))
     db.commit()
     db.refresh(chat)
     db.refresh(main_branch)
     return chat, main_branch
+
+
+def mark_chat_seen(db: Session, user: User, chat: Chat) -> None:
+    state = db.scalar(select(ChatReadState).where(ChatReadState.user_id == user.id, ChatReadState.chat_id == chat.id))
+    if state is None:
+        db.add(ChatReadState(user_id=user.id, chat_id=chat.id, last_seen_at=datetime.now(UTC)))
+    else:
+        state.last_seen_at = datetime.now(UTC)
+    db.commit()
+
+
+def list_chat_activity_states(db: Session, user: User, chats: list[Chat]) -> dict[uuid.UUID, tuple[bool, bool]]:
+    if not chats:
+        return {}
+    from app.models import AiResponseJobStatus
+    ids = [chat.id for chat in chats]
+    seen = {item.chat_id: item.last_seen_at for item in db.scalars(select(ChatReadState).where(ChatReadState.user_id == user.id, ChatReadState.chat_id.in_(ids)))}
+    jobs = list(db.scalars(select(AiResponseJob).where(AiResponseJob.chat_id.in_(ids))))
+    now = datetime.now(UTC)
+    return {
+        chat.id: (
+            any(job.status is AiResponseJobStatus.GENERATING for job in jobs if job.chat_id == chat.id),
+            any(job.status is AiResponseJobStatus.COMPLETED and job.finished_at is not None and job.finished_at > seen.get(chat.id, now) for job in jobs if job.chat_id == chat.id),
+        )
+        for chat in chats
+    }
 
 
 def create_side_chat(

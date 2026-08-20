@@ -145,7 +145,17 @@ export function Sidebar({ open = true, onClose }: Props) {
                 onClick={() => void openChat(c.chatId)}
                 className="min-w-0 flex-1 truncate px-2 py-[7px] text-left text-[12.5px] transition"
               >
-                {c.title}
+                <span className="truncate">{c.title}</span>
+                {c.chatId !== chatId && c.isGenerating && (
+                  <span aria-label="답변 생성 중" className="ml-1 flex shrink-0 gap-0.5">
+                    <i className="h-1 w-1 animate-bounce rounded-full bg-txt-2 [animation-delay:-0.2s]" />
+                    <i className="h-1 w-1 animate-bounce rounded-full bg-txt-2 [animation-delay:-0.1s]" />
+                    <i className="h-1 w-1 animate-bounce rounded-full bg-txt-2" />
+                  </span>
+                )}
+                {c.chatId !== chatId && !c.isGenerating && c.hasUnseenCompletion && (
+                  <span aria-label="새 답변" className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue" />
+                )}
               </button>
             )}
             {editingChatId !== c.chatId && (

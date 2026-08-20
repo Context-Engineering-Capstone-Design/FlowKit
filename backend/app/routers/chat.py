@@ -77,9 +77,8 @@ def list_chats(
     chats, next_cursor = chat_service.list_chats(
         db, user, cursor=cursor, limit=limit, keyword=keyword
     )
-    return ChatListResponse(
-        chats=[ChatSummary.of(c) for c in chats], next_cursor=next_cursor
-    )
+    activity = chat_service.list_chat_activity_states(db, user, chats)
+    return ChatListResponse(chats=[ChatSummary.of(c, is_generating=activity[c.id][0], has_unseen_completion=activity[c.id][1]) for c in chats], next_cursor=next_cursor)
 
 
 @router.get("/{chat_id}", response_model=ChatDetailResponse)
@@ -91,6 +90,7 @@ def get_chat(
 ) -> ChatDetailResponse:
     """BE-CHAT-005: 채팅 상세. branchId 를 주지 않으면 Main 브랜치를 연다."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
+    chat_service.mark_chat_seen(db, user, chat)
     branch = (
         branch_service.get_branch_in_chat(db, chat, branch_id)
         if branch_id

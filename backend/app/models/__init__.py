@@ -13,6 +13,7 @@ from app.models.chat import (
     BranchSourceContextItem,
     BranchType,
     Chat,
+    ChatReadState,
     ChatKind,
 )
 from app.models.context import AppliedContextItem, AppliedContextLog
@@ -48,6 +49,7 @@ __all__ = [
     "User",
     "AuthSession",
     "Chat",
+    "ChatReadState",
     "ChatKind",
     "Branch",
     "BranchType",
