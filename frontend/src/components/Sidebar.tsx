@@ -1,8 +1,9 @@
-import { GitBranch, PanelLeftClose, Pencil, Search, SquarePen, Trash2 } from 'lucide-react'
+import { GitBranch, MessageSquare, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
 import { useInfiniteChatList } from '@/hooks/useInfiniteChatList'
+import { buildSideChatTreeOrder } from '@/lib/sideChatTree'
 
 interface Props {
   open?: boolean
@@ -197,11 +198,48 @@ export function Sidebar({ open = true, onClose }: Props) {
             ))}
           </>
         )}
+
+        <SideChatTreeSection />
       </div>
 
       <ProfileMenu />
       </div>
     </aside>
+  )
+}
+
+// 좌측 사이드 채팅 관리 패널 — 루트 메인 채팅 아래 생성 관계를 트리로 보여준다 (0820_08 B3)
+function SideChatTreeSection() {
+  const sideChatTree = useChatStore((s) => s.sideChatTree)
+  const sideChatTreeRootId = useChatStore((s) => s.sideChatTreeRootId)
+  const activeTabId = useChatStore((s) => s.activeTabId)
+  const openChat = useChatStore((s) => s.openChat)
+
+  const nodes = buildSideChatTreeOrder(sideChatTree, sideChatTreeRootId)
+  if (nodes.length < 2) return null
+
+  return (
+    <>
+      <SectionLabel>사이드 채팅</SectionLabel>
+      {nodes.map(({ chat, depth }) => (
+        <button
+          key={chat.chatId}
+          type="button"
+          onClick={() => void openChat(chat.chatId)}
+          style={{ paddingLeft: `${8 + depth * 14}px` }}
+          className={`flex w-full items-center gap-2 rounded-md py-[7px] pr-2 text-left text-[12.5px] transition ${
+            chat.chatId === activeTabId ? 'bg-bg-3 text-txt-0' : 'text-txt-1 hover:bg-bg-2'
+          }`}
+        >
+          {chat.kind === 'MAIN' ? (
+            <MessageSquare className="h-3.5 w-3.5 shrink-0 text-blue" />
+          ) : (
+            <Split className="h-3.5 w-3.5 shrink-0 text-green" />
+          )}
+          <span className="truncate">{chat.title}</span>
+        </button>
+      ))}
+    </>
   )
 }
 

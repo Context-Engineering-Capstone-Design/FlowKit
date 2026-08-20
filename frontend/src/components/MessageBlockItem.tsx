@@ -1,4 +1,4 @@
-import { Check, Copy, ExternalLink, Paperclip, X } from 'lucide-react'
+import { Check, Copy, ExternalLink, Paperclip, Split, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
@@ -41,6 +41,9 @@ export function MessageBlockItem({ block, refine }: Props) {
   const setActiveVersion = useChatStore((s) => s.setActiveVersion)
   const openBranchModal = useChatStore((s) => s.openBranchModal)
   const openContextEditor = useChatStore((s) => s.openContextEditor)
+  const createSideChatTab = useChatStore((s) => s.createSideChatTab)
+  const openChat = useChatStore((s) => s.openChat)
+  const linkedSideChats = useChatStore((s) => s.sideChatsByBlockId[block.blockId])
   const view = useChatStore((s) => s.inlineView[block.blockId] ?? 'refined')
   const highlighted = useChatStore(
     (s) => s.highlightedBlockId === block.blockId,
@@ -187,6 +190,23 @@ export function MessageBlockItem({ block, refine }: Props) {
 
         {pending && <div className="w-full"><InlineRefineBar result={refine} /></div>}
 
+        {linkedSideChats && linkedSideChats.length > 0 && (
+          <div className={`mt-1.5 flex flex-wrap gap-1.5 ${isUser ? 'flex-row-reverse' : ''}`}>
+            {linkedSideChats.map((sideChat) => (
+              <button
+                key={sideChat.chatId}
+                type="button"
+                onClick={() => void openChat(sideChat.chatId)}
+                title="사이드 채팅 열기"
+                className="flex items-center gap-1 rounded-full border border-line bg-bg-2 px-2 py-0.5 text-[10.5px] text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"
+              >
+                <Split className="h-2.5 w-2.5 text-green" />
+                <span className="max-w-[140px] truncate">{sideChat.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {!pending && (
           <MessageBlockActions
             block={block}
@@ -208,6 +228,7 @@ export function MessageBlockItem({ block, refine }: Props) {
             onStartEdit={() => startEdit(block.blockId, block.content)}
             onOpenContextEditor={() => openContextEditor(block.blockId)}
             onOpenBranch={() => openBranchModal(block.blockId)}
+            onOpenSideChat={() => createSideChatTab(block.blockId)}
           />
         )}
       </div>

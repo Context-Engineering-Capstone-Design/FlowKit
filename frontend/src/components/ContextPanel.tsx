@@ -1,4 +1,4 @@
-import { Check, SlidersHorizontal, X } from 'lucide-react'
+import { Check, SlidersHorizontal, Split, X } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { toPreview } from '@/lib/preview'
 import { useChatStore } from '@/store/chatStore'
@@ -77,19 +77,74 @@ export function ContextPanel({ open = true, onClose, width, onResizeStart }: Pro
         </button>
       </header>
 
-      {selected.length === 0 && !refineJob ? (
-        <EmptyGuide />
-      ) : (
-        <div className="flex-1 overflow-y-auto px-4 pb-4">
-          <SelectedBlocks />
-          <RefineForm />
-          {refineJob && <RefinePreview />}
-        </div>
-      )}
+      <div className="flex flex-1 flex-col overflow-y-auto">
+        <SideChatSection />
+        {selected.length === 0 && !refineJob ? (
+          <EmptyGuide />
+        ) : (
+          <div className="px-4 pb-4">
+            <SelectedBlocks />
+            <RefineForm />
+            {refineJob && <RefinePreview />}
+          </div>
+        )}
+      </div>
 
       {selected.length > 0 && !refineJob && <PanelFooter />}
       </div>
     </aside>
+  )
+}
+
+// 사이드 채팅 만들기·전환 — 지금 대화 흐름을 그대로 참고하는 별도 대화 (0820_08 B2)
+function SideChatSection() {
+  const chatId = useChatStore((s) => s.chatId)
+  const tabs = useChatStore((s) => s.tabs)
+  const sideChatTree = useChatStore((s) => s.sideChatTree)
+  const isCreating = useChatStore((s) => s.isCreatingSideChat)
+  const createSideChatTab = useChatStore((s) => s.createSideChatTab)
+  const openChat = useChatStore((s) => s.openChat)
+
+  if (!chatId) return null
+  const children = sideChatTree.filter((c) => c.parentChatId === chatId)
+
+  return (
+    <section className="border-b border-line px-4 pb-4 pt-3.5">
+      <SectionLabel>사이드 채팅</SectionLabel>
+      <p className="mt-1.5 text-[11px] leading-relaxed text-txt-3">
+        지금 대화의 최신 흐름을 그대로 참고하는 별도 대화를 엽니다. 이 대화에는 자동으로 반영되지 않습니다.
+      </p>
+      <button
+        type="button"
+        onClick={() => void createSideChatTab()}
+        disabled={isCreating}
+        className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50"
+      >
+        <Split className="h-3.5 w-3.5" />
+        {isCreating ? '만드는 중…' : '새 사이드 채팅 만들기'}
+      </button>
+
+      {children.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {children.map((child) => {
+            const active = tabs.some((t) => t.chatId === child.chatId)
+            return (
+              <button
+                key={child.chatId}
+                type="button"
+                onClick={() => void openChat(child.chatId)}
+                className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11.5px] transition ${
+                  active ? 'bg-bg-2 text-txt-0' : 'text-txt-2 hover:bg-bg-2 hover:text-txt-1'
+                }`}
+              >
+                <Split className="h-3 w-3 shrink-0 text-green" />
+                <span className="truncate">{child.title}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </section>
   )
 }
 
