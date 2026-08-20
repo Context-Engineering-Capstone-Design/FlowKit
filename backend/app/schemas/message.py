@@ -58,6 +58,8 @@ class BlockResponse(BaseModel):
     search_sources: list[SearchSourceOut] = Field(
         default_factory=list, serialization_alias="searchSources"
     )
+    # 생성 중/완료/중단됨/실패 (BE-AIRESP-007~009). 사용자 블록은 항상 complete.
+    generation_status: str = Field(..., serialization_alias="generationStatus")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -73,6 +75,7 @@ class BlockResponse(BaseModel):
             version_no=version.version_no if version else None,
             order_index=block.order_index,
             created_at=block.created_at,
+            generation_status=block.generation_status.value,
             attachments=[
                 AttachmentOut(
                     attachment_id=link.attachment.id,

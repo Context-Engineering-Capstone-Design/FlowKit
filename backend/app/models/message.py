@@ -21,6 +21,19 @@ class VersionSourceType(str, enum.Enum):
     AI_REGENERATE = "ai_regenerate"
 
 
+class BlockGenerationStatus(str, enum.Enum):
+    """AI 답변 블록의 생성 진행 상태 (BE-AIRESP-007~009).
+
+    사용자 블록은 생성 개념이 없어 항상 COMPLETE다. GENERATING은 스트리밍
+    중, CANCELLED는 사용자가 중단, FAILED는 생성 실패를 뜻한다.
+    """
+
+    GENERATING = "generating"
+    COMPLETE = "complete"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
 class MessageBlock(Base, TimestampMixin):
     __tablename__ = "message_blocks"
 
@@ -50,6 +63,16 @@ class MessageBlock(Base, TimestampMixin):
     )
     current_version: Mapped[MessageBlockVersion | None] = relationship(
         foreign_keys=[current_version_id], post_update=True
+    )
+    # 생성 중/완료/중단/실패 (BE-AIRESP-007~009). 사용자 블록은 항상 COMPLETE.
+    generation_status: Mapped[BlockGenerationStatus] = mapped_column(
+        Enum(
+            BlockGenerationStatus,
+            name="block_generation_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=BlockGenerationStatus.COMPLETE,
+        server_default=BlockGenerationStatus.COMPLETE.value,
     )
     # 이 블록에 붙은 첨부 (AI-ATTACH-001, 002). 조회 전용이며 연결은
     # input_assist_service.attach_to_message 가 만든다.

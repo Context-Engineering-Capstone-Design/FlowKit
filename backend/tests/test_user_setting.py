@@ -235,15 +235,17 @@ def test_answer_and_title_receive_each_current_users_key(client, monkeypatch):
     answer_keys: list[str] = []
     title_keys: list[str] = []
 
+    from modeling.types import AnswerChunk, AnswerResult
+
     def answer(_request, *, api_key):
         answer_keys.append(api_key)
-        return "답변"
+        yield AnswerChunk(type="done", result=AnswerResult(text="답변", search_sources=[]))
 
     def title(_prompt, *, api_key):
         title_keys.append(api_key)
         return "제목"
 
-    monkeypatch.setattr(modeling, "generate_answer", answer)
+    monkeypatch.setattr(modeling, "generate_answer_stream", answer)
     monkeypatch.setattr(modeling, "generate_title", title)
 
     users = [
@@ -340,7 +342,7 @@ def test_provider_failure_response_does_not_expose_api_key(
     def fail(_request, **_kwargs):
         raise RuntimeError(f"provider rejected {RAW_KEY}")
 
-    monkeypatch.setattr(modeling, "generate_answer", fail)
+    monkeypatch.setattr(modeling, "generate_answer_stream", fail)
     assert save_key(client, auth).status_code == 200
     chat = client.post("/api/chats", headers=auth).json()
 
@@ -351,12 +353,18 @@ def test_provider_failure_response_does_not_expose_api_key(
         headers=auth,
     )
 
-    assert response.status_code == 502
-    detail = response.json()["detail"]
-    assert detail["retryable"] is True
-    assert "aiResponseJobId" in detail
-    assert RAW_KEY not in str(detail)
+    # 생성은 배경에서 도니 전송 응답은 항상 즉시 201이다. 실패는 답변 블록의
+    # 상태로 나타난다 (BE-AIRESP-007).
+    assert response.status_code == 201, response.text
     assert RAW_KEY not in response.text
+    block_id = response.json()["assistantBlock"]["blockId"]
+
+    detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
+    block = next(
+        b for b in detail.json()["messageBlocks"] if b["blockId"] == block_id
+    )
+    assert block["generationStatus"] == "failed"
+    assert RAW_KEY not in detail.text
 
 
 def test_ai_request_without_key_is_blocked_before_question_is_saved(

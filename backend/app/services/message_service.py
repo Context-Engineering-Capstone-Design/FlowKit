@@ -15,6 +15,7 @@ from app.exceptions import (
 )
 from app.models import (
     Branch,
+    BlockGenerationStatus,
     Chat,
     MessageBlock,
     MessageBlockVersion,
@@ -46,10 +47,16 @@ def create_block(
     source_type: VersionSourceType = VersionSourceType.ORIGINAL,
     commit: bool = True,
     search_sources: list[dict] | None = None,
+    allow_empty: bool = False,
+    generation_status: BlockGenerationStatus = BlockGenerationStatus.COMPLETE,
 ) -> MessageBlock:
-    """메시지 블록과 최초 버전을 함께 만든다 (BE-MSG-001)."""
+    """메시지 블록과 최초 버전을 함께 만든다 (BE-MSG-001).
+
+    allow_empty는 스트리밍 답변 블록을 생성 시작과 동시에 만들 때만 쓴다
+    (AI-ANSWER-005). 아직 글자가 하나도 안 나온 상태라 본문이 비어 있다.
+    """
     text = (content or "").strip()
-    if not text:
+    if not text and not allow_empty:
         raise ValidationError("내용이 비어 있습니다.")
     if len(text) > MAX_CONTENT_LENGTH:
         raise ValidationError("내용이 너무 깁니다.")
@@ -59,6 +66,7 @@ def create_block(
         branch_id=branch.id,
         role=role,
         order_index=branch_service.next_order_index(db, branch),
+        generation_status=generation_status,
     )
     db.add(block)
     db.flush()
@@ -79,6 +87,54 @@ def create_block(
         db.commit()
         db.refresh(block)
     return block
+
+
+def save_streaming_progress(
+    db: Session, version_id: uuid.UUID, content: str
+) -> None:
+    """생성 중인 답변의 지금까지 본문을 그 자리에서 덮어쓴다 (BE-AIRESP-007).
+
+    새 버전을 쌓지 않는다. 아직 완성되지 않은 중간 상태라 이력에 남길 값이
+    아니고, 매 저장마다 버전이 늘면 이력이 무의미해진다.
+    """
+    version = db.get(MessageBlockVersion, version_id)
+    if version is None:
+        return
+    version.content = content
+    db.commit()
+
+
+def finalize_streaming_block(
+    db: Session,
+    chat: Chat,
+    version_id: uuid.UUID,
+    block: MessageBlock,
+    content: str,
+    status: BlockGenerationStatus,
+    search_sources: list[dict] | None = None,
+) -> MessageBlock:
+    """생성이 끝났을 때(완료/중단/실패) 최종 본문과 상태를 확정한다."""
+    version = db.get(MessageBlockVersion, version_id)
+    if version is not None:
+        version.content = content
+        version.search_sources = search_sources
+    block.generation_status = status
+    chat.last_activity_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(block)
+    return block
+
+
+def ensure_generation_complete(block: MessageBlock) -> None:
+    """생성 중이거나 중단·실패한 답변은 Context·정제·브랜치 분기점으로 못 쓴다 (D밀스톤).
+
+    문장 중간에 끊긴 글이 다음 답변의 근거가 되거나, 아직 안 끝난 답변이
+    수정·분기의 기준이 되는 것을 막는다.
+    """
+    if block.generation_status is not BlockGenerationStatus.COMPLETE:
+        raise ValidationError(
+            "아직 생성 중이거나 중단된 답변은 이 작업에 쓸 수 없습니다."
+        )
 
 
 def get_visible_block(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi import Request
@@ -8,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException
 
+from app.db import SessionLocal, get_db
 from app.exceptions import (
     AppError,
     app_error_handler,
@@ -25,11 +27,29 @@ from app.routers import (
     refine,
     user_setting,
 )
+from app.services import ai_response_service
 from app.settings import get_settings
 
 settings = get_settings()
 
-app = FastAPI(title="FlowKit API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # 서버가 내려갔다 올라온 사이 GENERATING으로 멈춰버린 답변 작업을 정리한다
+    # (BE-AIRESP-007 B7). 메모리 중계가 재시작과 함께 비어 다시는 끝나지 않는다.
+    #
+    # 테스트는 get_db를 오버라이드해 자체 세션(sqlite)을 쓴다. 있으면 그 세션을
+    # 그대로 쓰고 닫지 않는다 — 세션의 수명은 그 오버라이드를 등록한 쪽 몫이다.
+    override = _app.dependency_overrides.get(get_db)
+    if override is not None:
+        ai_response_service.cleanup_stuck_jobs(override())
+    else:
+        with SessionLocal() as db:
+            ai_response_service.cleanup_stuck_jobs(db)
+    yield
+
+
+app = FastAPI(title="FlowKit API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

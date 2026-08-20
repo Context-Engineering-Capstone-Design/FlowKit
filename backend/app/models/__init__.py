@@ -13,6 +13,7 @@ from app.models.feedback import AiResponseFeedback, AiResponseRating
 from app.models.service_feedback import FeedbackType, ServiceFeedback
 from app.models.observability import ClientErrorLog, ErrorLog
 from app.models.message import (
+    BlockGenerationStatus,
     MessageBlock,
     MessageBlockVersion,
     MessageRole,
@@ -47,6 +48,7 @@ __all__ = [
     "MessageBlockVersion",
     "MessageRole",
     "VersionSourceType",
+    "BlockGenerationStatus",
     "BlockRefineJob",
     "BlockRefineTarget",
     "BlockRefineResult",

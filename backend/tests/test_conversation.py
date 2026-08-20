@@ -1,11 +1,21 @@
-"""메시지 전송·답변 테스트 (2.7 Context 적용, 2.8 AI 응답 관리)."""
+"""메시지 전송·답변 테스트 (2.7 Context 적용, 2.8 AI 응답 관리, BE-AIRESP-007~009).
+
+AI 답변 생성은 백그라운드 스레드에서 돈다. conftest의 client 픽스처가
+ai_response_service.run_jobs_synchronously를 True로 바꿔두므로, 이 파일의
+테스트에서는 send()/regenerate() 호출이 돌아올 때 이미 생성이 끝나 있다 —
+다만 응답 본문 자체는 "즉시 응답" 계약대로 늘 빈 채로 온다(BE-AIRESP-007 B1).
+그래서 최종 본문을 확인해야 하는 테스트는 wait_done()으로 블록을 다시 읽는다.
+"""
 
 from __future__ import annotations
+
+import time
 
 import pytest
 
 from app.routers import auth as auth_router
 from app.services.google_auth import GoogleUser
+from modeling.types import AnswerChunk, AnswerResult
 
 USER = GoogleUser("sub-conv", "conv@example.com", "대화테스터", None)
 
@@ -24,17 +34,22 @@ def auth(client, monkeypatch) -> dict:
     return headers
 
 
+def _stream_of(text: str, sources: list | None = None):
+    """문자열 답변 하나를 스트리밍 조각(완료 하나)으로 감싼다."""
+    yield AnswerChunk(type="done", result=AnswerResult(text=text, search_sources=sources or []))
+
+
 @pytest.fixture
 def captured(monkeypatch) -> list:
     """AI 에 실제로 무엇이 전달됐는지 확인하기 위해 입력을 기록한다."""
     calls = []
     import modeling
 
-    def _answer(request, **_kwargs):
+    def _answer_stream(request, **_kwargs):
         calls.append(request)
-        return f"답변({len(calls)})"
+        yield from _stream_of(f"답변({len(calls)})")
 
-    monkeypatch.setattr(modeling, "generate_answer", _answer)
+    monkeypatch.setattr(modeling, "generate_answer_stream", _answer_stream)
     monkeypatch.setattr(
         modeling, "generate_title", lambda p, **_kwargs: f"제목: {p[:10]}"
     )
@@ -54,6 +69,7 @@ def msg_url(chat: dict) -> str:
 
 
 def send(client, auth, chat, prompt: str, context_ids=None) -> dict:
+    """즉시 응답만 확인한다. assistantBlock 은 비어 있고 generating 상태다."""
     res = client.post(
         msg_url(chat),
         json={"userPrompt": prompt, "contextBlockIds": context_ids or []},
@@ -63,6 +79,32 @@ def send(client, auth, chat, prompt: str, context_ids=None) -> dict:
     return res.json()
 
 
+def block_of(client, auth, chat: dict, block_id: str) -> dict:
+    detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
+    return next(b for b in detail.json()["messageBlocks"] if b["blockId"] == block_id)
+
+
+def wait_done(client, auth, chat: dict, block_id: str, timeout: float = 2.0) -> dict:
+    """생성이 끝날 때까지(더 이상 generating 이 아닐 때까지) 블록을 다시 읽는다.
+
+    테스트는 동기 실행이라 보통 첫 조회에서 바로 끝나 있다. 그래도 실제
+    스레드 스케줄링 여지를 남겨 두려고 짧게 재시도한다.
+    """
+    deadline = time.monotonic() + timeout
+    block = block_of(client, auth, chat, block_id)
+    while block["generationStatus"] == "generating" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        block = block_of(client, auth, chat, block_id)
+    return block
+
+
+def send_and_wait(client, auth, chat, prompt: str, context_ids=None) -> dict:
+    """전송 후 답변 생성이 끝날 때까지 기다려, assistantBlock 을 최종 본문으로 채워 돌려준다."""
+    body = send(client, auth, chat, prompt, context_ids)
+    body["assistantBlock"] = wait_done(client, auth, chat, body["assistantBlock"]["blockId"])
+    return body
+
+
 def feedback_url(chat: dict, block_id: str) -> str:
     return (
         f"/api/chats/{chat['chatMeta']['chatId']}"
@@ -70,22 +112,51 @@ def feedback_url(chat: dict, block_id: str) -> str:
     )
 
 
-# ── BE-AIRESP-001, 002: 전송과 저장 ───────────────────────────────────────
+# ── BE-AIRESP-001, 002, 007: 전송과 저장 ─────────────────────────────────
 
 
-def test_send_creates_question_and_answer(client, auth, chat, captured):
+def test_send_returns_immediately_with_empty_generating_block(client, auth, chat, captured):
+    """BE-AIRESP-007 B1: 전송 응답은 답변을 기다리지 않고 빈 블록을 즉시 돌려준다."""
     body = send(client, auth, chat, "파이프라이닝이 뭐야?")
 
     assert body["userBlock"]["role"] == "user"
     assert body["userBlock"]["content"] == "파이프라이닝이 뭐야?"
     assert body["assistantBlock"]["role"] == "assistant"
-    assert body["assistantBlock"]["content"] == "답변(1)"
+    assert body["assistantBlock"]["content"] == ""
+    assert body["assistantBlock"]["generationStatus"] == "generating"
+    assert body["jobStatus"] == "generating"
+    assert body["searchSources"] == []
     assert body["actionMeta"] == {
         "actionType": "message_send",
         "successCode": "MESSAGE_SENT",
         "message": "메시지를 보내고 답변을 생성했습니다.",
         "affectedResourceId": body["assistantBlock"]["blockId"],
     }
+
+
+def test_send_creates_question_and_answer(client, auth, chat, captured):
+    body = send_and_wait(client, auth, chat, "파이프라이닝이 뭐야?")
+
+    assert body["assistantBlock"]["content"] == "답변(1)"
+    assert body["assistantBlock"]["generationStatus"] == "complete"
+
+
+def test_default_send_does_not_enable_web_search(client, auth, chat, captured):
+    """AI-SEARCH-001: 웹 검색 모드를 지정하지 않으면 off로 전달돼 검색 도구가 붙지 않아야 한다."""
+    send(client, auth, chat, "질문")
+
+    assert captured[0].web_search_mode == "off"
+
+
+def test_web_search_mode_is_passed_through(client, auth, chat, captured):
+    res = client.post(
+        msg_url(chat),
+        json={"userPrompt": "질문", "webSearchMode": "always"},
+        headers=auth,
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["webSearchMode"] == "always"
+    assert captured[0].web_search_mode == "always"
 
 
 def test_blocks_are_in_order(client, auth, chat, captured):
@@ -125,27 +196,35 @@ def test_send_requires_prompt(client, auth, chat, captured):
 
 
 def test_question_survives_ai_failure(client, auth, chat, monkeypatch):
-    """답변 생성이 실패해도 질문은 남아야 다시 입력하지 않는다."""
+    """답변 생성이 실패해도 질문은 남아야 다시 입력하지 않는다.
+
+    실패는 이제 백그라운드에서 일어나므로 전송 응답 자체는 여전히 201이고,
+    답변 블록의 상태가 failed 로 바뀐다(BE-AIRESP-007).
+    """
     import modeling
 
     def _boom(request, **_kwargs):
         raise RuntimeError("모델 오류")
 
-    monkeypatch.setattr(modeling, "generate_answer", _boom)
+    monkeypatch.setattr(modeling, "generate_answer_stream", _boom)
 
     res = client.post(msg_url(chat), json={"userPrompt": "질문"}, headers=auth)
-    assert res.status_code == 502
-    assert res.json()["errorCode"] == "AI_RESPONSE_FAILED"
+    assert res.status_code == 201, res.text
+    block_id = res.json()["assistantBlock"]["blockId"]
+
+    block = wait_done(client, auth, chat, block_id)
+    assert block["generationStatus"] == "failed"
+    assert block["content"] == ""
 
     detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth)
-    assert [b["content"] for b in detail.json()["messageBlocks"]] == ["질문"]
+    assert [b["content"] for b in detail.json()["messageBlocks"]] == ["질문", ""]
 
 
 # ── BE-AIRESP-004: AI 답변 평가 ───────────────────────────────────────────
 
 
 def test_feedback_can_be_saved_changed_and_cleared(client, auth, chat, captured):
-    answer_id = send(client, auth, chat, "질문")["assistantBlock"]["blockId"]
+    answer_id = send_and_wait(client, auth, chat, "질문")["assistantBlock"]["blockId"]
     url = feedback_url(chat, answer_id)
 
     liked = client.put(url, json={"rating": "like"}, headers=auth)
@@ -183,7 +262,7 @@ def test_feedback_rejects_user_block_and_invalid_rating(client, auth, chat, capt
 
 def test_feedback_allowed_on_inherited_block(client, auth, chat, captured):
     """A1: 평가는 내용을 바꾸지 않으므로 하위 브랜치가 이어받은 답변도 허용한다 (BE-AIRESP-004, 006)."""
-    sent = send(client, auth, chat, "질문")
+    sent = send_and_wait(client, auth, chat, "질문")
     assistant_id = sent["assistantBlock"]["blockId"]
     chat_id = chat["chatMeta"]["chatId"]
 
@@ -214,7 +293,7 @@ def test_feedback_allowed_on_inherited_block(client, auth, chat, captured):
 
 
 def test_applied_context_is_passed_to_ai(client, auth, chat, captured):
-    first = send(client, auth, chat, "구조적 해저드 설명해줘")
+    first = send_and_wait(client, auth, chat, "구조적 해저드 설명해줘")
     answer_block = first["assistantBlock"]["blockId"]
 
     body = send(client, auth, chat, "표로 정리해줘", context_ids=[answer_block])
@@ -229,8 +308,8 @@ def test_applied_context_replaces_prior_conversation(client, auth, chat, capture
     이전 흐름을 함께 넣으면 최근 대화가 Context 를 눌러, 고르지 않은 주제로
     답이 흘러간다.
     """
-    first = send(client, auth, chat, "해저드 설명해줘")
-    send(client, auth, chat, "캐시는 뭐야?")
+    first = send_and_wait(client, auth, chat, "해저드 설명해줘")
+    send_and_wait(client, auth, chat, "캐시는 뭐야?")
 
     send(
         client,
@@ -247,7 +326,7 @@ def test_applied_context_replaces_prior_conversation(client, auth, chat, capture
 
 def test_prior_conversation_is_kept_without_context(client, auth, chat, captured):
     """Context 를 고르지 않았으면 평소처럼 이전 대화를 이어간다."""
-    send(client, auth, chat, "첫 질문")
+    send_and_wait(client, auth, chat, "첫 질문")
     send(client, auth, chat, "두 번째 질문")
 
     assert [t.content for t in captured[-1].message_flow] == ["첫 질문", "답변(1)"]
@@ -255,7 +334,7 @@ def test_prior_conversation_is_kept_without_context(client, auth, chat, captured
 
 def test_context_uses_server_side_current_version(client, auth, chat, captured):
     """화면이 보낸 본문이 아니라 서버의 현재 활성 버전을 쓴다."""
-    first = send(client, auth, chat, "질문")
+    first = send_and_wait(client, auth, chat, "질문")
     block_id = first["assistantBlock"]["blockId"]
 
     block_url = (
@@ -269,8 +348,8 @@ def test_context_uses_server_side_current_version(client, auth, chat, captured):
 
 
 def test_context_items_follow_conversation_order(client, auth, chat, captured):
-    first = send(client, auth, chat, "첫 질문")
-    second = send(client, auth, chat, "두 번째 질문")
+    first = send_and_wait(client, auth, chat, "첫 질문")
+    second = send_and_wait(client, auth, chat, "두 번째 질문")
 
     # 일부러 뒤집어 보낸다
     body = send(
@@ -285,7 +364,7 @@ def test_context_items_follow_conversation_order(client, auth, chat, captured):
 
 
 def test_duplicate_context_ids_are_deduplicated(client, auth, chat, captured):
-    first = send(client, auth, chat, "질문")
+    first = send_and_wait(client, auth, chat, "질문")
     block_id = first["assistantBlock"]["blockId"]
 
     body = send(client, auth, chat, "이어서", context_ids=[block_id, block_id])
@@ -307,6 +386,31 @@ def test_context_block_outside_branch_is_rejected(client, auth, chat, captured):
     assert res.json()["errorCode"] == "VALIDATION_ERROR"
 
 
+def test_generating_block_cannot_be_used_as_context(client, auth, chat, captured, db_session):
+    """D밀스톤: 아직 생성 중인 답변은 Context 로 고를 수 없다 (문장 중간에 끊긴 글이 근거가 되면 안 된다).
+
+    실제 스레드 타이밍에 기대지 않고, 생성 중 상태를 DB에 직접 만들어 확인한다.
+    """
+    import uuid as uuid_module
+
+    from app.models import BlockGenerationStatus, MessageBlock
+
+    first = send_and_wait(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+
+    block = db_session.get(MessageBlock, uuid_module.UUID(block_id))
+    block.generation_status = BlockGenerationStatus.GENERATING
+    db_session.commit()
+
+    res = client.post(
+        msg_url(chat),
+        json={"userPrompt": "이어서", "contextBlockIds": [block_id]},
+        headers=auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
 def test_pending_refine_result_is_not_used_as_context(
     client, auth, chat, captured, monkeypatch
 ):
@@ -314,7 +418,7 @@ def test_pending_refine_result_is_not_used_as_context(
     import modeling
     from modeling.types import RefineResult
 
-    first = send(client, auth, chat, "질문")
+    first = send_and_wait(client, auth, chat, "질문")
     block_id = first["assistantBlock"]["blockId"]
 
     monkeypatch.setattr(
@@ -358,14 +462,16 @@ def test_conversation_continues_when_title_fails(client, auth, chat, monkeypatch
     """제목은 부가 정보라 실패해도 대화는 정상이어야 한다."""
     import modeling
 
-    monkeypatch.setattr(modeling, "generate_answer", lambda r, **_kwargs: "답변")
+    monkeypatch.setattr(
+        modeling, "generate_answer_stream", lambda r, **_kwargs: _stream_of("답변")
+    )
 
     def _boom(prompt, **_kwargs):
         raise RuntimeError("제목 생성 실패")
 
     monkeypatch.setattr(modeling, "generate_title", _boom)
 
-    body = send(client, auth, chat, "질문")
+    body = send_and_wait(client, auth, chat, "질문")
     assert body["assistantBlock"]["content"] == "답변"
     assert body["titleGenerated"] is False
     assert body["chatTitle"] == "새 대화"
@@ -374,51 +480,65 @@ def test_conversation_continues_when_title_fails(client, auth, chat, monkeypatch
 # ── BE-AIRESP-003: 재생성 ─────────────────────────────────────────────────
 
 
-def test_regenerate_adds_version_to_same_block(client, auth, chat, captured):
-    first = send(client, auth, chat, "질문")
+def regenerate_and_wait(client, auth, chat, block_id: str) -> dict:
+    base = (
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}/blocks/{block_id}"
+    )
+    res = client.post(f"{base}/regenerate", headers=auth)
+    assert res.status_code == 200, res.text
+    return wait_done(client, auth, chat, block_id)
+
+
+def test_regenerate_returns_immediately_then_replaces_content(client, auth, chat, captured):
+    first = send_and_wait(client, auth, chat, "질문")
     block_id = first["assistantBlock"]["blockId"]
     base = (
         f"/api/chats/{chat['chatMeta']['chatId']}"
         f"/branches/{chat['branchMeta']['branchId']}/blocks/{block_id}"
     )
 
-    again = client.post(f"{base}/regenerate", headers=auth).json()
+    immediate = client.post(f"{base}/regenerate", headers=auth).json()
+    assert immediate["content"] == ""
+    assert immediate["generationStatus"] == "generating"
+    assert immediate["jobStatus"] == "generating"
 
-    assert again["blockId"] == block_id
-    assert again["versionNo"] == 2
-    assert again["content"] == "답변(2)"
-    assert again["actionMeta"] == {
-        "actionType": "ai_response_regenerate",
-        "successCode": "AI_RESPONSE_REGENERATED",
-        "message": "답변을 다시 생성했습니다.",
-        "affectedResourceId": block_id,
-    }
+
+def test_regenerate_adds_version_to_same_block(client, auth, chat, captured):
+    first = send_and_wait(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    base = (
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}/blocks/{block_id}"
+    )
+
+    regenerate_and_wait(client, auth, chat, block_id)
 
     versions = client.get(f"{base}/versions", headers=auth).json()
     assert [v["content"] for v in versions] == ["답변(1)", "답변(2)"]
     assert versions[-1]["sourceType"] == "ai_regenerate"
 
+    final = block_of(client, auth, chat, block_id)
+    assert final["blockId"] == block_id
+    assert final["content"] == "답변(2)"
+    assert final["generationStatus"] == "complete"
+
 
 def test_regenerate_returns_search_sources(client, auth, chat, captured, monkeypatch):
     import modeling
-    from modeling.types import AnswerResult, SearchSource
+    from modeling.types import SearchSource
 
     source = SearchSource("공식 문서", "https://example.com")
     monkeypatch.setattr(
         modeling,
-        "generate_answer",
-        lambda _request, **_kwargs: AnswerResult("검색 답변", [source]),
+        "generate_answer_stream",
+        lambda _request, **_kwargs: _stream_of("검색 답변", [source]),
     )
-    first = send(client, auth, chat, "검색해줘")
+    first = send_and_wait(client, auth, chat, "검색해줘")
     block_id = first["assistantBlock"]["blockId"]
-    res = client.post(
-        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}"
-        f"/blocks/{block_id}/regenerate",
-        headers=auth,
-    )
 
-    assert res.status_code == 200
-    assert res.json()["searchSources"] == [{"title": source.title, "url": source.url}]
+    final = regenerate_and_wait(client, auth, chat, block_id)
+    assert final["searchSources"] == [{"title": source.title, "url": source.url}]
 
     reopened = client.get(
         f"/api/chats/{chat['chatMeta']['chatId']}?branchId={chat['branchMeta']['branchId']}",
@@ -431,15 +551,10 @@ def test_regenerate_returns_search_sources(client, auth, chat, captured, monkeyp
 
 
 def test_regenerate_reuses_the_original_question(client, auth, chat, captured):
-    send(client, auth, chat, "첫 질문")
-    second = send(client, auth, chat, "두 번째 질문")
+    send_and_wait(client, auth, chat, "첫 질문")
+    second = send_and_wait(client, auth, chat, "두 번째 질문")
 
-    client.post(
-        f"/api/chats/{chat['chatMeta']['chatId']}"
-        f"/branches/{chat['branchMeta']['branchId']}"
-        f"/blocks/{second['assistantBlock']['blockId']}/regenerate",
-        headers=auth,
-    )
+    regenerate_and_wait(client, auth, chat, second["assistantBlock"]["blockId"])
 
     request = captured[-1]
     assert request.user_prompt == "두 번째 질문"
@@ -447,12 +562,10 @@ def test_regenerate_reuses_the_original_question(client, auth, chat, captured):
 
 
 def test_regenerate_reuses_context_and_original_snapshot(client, auth, chat, captured):
-    first = send(client, auth, chat, "기준 내용")
-    second = send(client, auth, chat, "Context로 답해줘", [first["assistantBlock"]["blockId"]])
-    client.post(
-        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}"
-        f"/blocks/{second['assistantBlock']['blockId']}/regenerate", headers=auth,
-    )
+    first = send_and_wait(client, auth, chat, "기준 내용")
+    second = send_and_wait(client, auth, chat, "Context로 답해줘", [first["assistantBlock"]["blockId"]])
+    regenerate_and_wait(client, auth, chat, second["assistantBlock"]["blockId"])
+
     original, regenerated = captured[1], captured[2]
     assert regenerated.user_prompt == original.user_prompt
     assert regenerated.applied_context == original.applied_context
@@ -461,24 +574,41 @@ def test_regenerate_reuses_context_and_original_snapshot(client, auth, chat, cap
 
 def test_failed_job_can_retry_without_duplicate_question(client, auth, chat, monkeypatch):
     import modeling
+
     calls = [0]
+
     def flaky(_request, **_kwargs):
         calls[0] += 1
         if calls[0] == 1:
             raise RuntimeError("temporary")
-        return "복구 답변"
-    monkeypatch.setattr(modeling, "generate_answer", flaky)
+        yield from _stream_of("복구 답변")
+
+    monkeypatch.setattr(modeling, "generate_answer_stream", flaky)
     failed = client.post(msg_url(chat), json={"userPrompt": "복구할 질문"}, headers=auth)
-    assert failed.status_code == 502
-    job_id = failed.json()["detail"]["aiResponseJobId"]
+    assert failed.status_code == 201, failed.text
+    job_id = failed.json()["aiResponseJobId"]
+    assert wait_done(client, auth, chat, failed.json()["assistantBlock"]["blockId"])["generationStatus"] == "failed"
+
     retried = client.post(f"{msg_url(chat).removesuffix('/messages')}/ai-response-jobs/{job_id}/retry", headers=auth)
-    assert retried.status_code == 201
+    assert retried.status_code == 201, retried.text
     assert retried.json()["actionMeta"]["successCode"] == "AI_RESPONSE_RETRY_SUCCEEDED"
+
+    block = wait_done(client, auth, chat, retried.json()["assistantBlock"]["blockId"])
+    assert block["content"] == "복구 답변"
+
+    # 실패했던 첫 시도 블록은 지우지 않고 남긴다 — 중단된 답변과 같은 원칙이다.
     detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth).json()
-    assert [block["content"] for block in detail["messageBlocks"]] == ["복구할 질문", "복구 답변"]
+    contents = [b["content"] for b in detail["messageBlocks"]]
+    statuses = [b["generationStatus"] for b in detail["messageBlocks"]]
+    assert contents == ["복구할 질문", "", "복구 답변"]
+    assert statuses == ["complete", "failed", "complete"]
 
 
-def test_failed_first_question_retry_generates_title(client, auth, chat, monkeypatch):
+def test_failed_first_question_generates_title_even_though_answer_failed(client, auth, chat, monkeypatch):
+    """제목은 질문만 있으면 만들 수 있어, 답변 생성 성공 여부와 무관하게 첫 전송에서 바로 붙는다.
+
+    그래서 재시도는 제목을 다시 만들지 않는다 — 이미 첫 전송에서 만들어졌다.
+    """
     import modeling
 
     calls = [0]
@@ -487,9 +617,9 @@ def test_failed_first_question_retry_generates_title(client, auth, chat, monkeyp
         calls[0] += 1
         if calls[0] == 1:
             raise RuntimeError("temporary")
-        return "복구 답변"
+        yield from _stream_of("복구 답변")
 
-    monkeypatch.setattr(modeling, "generate_answer", flaky)
+    monkeypatch.setattr(modeling, "generate_answer_stream", flaky)
     title_calls = []
     monkeypatch.setattr(
         modeling,
@@ -500,7 +630,12 @@ def test_failed_first_question_retry_generates_title(client, auth, chat, monkeyp
     failed = client.post(
         msg_url(chat), json={"userPrompt": "복구할 첫 질문"}, headers=auth
     )
-    job_id = failed.json()["detail"]["aiResponseJobId"]
+    assert failed.status_code == 201, failed.text
+    assert failed.json()["titleGenerated"] is True
+    assert failed.json()["chatTitle"] == "복구 질문 제목"
+    job_id = failed.json()["aiResponseJobId"]
+    wait_done(client, auth, chat, failed.json()["assistantBlock"]["blockId"])
+
     retried = client.post(
         f"{msg_url(chat).removesuffix('/messages')}/ai-response-jobs/{job_id}/retry",
         headers=auth,
@@ -508,7 +643,7 @@ def test_failed_first_question_retry_generates_title(client, auth, chat, monkeyp
 
     assert retried.status_code == 201
     body = retried.json()
-    assert body["titleGenerated"] is True
+    assert body["titleGenerated"] is False
     assert body["chatTitle"] == "복구 질문 제목"
     assert title_calls == ["복구할 첫 질문"]
 
@@ -520,7 +655,7 @@ def test_legacy_regenerate_does_not_use_default_conditions(
     from sqlalchemy import delete
     from app.models import AiResponseJob
 
-    first = send(client, auth, chat, "예전 답변")
+    first = send_and_wait(client, auth, chat, "예전 답변")
     db_session.execute(
         delete(AiResponseJob).where(
             AiResponseJob.assistant_message_block_id
@@ -554,7 +689,7 @@ def test_regenerate_rejects_user_block(client, auth, chat, captured):
 
 def test_regenerate_rejects_inherited_block(client, auth, chat, captured):
     """A2: 재생성은 내용을 바꾸므로 하위 브랜치가 이어받은 답변은 그대로 막는다 (NFR-007)."""
-    sent = send(client, auth, chat, "질문")
+    sent = send_and_wait(client, auth, chat, "질문")
     assistant_id = sent["assistantBlock"]["blockId"]
     chat_id = chat["chatMeta"]["chatId"]
 
@@ -580,13 +715,13 @@ def test_regenerate_rejects_inherited_block(client, auth, chat, captured):
 
 
 def test_regenerated_answer_can_be_rolled_back(client, auth, chat, captured):
-    first = send(client, auth, chat, "질문")
+    first = send_and_wait(client, auth, chat, "질문")
     block_id = first["assistantBlock"]["blockId"]
     base = (
         f"/api/chats/{chat['chatMeta']['chatId']}"
         f"/branches/{chat['branchMeta']['branchId']}/blocks/{block_id}"
     )
-    client.post(f"{base}/regenerate", headers=auth)
+    regenerate_and_wait(client, auth, chat, block_id)
 
     versions = client.get(f"{base}/versions", headers=auth).json()
     restored = client.patch(

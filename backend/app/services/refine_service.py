@@ -112,6 +112,8 @@ def run_refine(
         )
 
     ordered = sorted((blocks[bid] for bid in valid_ids), key=lambda b: b.order_index)
+    for block in ordered:
+        message_service.ensure_generation_complete(block)
 
     job = BlockRefineJob(
         chat_id=chat.id, branch_id=branch.id, instruction_text=instruction

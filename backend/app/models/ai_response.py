@@ -16,8 +16,10 @@ class AiResponseJobType(str, enum.Enum):
 
 class AiResponseJobStatus(str, enum.Enum):
     REQUESTED = "requested"
+    GENERATING = "generating"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class AiResponseJob(Base, TimestampMixin):

@@ -152,6 +152,9 @@ def create_branch(
     visible = {b.id: b for b in resolve_blocks(db, base_branch)}
     if base_message_block_id not in visible:
         raise MessageBlockNotFoundError("분기 지점 메시지를 찾을 수 없습니다.")
+    from app.services import message_service
+
+    message_service.ensure_generation_complete(visible[base_message_block_id])
 
     edited = (edited_base_content or "").strip()
     if len(edited) > 100_000:

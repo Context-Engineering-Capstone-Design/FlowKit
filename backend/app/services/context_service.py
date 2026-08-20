@@ -15,7 +15,7 @@ from app.models import (
     Chat,
     MessageBlock,
 )
-from app.services import branch_service
+from app.services import branch_service, message_service
 
 MAX_CONTEXT_BLOCKS = 30
 
@@ -63,6 +63,7 @@ def build_snapshot(
 
     items = []
     for block in sorted(blocks, key=lambda b: b.order_index):
+        message_service.ensure_generation_complete(block)
         version = block.current_version
         if version is None:
             raise ValidationError("본문이 없는 블록은 Context 로 쓸 수 없습니다.")
