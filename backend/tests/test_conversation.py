@@ -472,6 +472,28 @@ def test_range_context_can_combine_with_multiple_snippets_from_same_block(client
     assert captured[-1].applied_context == ["답변", "(1)"]
 
 
+def test_range_context_keeps_snapshot_of_its_pinned_version_after_edit(client, auth, chat, captured):
+    """0820_13 D4: 원문이 나중에 수정돼도 선택 당시(구 버전) 스냅샷을 Context로 쓴다."""
+    first = send_and_wait(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    old_version_id = first["assistantBlock"]["currentVersionId"]
+
+    block_url = (
+        f"/api/chats/{chat['chatMeta']['chatId']}"
+        f"/branches/{chat['branchMeta']['branchId']}/blocks/{block_id}"
+    )
+    client.patch(block_url, json={"editedContent": "수정된 답변"}, headers=auth)
+
+    body = send(
+        client, auth, chat, "예전 답변 기준으로 정리해줘",
+        context_ranges=[{"blockId": block_id, "versionId": old_version_id, "snippetText": "답변(1)"}],
+    )
+
+    # 지금 활성 버전(수정된 답변)이 아니라, 태그가 고정한 예전 버전의 스니펫이 그대로 쓰인다
+    assert captured[-1].applied_context == ["답변(1)"]
+    assert body["appliedContext"][0]["versionId"] == old_version_id
+
+
 def test_generating_block_cannot_be_used_as_context(client, auth, chat, captured, db_session):
     """D밀스톤: 아직 생성 중인 답변은 Context 로 고를 수 없다 (문장 중간에 끊긴 글이 근거가 되면 안 된다).
 

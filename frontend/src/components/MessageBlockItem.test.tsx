@@ -270,6 +270,19 @@ it('이미 태그가 붙어 강조된 범위를 다시 누르면 그 태그를 �
   expect(removeContextRangeTag).toHaveBeenCalledWith('tag-1')
 })
 
+it('원문이 수정돼 버전이 바뀌면, 예전 버전을 가리키던 태그의 강조는 더는 표시하지 않는다 (D4)', () => {
+  const edited = { ...block, role: 'assistant' as const, content: '수정된 내용', currentVersionId: 'v10' }
+  useChatStore.setState({
+    contextRangeTags: [{
+      id: 'tag-1', messageBlockId: 'block-1', messageVersionId: 'v9', role: 'assistant' as const,
+      snapshotText: '안녕하세요', selectedText: '안녕', startOffset: 0, endOffset: 2,
+    }],
+  })
+  const { container } = render(<MessageBlockItem block={edited} />)
+
+  expect(container.querySelector('.ctx-range-mark')).toBeNull()
+})
+
 it('생성 중인 답변은 드래그로 범위를 선택할 수 없다', () => {
   const generating = { ...block, role: 'assistant' as const, content: '안녕하세요', generationStatus: 'generating' as const }
   const { container } = render(<MessageBlockItem block={generating} />)
