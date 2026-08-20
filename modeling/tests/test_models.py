@@ -109,6 +109,27 @@ def test_client_cache_separates_key_and_options(monkeypatch):
     llm.get_chat_model.cache_clear()
 
 
+def test_client_uses_requested_reasoning_effort(monkeypatch):
+    """선택한 추론 단계가 Responses API 요청 설정으로 전달돼야 한다."""
+    configs: list[dict] = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            configs.append(kwargs)
+
+        def bind_tools(self, _tools):
+            return self
+
+    fake_module = type("M", (), {"ChatOpenAI": FakeClient})
+    monkeypatch.setitem(__import__("sys").modules, "langchain_openai", fake_module)
+    llm.get_chat_model.cache_clear()
+
+    llm.get_chat_model("키", resolve_model(None).model_id, reasoning_effort="high")
+
+    assert configs[0]["reasoning"] == {"effort": "high"}
+    llm.get_chat_model.cache_clear()
+
+
 # ── 연결 확인 ───────────────────────────────────────────────────────────────
 
 

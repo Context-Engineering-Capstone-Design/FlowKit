@@ -82,6 +82,7 @@ def generate_answer(
             selected.model_id,
             request.web_search_enabled,
             auto_web_search=True,
+            reasoning_effort=request.reasoning_effort,
         )
 
     response = model.invoke(build_messages(request))
