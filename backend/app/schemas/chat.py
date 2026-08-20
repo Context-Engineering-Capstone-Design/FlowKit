@@ -84,11 +84,14 @@ class MessageBlockOut(BaseModel):
     )
     # 생성 중/완료/중단됨/실패 (BE-AIRESP-007~009). 사용자 블록은 항상 complete.
     generation_status: str = Field(..., serialization_alias="generationStatus")
+    # generating일 때만 채워진다. 새로고침·브랜치 재진입 시 이 값으로 스트리밍
+    # 통로에 다시 붙는다(BE-AIRESP-009).
+    generation_job_id: uuid.UUID | None = Field(None, serialization_alias="generationJobId")
 
     model_config = ConfigDict(populate_by_name=True)
 
     @classmethod
-    def of(cls, block: MessageBlock) -> MessageBlockOut:
+    def of(cls, block: MessageBlock, generation_job_id: uuid.UUID | None = None) -> MessageBlockOut:
         version = block.current_version
         return cls(
             block_id=block.id,
@@ -100,6 +103,7 @@ class MessageBlockOut(BaseModel):
             order_index=block.order_index,
             created_at=block.created_at,
             generation_status=block.generation_status.value,
+            generation_job_id=generation_job_id,
             attachments=[
                 AttachmentOut(
                     attachment_id=link.attachment.id,

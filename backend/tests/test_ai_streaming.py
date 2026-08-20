@@ -150,6 +150,34 @@ def test_cancel_rejects_other_users_job(client, auth, chat, monkeypatch):
     assert res.json()["errorCode"] == "CHAT_ACCESS_DENIED"
 
 
+# ── BE-AIRESP-009: 새로고침·브랜치 재진입 시 다시 붙기 위한 job id 노출 ──────
+
+
+def test_chat_detail_exposes_job_id_only_while_generating(client, auth, chat, db_session):
+    """진행 중인 답변 블록에만 generationJobId 가 실려야, 화면이 어디에 다시 붙을지 안다."""
+    import uuid as uuid_module
+
+    from app.models import AiResponseJob, AiResponseJobStatus, BlockGenerationStatus, MessageBlock
+
+    body = client.post(msg_url(chat), json={"userPrompt": "질문"}, headers=auth).json()
+    block_id = uuid_module.UUID(body["assistantBlock"]["blockId"])
+    job_id = uuid_module.UUID(body["aiResponseJobId"])
+
+    # 동기 테스트라 이미 끝나 있다 — "아직 생성 중"인 상황을 흉내 낸다.
+    job = db_session.get(AiResponseJob, job_id)
+    job.status = AiResponseJobStatus.GENERATING
+    block = db_session.get(MessageBlock, block_id)
+    block.generation_status = BlockGenerationStatus.GENERATING
+    db_session.commit()
+
+    detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth).json()
+    blocks = {b["blockId"]: b for b in detail["messageBlocks"]}
+    assert blocks[str(block_id)]["generationJobId"] == str(job_id)
+    # 사용자 질문 블록(완료 상태)에는 없어야 한다.
+    user_block_id = body["userBlock"]["blockId"]
+    assert blocks[user_block_id]["generationJobId"] is None
+
+
 # ── BE-AIRESP-007, 009: 중계와 도중 합류 ──────────────────────────────────
 
 

@@ -25,9 +25,16 @@ from app.schemas.chat import (
     UpdateChatTitleResponse,
 )
 from app.schemas.notification import ActionMeta
-from app.services import branch_service, chat_service
+from app.services import ai_response_service, branch_service, chat_service
 
 router = APIRouter(prefix="/api/chats", tags=["Chat"])
+
+
+def _block_list(db, blocks) -> list[MessageBlockOut]:
+    """BE-AIRESP-009: 생성 중인 블록에는 다시 붙을 작업 id를 함께 실어 보낸다."""
+    generating_ids = [b.id for b in blocks if b.generation_status.value == "generating"]
+    job_by_block = ai_response_service.generating_job_ids_for_blocks(db, generating_ids)
+    return [MessageBlockOut.of(b, job_by_block.get(b.id)) for b in blocks]
 
 
 def _branch_list(db, chat, active_branch_id: uuid.UUID) -> list[BranchListItem]:
@@ -93,7 +100,7 @@ def get_chat(
     return ChatDetailResponse(
         chat_meta=ChatMeta.of(chat),
         branch_meta=BranchMeta.of(branch),
-        message_blocks=[MessageBlockOut.of(b) for b in blocks],
+        message_blocks=_block_list(db, blocks),
         branch_list=_branch_list(db, chat, branch.id),
     )
 
@@ -159,7 +166,7 @@ def get_branch(
     info = branch_service.build_source_context_info(db, branch)
     return BranchDetailResponse(
         branch_meta=BranchMeta.of(branch),
-        message_blocks=[MessageBlockOut.of(b) for b in blocks],
+        message_blocks=_block_list(db, blocks),
         source_context_info=[SourceContextItem(**item) for item in info],
     )
 

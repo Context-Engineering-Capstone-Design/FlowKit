@@ -161,6 +161,23 @@ def cancel_job(db: Session, user: User, chat: Chat, branch: Branch, job_id: uuid
     return message_service.get_visible_block(db, branch, job.assistant_message_block_id)
 
 
+def generating_job_ids_for_blocks(db: Session, block_ids: list[uuid.UUID]) -> dict[uuid.UUID, uuid.UUID]:
+    """지금 생성 중인 블록이 어느 작업에 속하는지 찾는다 (BE-AIRESP-009, 재접속).
+
+    새로고침·브랜치 재진입 때 화면이 이 값으로 스트리밍 통로에 다시 붙는다.
+    끝난 블록은 더 붙을 통로가 없으므로 여기 담지 않는다.
+    """
+    if not block_ids:
+        return {}
+    rows = db.scalars(
+        select(AiResponseJob).where(
+            AiResponseJob.assistant_message_block_id.in_(block_ids),
+            AiResponseJob.status == AiResponseJobStatus.GENERATING,
+        )
+    )
+    return {job.assistant_message_block_id: job.id for job in rows}
+
+
 def cleanup_stuck_jobs(db: Session) -> int:
     """서버가 내려갔다 올라왔을 때, 진행 중으로 남은 작업을 실패로 정리한다 (BE-AIRESP-007 B7).
 
