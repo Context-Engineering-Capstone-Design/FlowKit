@@ -61,7 +61,6 @@ function Workspace() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [panelWidth, setPanelWidth] = useState(() => Number(sessionStorage.getItem('flowkit_context_panel_width')) || 310)
   const openDefaultChat = useChatStore((s) => s.openDefaultChat)
-  const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
   const blocks = useChatStore((s) => s.blocks)
   const branchDraft = useChatStore((s) => s.branchDraft)
   const openBranchModal = useChatStore((s) => s.openBranchModal)
@@ -77,10 +76,6 @@ function Workspace() {
     void openDefaultChat()
   }, [openDefaultChat])
 
-  // 블록을 고르면 편집할 곳이 보여야 한다
-  useEffect(() => {
-    if (selectedCount > 0) setPanelOpen(true)
-  }, [selectedCount])
 
   useEffect(() => {
     if (contextPanelSignal) setPanelOpen(true)
@@ -124,7 +119,6 @@ function Workspace() {
         <BranchModal
           onClose={closeBranchModal}
           initialBaseBlockId={branchDraft.baseBlockId}
-          initialContextBlockIds={branchDraft.contextBlockIds}
           editedBaseContent={branchDraft.editedBaseContent}
         />
       )}

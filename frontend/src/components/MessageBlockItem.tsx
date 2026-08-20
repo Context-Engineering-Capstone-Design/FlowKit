@@ -20,12 +20,9 @@ interface Props {
   refine?: RefineResultItem
 }
 
-// 메시지 블록 하나 — 체크박스로 Context 선택, 정제 결과가 있으면 인라인으로 비교
+// 메시지 블록 하나 — 드래그 범위로 Context·정제를 시작하고 정제 결과를 인라인으로 비교
 export function MessageBlockItem({ block, refine }: Props) {
   const currentBranchId = useChatStore((s) => s.branchId)
-  const selected = useChatStore((s) => s.selectedBlockIds.includes(block.blockId))
-  const applied = useChatStore((s) => s.appliedBlockIds.includes(block.blockId))
-  const toggleBlock = useChatStore((s) => s.toggleBlock)
   const regenerate = useChatStore((s) => s.regenerate)
   const pendingAi = useChatStore((s) => s.pendingByBlockId[block.blockId])
   const failedJobId = useChatStore((s) => s.failedJobsByBlockId[block.blockId])
@@ -43,7 +40,7 @@ export function MessageBlockItem({ block, refine }: Props) {
   const loadVersions = useChatStore((s) => s.loadVersions)
   const setActiveVersion = useChatStore((s) => s.setActiveVersion)
   const openBranchModal = useChatStore((s) => s.openBranchModal)
-  const openContextEditor = useChatStore((s) => s.openContextEditor)
+  const openRefine = useChatStore((s) => s.openRefine)
   const createSideChatTab = useChatStore((s) => s.createSideChatTab)
   const openChat = useChatStore((s) => s.openChat)
   const linkedSideChats = useChatStore((s) => s.sideChatsByBlockId[block.blockId])
@@ -177,13 +174,17 @@ export function MessageBlockItem({ block, refine }: Props) {
     dismissPendingSelection()
   }
 
+  function refinePendingSelection() {
+    if (!pendingSelection) return
+    openRefine(block.blockId)
+    dismissPendingSelection()
+  }
+
   return (
     <div
       id={`block-${block.blockId}`}
-      className={`group relative border-l-[3px] py-2.5 pl-11 pr-5 transition ${flash ? 'approve-flash' : ''} ${
-        selected
-          ? 'border-sel-line bg-sel-bg'
-          : highlighted
+      className={`group relative border-l-[3px] py-2.5 pl-5 pr-5 transition ${flash ? 'approve-flash' : ''} ${
+        highlighted
             ? 'border-green bg-green-dim'
             : pending
               ? 'border-blue'
@@ -192,33 +193,16 @@ export function MessageBlockItem({ block, refine }: Props) {
                 : 'border-transparent hover:bg-white/[0.025]'
       }`}
     >
-      {eligibleForReuse && (
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={() => toggleBlock(block.blockId)}
-          aria-label="Context로 선택"
-          className={`absolute left-4 top-3.5 h-3.5 w-3.5 cursor-pointer accent-blue transition ${
-            selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-          }`}
-        />
-      )}
-
       <div
         className={`flex w-full flex-col ${
           isUser ? 'ml-auto max-w-[min(85%,40rem)] items-end' : 'items-start'
         }`}
       >
-        {(Boolean(block.versionNo && block.versionNo > 1) || applied || isCancelled || isFailed) && (
+        {(Boolean(block.versionNo && block.versionNo > 1) || isCancelled || isFailed) && (
           <div className={`mb-1.5 flex items-center gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
             {block.versionNo && block.versionNo > 1 && (
               <span className="rounded bg-bg-3 px-1.5 py-px text-[10px] text-txt-2">
                 v{block.versionNo}
-              </span>
-            )}
-            {applied && (
-              <span className="rounded bg-blue-dim px-1.5 py-px text-[10px] text-blue">
-                Context 적용 중
               </span>
             )}
             {isCancelled && (
@@ -327,8 +311,6 @@ export function MessageBlockItem({ block, refine }: Props) {
             }
             onRegenerate={() => regenerate(block.blockId)}
             onStartEdit={() => startEdit(block.blockId, block.content)}
-            onOpenContextEditor={() => openContextEditor(block.blockId)}
-            onOpenBranch={() => openBranchModal(block.blockId)}
             onOpenSideChat={() => createSideChatTab(block.blockId)}
           />
         )}
@@ -340,6 +322,7 @@ export function MessageBlockItem({ block, refine }: Props) {
           style={pendingSelection.toggleStyle}
           onAddToChat={addPendingToChat}
           onAskInSideChat={askPendingInSideChat}
+          onRefine={refinePendingSelection}
         />
       )}
     </div>

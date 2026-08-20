@@ -1,15 +1,16 @@
-import { MessageSquarePlus, Split } from 'lucide-react'
+import { MessageSquarePlus, Sparkles, Split } from 'lucide-react'
 import { forwardRef, type CSSProperties } from 'react'
 
 interface Props {
   style: CSSProperties
   onAddToChat: () => void
   onAskInSideChat: () => void
+  onRefine: () => void
 }
 
 // 메시지 안에서 텍스트를 드래그하면 선택 범위 옆에 뜨는 작업 토글 (0820_13 A3)
 export const SelectionActionToggle = forwardRef<HTMLDivElement, Props>(function SelectionActionToggle(
-  { style, onAddToChat, onAskInSideChat },
+  { style, onAddToChat, onAskInSideChat, onRefine },
   ref,
 ) {
   return (
@@ -30,6 +31,15 @@ export const SelectionActionToggle = forwardRef<HTMLDivElement, Props>(function 
       >
         <MessageSquarePlus className="h-3.5 w-3.5 text-blue" />
         채팅에 추가
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onRefine}
+        className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11.5px] text-txt-1 transition hover:bg-bg-3 hover:text-txt-0"
+      >
+        <Sparkles className="h-3.5 w-3.5 text-green" />
+        블록 정제
       </button>
       <button
         type="button"

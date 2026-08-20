@@ -115,6 +115,7 @@ describe('chatStore 공통 오류 안내', () => {
     })
     conversationApi.runRefine.mockRejectedValue(error)
 
+    useChatStore.setState({ refineTargetBlockId: 'block-1' })
     await useChatStore.getState().runRefine('요약')
 
     const banner = useNotificationStore.getState().banner

@@ -28,8 +28,6 @@ interface Props {
   onSetFeedback: (rating: AiResponseRating) => ActionResult
   onRegenerate: () => ActionResult
   onStartEdit: () => ActionResult
-  onOpenContextEditor: () => ActionResult
-  onOpenBranch: () => ActionResult
   onOpenSideChat: () => ActionResult
 }
 
@@ -48,8 +46,6 @@ export function MessageBlockActions({
   onSetFeedback,
   onRegenerate,
   onStartEdit,
-  onOpenContextEditor,
-  onOpenBranch,
   onOpenSideChat,
 }: Props) {
   const showNotification = useNotificationStore((state) => state.show)
@@ -169,28 +165,6 @@ export function MessageBlockActions({
           className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
         >
           <Pencil className="h-3.5 w-3.5" />
-        </button>
-      )}
-      {eligibleForReuse && (
-        <button
-          type="button"
-          onClick={() => void onOpenContextEditor()}
-          title="Context 편집 시작"
-          aria-label="Context 편집 시작"
-          className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
-        >
-          Context
-        </button>
-      )}
-      {eligibleForReuse && (
-        <button
-          type="button"
-          onClick={() => void onOpenBranch()}
-          title="여기서 브랜치 생성"
-          aria-label="여기서 브랜치 생성"
-          className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
-        >
-          분기
         </button>
       )}
       {eligibleForReuse && (

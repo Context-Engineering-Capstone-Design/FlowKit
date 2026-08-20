@@ -26,14 +26,14 @@ interface Props {
   onResizeStart: () => void
 }
 
-// 우측 Context 편집 패널 — 선택한 블록 확인, 편집 지시 입력, 정제 결과 검토
+// 우측 패널 — 드래그 범위에서 연 블록 정제 결과를 검토한다
 export function ContextPanel({ open = true, onClose, width, onResizeStart }: Props) {
   const blocks = useChatStore((s) => s.blocks)
-  const selectedIds = useChatStore((s) => s.selectedBlockIds)
+  const refineTargetBlockId = useChatStore((s) => s.refineTargetBlockId)
   const refineJob = useChatStore((s) => s.refineJob)
   const [resizing, setResizing] = useState(false)
 
-  const selected = blocks.filter((b) => selectedIds.includes(b.blockId))
+  const refineTarget = blocks.find((b) => b.blockId === refineTargetBlockId)
 
   function startResize() {
     setResizing(true)
@@ -79,7 +79,7 @@ export function ContextPanel({ open = true, onClose, width, onResizeStart }: Pro
 
       <div className="flex flex-1 flex-col overflow-y-auto">
         <SideChatSection />
-        {selected.length === 0 && !refineJob ? (
+        {!refineTarget && !refineJob ? (
           <EmptyGuide />
         ) : (
           <div className="px-4 pb-4">
@@ -90,8 +90,6 @@ export function ContextPanel({ open = true, onClose, width, onResizeStart }: Pro
         )}
       </div>
 
-      {selected.length > 0 && !refineJob && <PanelFooter />}
-      {selected.length > 0 && !refineJob && <ReflectToParentSection />}
       </div>
     </aside>
   )
@@ -162,60 +160,47 @@ function EmptyGuide() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
       <p className="text-[12.5px] leading-relaxed text-txt-2">
-        메시지 블록에 마우스를 올리면
+        메시지에서 원하는 범위를 드래그한 뒤
         <br />
-        왼쪽에 체크박스가 나타납니다.
+        블록 정제를 선택하세요.
       </p>
       <p className="mt-4 text-[12.5px] leading-relaxed text-txt-3">
-        원하는 블록을 선택하면
+        드래그한 범위가 속한 메시지 블록을
         <br />
-        Context 편집이 시작됩니다.
+        개별 정제할 수 있습니다.
       </p>
     </div>
   )
 }
 
-// 선택된 블록 목록 (REQ-023)
+// 드래그 범위에서 연 단일 정제 대상
 function SelectedBlocks() {
   const blocks = useChatStore((s) => s.blocks)
-  const selectedIds = useChatStore((s) => s.selectedBlockIds)
-  const toggleBlock = useChatStore((s) => s.toggleBlock)
+  const refineTargetBlockId = useChatStore((s) => s.refineTargetBlockId)
 
-  const selected = blocks.filter((b) => selectedIds.includes(b.blockId))
-  if (selected.length === 0) return null
+  const selected = blocks.find((b) => b.blockId === refineTargetBlockId)
+  if (!selected) return null
 
   return (
     <section className="pt-3">
       <SectionLabel>
-        선택된 블록
-        <span className="ml-1.5 rounded bg-blue px-1.5 text-[10px] font-bold text-white">
-          {selected.length}
-        </span>
+        정제할 블록
       </SectionLabel>
 
       <div className="mt-2 space-y-1.5">
-        {selected.map((b) => (
           <div
-            key={b.blockId}
+            key={selected.blockId}
             className="flex items-start gap-2 rounded-md bg-bg-2 px-2.5 py-2"
           >
             <span
               className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
-                b.role === 'user' ? 'bg-blue' : 'bg-green'
+                selected.role === 'user' ? 'bg-blue' : 'bg-green'
               }`}
             />
             <span className="line-clamp-2 flex-1 text-[11.5px] leading-relaxed text-txt-1">
-              {toPreview(b.content)}
+              {toPreview(selected.content)}
             </span>
-            <button
-              type="button"
-              onClick={() => toggleBlock(b.blockId)}
-              className="text-txt-3 transition hover:text-txt-0"
-            >
-              <X className="h-3 w-3" />
-            </button>
           </div>
-        ))}
       </div>
     </section>
   )
@@ -227,7 +212,7 @@ function RefineForm() {
   const setInstruction = useChatStore((s) => s.setContextInstruction)
   const focusSignal = useChatStore((s) => s.contextInstructionFocusSignal)
   const blocks = useChatStore((s) => s.blocks)
-  const selectedIds = useChatStore((s) => s.selectedBlockIds)
+  const refineTargetBlockId = useChatStore((s) => s.refineTargetBlockId)
   const branchId = useChatStore((s) => s.branchId)
   const isRefining = useChatStore((s) => s.isRefining)
   const runRefine = useChatStore((s) => s.runRefine)
@@ -241,12 +226,11 @@ function RefineForm() {
     textareaRef.current?.focus()
   }, [focusSignal])
 
-  const selectedCount = selectedIds.length
-  if (selectedCount === 0 || refineJob) return null
+  if (!refineTargetBlockId || refineJob) return null
 
   // 다른(조상) 브랜치에서 이어받은 블록은 정제하면 원본 대화가 바뀌므로 대상에서 뺀다
   const hasInheritedBlock = blocks.some(
-    (b) => selectedIds.includes(b.blockId) && b.branchId !== branchId,
+    (b) => b.blockId === refineTargetBlockId && b.branchId !== branchId,
   )
 
   return (
@@ -478,128 +462,6 @@ function RefinePreview() {
         </button>
       </div>
     </section>
-  )
-}
-
-// Context 적용과 브랜치 생성 (REQ-046, REQ-010)
-function PanelFooter() {
-  const applyContext = useChatStore((s) => s.applyContext)
-  const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
-  const blocks = useChatStore((s) => s.blocks)
-  const openBranchModal = useChatStore((s) => s.openBranchModal)
-
-  return (
-    <div className="space-y-1.5 px-4 py-3">
-      <button
-        type="button"
-        onClick={applyContext}
-        className="w-full rounded-lg bg-blue py-2.5 text-[12.5px] font-semibold text-white"
-      >
-        이 Context로 질문하기 ({selectedCount})
-      </button>
-      <button
-        type="button"
-        onClick={() => openBranchModal(blocks.at(-1)?.blockId ?? '', undefined, 'block')}
-        className="w-full rounded-lg bg-bg-3 py-2.5 text-[12.5px] font-semibold text-txt-1 transition hover:text-txt-0"
-      >
-        이 Context로 브랜치 생성
-      </button>
-    </div>
-  )
-}
-
-// 사이드 채팅에서 고른 블록을 부모(메인) 채팅에 선택적으로 반영 (0820_08 C1~C3)
-function ReflectToParentSection() {
-  const parentChatId = useChatStore((s) => s.parentChatId)
-  const isTemporary = useChatStore((s) => s.isTemporary)
-  const selectedIds = useChatStore((s) => s.selectedBlockIds)
-  const blocks = useChatStore((s) => s.blocks)
-  const sendSelectedToParentAsContext = useChatStore((s) => s.sendSelectedToParentAsContext)
-  const importSelectedToParentAsMessages = useChatStore((s) => s.importSelectedToParentAsMessages)
-  const createSiblingBranchFromSideChat = useChatStore((s) => s.createSiblingBranchFromSideChat)
-  const isCreatingBranch = useChatStore((s) => s.isCreatingBranch)
-  const branchError = useChatStore((s) => s.branchError)
-  const [branchName, setBranchName] = useState('')
-  const [showBranchForm, setShowBranchForm] = useState(false)
-
-  if (!parentChatId) return null
-
-  if (isTemporary) return (
-    <div className="border-t border-line px-4 py-3 text-[11px] leading-relaxed text-txt-3">
-      Temporary Chat의 내용은 검색·재사용·부모 반영에 사용할 수 없습니다.
-    </div>
-  )
-
-  const selectedContent = blocks.filter((b) => selectedIds.includes(b.blockId)).at(-1)?.content ?? ''
-
-  async function createBranch() {
-    const ok = await createSiblingBranchFromSideChat(branchName, selectedContent)
-    if (ok) {
-      setBranchName('')
-      setShowBranchForm(false)
-    }
-  }
-
-  return (
-    <div className="space-y-1.5 border-t border-line px-4 py-3">
-      <p className="pb-1 text-[10.5px] font-semibold uppercase tracking-wide text-txt-3">
-        부모 채팅에 반영
-      </p>
-      <button
-        type="button"
-        onClick={() => void sendSelectedToParentAsContext()}
-        className="w-full rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3"
-      >
-        부모 Context로 추가 ({selectedIds.length})
-      </button>
-      <button
-        type="button"
-        onClick={() => void importSelectedToParentAsMessages()}
-        className="w-full rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3"
-      >
-        부모 메시지로 가져오기
-      </button>
-
-      {showBranchForm ? (
-        <div className="space-y-1.5 rounded-lg bg-bg-2 p-2.5">
-          <input
-            value={branchName}
-            onChange={(e) => setBranchName(e.target.value)}
-            placeholder="형제 브랜치 이름"
-            className="w-full rounded-md bg-bg-3 px-2.5 py-1.5 text-[12px] text-txt-0 outline-none placeholder:text-txt-3"
-          />
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              onClick={() => void createBranch()}
-              disabled={isCreatingBranch || !branchName.trim()}
-              className="flex-1 rounded-md bg-green py-1.5 text-[11.5px] font-semibold text-white transition disabled:opacity-40"
-            >
-              {isCreatingBranch ? '만드는 중…' : '만들기'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowBranchForm(false)}
-              className="rounded-md px-2.5 text-[11.5px] text-txt-2 transition hover:text-txt-0"
-            >
-              취소
-            </button>
-          </div>
-          {branchError && <p className="text-[11px] text-red">{branchError}</p>}
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowBranchForm(true)}
-          className="w-full rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3"
-        >
-          부모 아래 형제 브랜치 만들기
-        </button>
-      )}
-      <p className="text-[11px] leading-relaxed text-txt-3">
-        선택한 블록 중 가장 최근 것을 브랜치의 시작 내용으로 씁니다.
-      </p>
-    </div>
   )
 }
 

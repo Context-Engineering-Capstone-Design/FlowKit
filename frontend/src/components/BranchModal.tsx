@@ -13,14 +13,12 @@ const NAME_SUGGESTIONS = [
 interface Props {
   onClose: () => void
   initialBaseBlockId?: string
-  initialContextBlockIds?: string[]
   editedBaseContent?: string
 }
 
 // 브랜치 생성 모달 — 이름, 분기 지점, 포함할 Context 블록을 정한다 (REQ-009, REQ-010)
-export function BranchModal({ onClose, initialBaseBlockId, initialContextBlockIds, editedBaseContent }: Props) {
+export function BranchModal({ onClose, initialBaseBlockId, editedBaseContent }: Props) {
   const blocks = useChatStore((s) => s.blocks)
-  const selectedBlockIds = useChatStore((s) => s.selectedBlockIds)
   const createBranch = useChatStore((s) => s.createBranch)
   const isCreatingBranch = useChatStore((s) => s.isCreatingBranch)
   const branchError = useChatStore((s) => s.branchError)
@@ -30,27 +28,8 @@ export function BranchModal({ onClose, initialBaseBlockId, initialContextBlockId
   const [baseBlockId, setBaseBlockId] = useState(
     initialBaseBlockId ?? blocks.at(-1)?.blockId ?? '',
   )
-  const [contextIds, setContextIds] = useState<string[]>(initialContextBlockIds ?? selectedBlockIds)
-
-  const baseBlock = blocks.find((b) => b.blockId === baseBlockId)
-  // 분기 지점 이후 블록은 새 브랜치에 없으므로 Context 로 고를 수 없다
-  const selectable = baseBlock
-    ? blocks.filter((b) => b.orderIndex <= baseBlock.orderIndex)
-    : blocks
-
-  function toggle(blockId: string) {
-    setContextIds((prev) =>
-      prev.includes(blockId)
-        ? prev.filter((id) => id !== blockId)
-        : [...prev, blockId],
-    )
-  }
-
   async function submit() {
-    const valid = contextIds.filter((id) =>
-      selectable.some((b) => b.blockId === id),
-    )
-    const ok = await createBranch(name, baseBlockId, valid, editedBaseContent)
+    const ok = await createBranch(name, baseBlockId, [], editedBaseContent)
     if (ok) onClose()
   }
 
@@ -116,34 +95,6 @@ export function BranchModal({ onClose, initialBaseBlockId, initialContextBlockId
             </p>
           </Field>
 
-          <Field label={`포함할 Context 블록 (${contextIds.length})`}>
-            <div className="space-y-1">
-              {selectable.map((b) => (
-                <label
-                  key={b.blockId}
-                  className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition hover:bg-bg-2"
-                >
-                  <input
-                    type="checkbox"
-                    checked={contextIds.includes(b.blockId)}
-                    onChange={() => toggle(b.blockId)}
-                    className="mt-1 h-3.5 w-3.5 shrink-0 accent-blue"
-                  />
-                  <span
-                    className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                      b.role === 'user' ? 'bg-blue' : 'bg-green'
-                    }`}
-                  />
-                  <span className="line-clamp-2 text-[12px] leading-relaxed text-txt-1">
-                    {toPreview(b.content)}
-                  </span>
-                </label>
-              ))}
-            </div>
-            <p className="mt-1.5 text-[11px] text-txt-3">
-              고른 블록은 브랜치 상단에 출발 Context로 표시됩니다.
-            </p>
-          </Field>
         </div>
 
         <footer className="flex justify-end gap-2 px-5 py-4">

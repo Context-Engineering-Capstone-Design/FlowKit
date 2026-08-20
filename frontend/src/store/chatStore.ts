@@ -196,6 +196,8 @@ interface ChatState {
 
   /** 드래그로 고른 부분 범위 태그 (0820_13). 전송하면 비워진다. */
   contextRangeTags: ContextRangeTag[]
+  /** 드래그 범위 토글에서 연 단일 블록 정제 대상. */
+  refineTargetBlockId: string | null
 
   refineJob: RefineJob | null
   /** 블록별로 원본을 보는 중인지 정제본을 보는 중인지 (REQ-031) */
@@ -305,6 +307,7 @@ interface ChatState {
   openBranchModal: (baseBlockId: string, editedBaseContent?: string, sourceMode?: 'header' | 'block' | 'edited-block') => void
   closeBranchModal: () => void
   openContextEditor: (blockId: string) => void
+  openRefine: (blockId: string) => void
   clearSourceNavigationError: () => void
 
   /** 탭 바에서 다른 탭을 눌렀을 때 그 탭으로 전환한다 (0820_08 B1). */
@@ -364,6 +367,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   appliedBlockIds: [],
   appliedContextLabel: null,
   contextRangeTags: [],
+  refineTargetBlockId: null,
   refineJob: null,
   inlineView: {},
   ratings: {},
@@ -582,6 +586,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       contextPanelSignal: s.contextPanelSignal + 1,
       contextInstructionFocusSignal: s.contextInstructionFocusSignal + 1,
     }))
+  },
+  openRefine(blockId) {
+    set((s) => ({ refineTargetBlockId: blockId, contextPanelSignal: s.contextPanelSignal + 1, contextInstructionFocusSignal: s.contextInstructionFocusSignal + 1 }))
   },
 
   setSelectedModel(modelId) {
@@ -1166,15 +1173,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   cancelEdit() { set({ editingBlockId: null, editingDraft: '', editingOriginal: '' }) },
 
   async runRefine(instruction) {
-    const { chatId, branchId, selectedBlockIds } = get()
-    if (!chatId || !branchId || selectedBlockIds.length === 0) return
+    const { chatId, branchId, refineTargetBlockId } = get()
+    if (!chatId || !branchId || !refineTargetBlockId) return
 
     set({ isRefining: true, error: null, refineFailed: false, lastRefineInstruction: instruction })
     try {
       const job = await convApi.runRefine(
         chatId,
         branchId,
-        selectedBlockIds,
+        [refineTargetBlockId],
         instruction,
       )
       set({
