@@ -69,7 +69,7 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     attachments = input_assist_service.get_attachments_for_message(db, user, chat, attachment_ids or [])
     model = input_assist_service.validate_options(selected_model_id, web_search_mode, bool(attachments))
     api_key = user_setting_service.require_api_key(db, user)
-    context_items = context_service.build_snapshot(db, branch, context_block_ids or [])
+    context_items = context_service.build_snapshot(db, branch, context_block_ids or [], chat)
     own_flow = message_service.active_message_flow(db, branch); is_first = not own_flow
     if context_items: own_flow = []
     parent_flow = _root_context_flow(db, chat) if chat.kind is ChatKind.SIDE else []

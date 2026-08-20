@@ -29,12 +29,19 @@ class ContextItem:
 
 
 def build_snapshot(
-    db: Session, branch: Branch, context_block_ids: list[uuid.UUID]
+    db: Session,
+    branch: Branch,
+    context_block_ids: list[uuid.UUID],
+    chat: Chat | None = None,
 ) -> list[ContextItem]:
     """적용할 Context 를 서버 기준으로 확정한다 (BE-CTXAPPLY-001, 002).
 
     화면이 보낸 본문을 그대로 믿지 않고, 각 블록의 현재 활성 버전을 읽어 쓴다.
     승인되지 않은 정제 결과는 활성 버전이 아니므로 자연히 제외된다.
+
+    chat 을 주면(0820_08 C1), 이 브랜치에 없는 블록이라도 같은 사이드 채팅
+    트리에 속한 채팅의 블록이면 허용한다 — 사이드 채팅 답변을 메인의 다음
+    질문 Context 로 그대로 넘기는 흐름이 기존 Context 파이프라인을 그대로 탄다.
     """
     if not context_block_ids:
         return []
@@ -44,6 +51,12 @@ def build_snapshot(
         )
 
     visible = {b.id: b for b in branch_service.resolve_blocks(db, branch)}
+
+    missing_ids = [bid for bid in context_block_ids if bid not in visible]
+    if missing_ids and chat is not None:
+        from app.services import chat_service
+
+        visible.update(chat_service.family_block_map(db, chat, missing_ids))
 
     missing = [str(bid) for bid in context_block_ids if bid not in visible]
     if missing:

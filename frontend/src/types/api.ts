@@ -57,10 +57,19 @@ export interface DeleteChatResponse {
   actionMeta: ActionMeta
 }
 
+export type ChatKind = 'MAIN' | 'SIDE'
+
 export interface ChatMeta {
   chatId: string
   title: string
   createdAt: string
+  /** 사이드 채팅 트리 (0820_08). 메인 채팅은 kind만 있고 나머지는 비어 있다. */
+  kind: ChatKind
+  parentChatId: string | null
+  parentBranchId: string | null
+  parentMessageBlockId: string | null
+  rootChatId: string | null
+  rootBranchId: string | null
 }
 
 export type BranchType = 'MAIN' | 'CHILD'
@@ -270,4 +279,30 @@ export interface VersionItem {
   sourceType: string
   createdAt: string
   isCurrent: boolean
+}
+
+/** 좌측 트리 그래프의 노드 하나, 우측 패널의 자식 목록 항목 (0820_08). */
+export interface SideChatSummary {
+  chatId: string
+  title: string
+  kind: ChatKind
+  parentChatId: string | null
+  parentBranchId: string | null
+  parentMessageBlockId: string | null
+  rootChatId: string | null
+}
+
+export interface SideChatTreeResponse {
+  rootChatId: string | null
+  chats: SideChatSummary[]
+}
+
+export interface CreateSideChatResponse extends ChatDetail {
+  actionMeta: ActionMeta
+}
+
+/** 사이드 채팅의 메시지를 부모 채팅으로 가져온 결과 (0820_08 C2). */
+export interface ImportBlocksResponse {
+  importedBlocks: MessageBlock[]
+  actionMeta: ActionMeta
 }

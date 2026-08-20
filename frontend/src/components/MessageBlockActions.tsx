@@ -4,6 +4,7 @@ import {
   Copy,
   Pencil,
   RotateCw,
+  Split,
   ThumbsDown,
   ThumbsUp,
 } from 'lucide-react'
@@ -29,6 +30,7 @@ interface Props {
   onStartEdit: () => ActionResult
   onOpenContextEditor: () => ActionResult
   onOpenBranch: () => ActionResult
+  onOpenSideChat: () => ActionResult
 }
 
 // 메시지의 버전 이동, 평가, 복사, 수정, Context 편집, 분기 동작을 모아 보여준다
@@ -48,6 +50,7 @@ export function MessageBlockActions({
   onStartEdit,
   onOpenContextEditor,
   onOpenBranch,
+  onOpenSideChat,
 }: Props) {
   const showNotification = useNotificationStore((state) => state.show)
 
@@ -188,6 +191,18 @@ export function MessageBlockActions({
           className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
         >
           분기
+        </button>
+      )}
+      {eligibleForReuse && (
+        <button
+          type="button"
+          onClick={() => void onOpenSideChat()}
+          title="여기서 사이드 채팅 만들기"
+          aria-label="여기서 사이드 채팅 만들기"
+          className="flex items-center gap-0.5 rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
+        >
+          <Split className="h-3 w-3" />
+          사이드
         </button>
       )}
     </div>

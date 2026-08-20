@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, GitBranch, PanelLeft, PanelRight, Square, SquarePen
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
+import { ChatTabBar } from '@/components/ChatTabBar'
 import { ModelSelector } from '@/components/ModelSelector'
 import { MessageBlockItem } from '@/components/MessageBlockItem'
 import { ConversationOutline } from '@/components/ConversationOutline'
@@ -142,6 +143,7 @@ export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePane
           <p className="text-[13px] font-medium text-blue">여기에 파일을 놓으세요</p>
         </div>
       )}
+      <ChatTabBar />
       <header className="flex items-center justify-between px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-1">
           <div

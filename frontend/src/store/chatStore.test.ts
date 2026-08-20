@@ -25,9 +25,17 @@ const convApi = vi.hoisted(() => ({
   rejectResult: vi.fn(),
 }))
 
+const sideChatApi = vi.hoisted(() => ({
+  createSideChat: vi.fn(),
+  fetchSideChatChildren: vi.fn(),
+  fetchSideChatTree: vi.fn().mockResolvedValue({ rootChatId: null, chats: [] }),
+  importBlocksAsMessages: vi.fn(),
+}))
+
 vi.mock('@/api/chat', () => chatApi)
 vi.mock('@/api/conversation', () => convApi)
 vi.mock('@/api/inputAssist', () => ({}))
+vi.mock('@/api/sideChat', () => sideChatApi)
 
 import { useChatStore } from '@/store/chatStore'
 import { useConfirmStore } from '@/store/confirmStore'
@@ -42,6 +50,9 @@ describe('chatStore 화면 상태', () => {
       contextInstruction: '', draftText: '', draftAttachments: [],
       editingBlockId: null, editingDraft: '', editingOriginal: '',
       deletingChatId: null,
+      tabs: [{ id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '대화', kind: 'MAIN', parentChatId: null }],
+      activeTabId: 'chat-1',
+      sideChatsByBlockId: {}, sideChatTree: [], sideChatTreeRootId: null, isCreatingSideChat: false,
     })
   })
 
@@ -414,5 +425,255 @@ describe('chatStore 화면 상태', () => {
       'chat-1', 'branch-1', 'job-1', expect.anything(), expect.any(AbortSignal),
     )
     expect(useChatStore.getState().blocks[0].content).toBe('이어서 완료')
+  })
+})
+
+const mainMeta = (overrides: Record<string, unknown> = {}) => ({
+  chatId: 'chat-2', title: '다른 대화', kind: 'MAIN', parentChatId: null,
+  parentBranchId: null, parentMessageBlockId: null, rootChatId: null, rootBranchId: null,
+  ...overrides,
+})
+
+// 0820_08 마일스톤 B: 메인·사이드 채팅 탭
+describe('chatStore 탭 상태', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sideChatApi.fetchSideChatTree.mockResolvedValue({ rootChatId: null, chats: [] })
+    useChatStore.setState({
+      chatId: 'chat-1', branchId: 'branch-1', blocks: [], branches: [],
+      chats: [], draftText: '', draftAttachments: [],
+      editingBlockId: null, editingDraft: '', editingOriginal: '',
+      tabs: [{ id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '대화', kind: 'MAIN', parentChatId: null }],
+      activeTabId: 'chat-1',
+      sideChatsByBlockId: {}, sideChatTree: [], sideChatTreeRootId: null,
+    })
+  })
+
+  it('새 채팅을 열어도 기존 탭은 그대로 남고 새 임시 탭이 활성화된다', async () => {
+    await useChatStore.getState().newChat()
+
+    const state = useChatStore.getState()
+    expect(state.tabs).toHaveLength(2)
+    expect(state.tabs[0]).toMatchObject({ id: 'chat-1', chatId: 'chat-1' })
+    expect(state.chatId).toBeNull()
+    expect(state.activeTabId).toBe(state.tabs[1].id)
+    expect(state.tabs[1].chatId).toBeNull()
+  })
+
+  it('채팅을 열면 탭 목록에 추가되고 활성 탭이 된다', async () => {
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: mainMeta(), branchMeta: { branchId: 'branch-2' }, messageBlocks: [], branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'x', rating: null })
+
+    await useChatStore.getState().openChat('chat-2', 'branch-2')
+
+    const state = useChatStore.getState()
+    expect(state.tabs.map((t) => t.id)).toEqual(['chat-1', 'chat-2'])
+    expect(state.activeTabId).toBe('chat-2')
+    expect(state.chatId).toBe('chat-2')
+  })
+
+  it('이미 열린 탭을 다시 열어도 탭 개수는 늘지 않는다', async () => {
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: mainMeta({ chatId: 'chat-1', title: '대화' }),
+      branchMeta: { branchId: 'branch-1' }, messageBlocks: [], branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'x', rating: null })
+
+    await useChatStore.getState().openChat('chat-1', 'branch-1')
+
+    expect(useChatStore.getState().tabs).toHaveLength(1)
+  })
+
+  it('활성 탭을 닫으면 옆 탭으로 전환한다', async () => {
+    useChatStore.setState({
+      tabs: [
+        { id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '첫째', kind: 'MAIN', parentChatId: null },
+        { id: 'chat-2', chatId: 'chat-2', branchId: 'branch-2', title: '둘째', kind: 'MAIN', parentChatId: null },
+      ],
+    })
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: mainMeta({ title: '둘째' }), branchMeta: { branchId: 'branch-2' }, messageBlocks: [], branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'x', rating: null })
+
+    await useChatStore.getState().closeTab('chat-1')
+
+    const state = useChatStore.getState()
+    expect(state.tabs.map((t) => t.id)).toEqual(['chat-2'])
+    expect(state.activeTabId).toBe('chat-2')
+    expect(state.chatId).toBe('chat-2')
+  })
+
+  it('배경 탭을 닫으면 화면은 그대로 두고 탭만 없앤다', async () => {
+    useChatStore.setState({
+      tabs: [
+        { id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '첫째', kind: 'MAIN', parentChatId: null },
+        { id: 'chat-2', chatId: 'chat-2', branchId: 'branch-2', title: '둘째', kind: 'MAIN', parentChatId: null },
+      ],
+    })
+
+    await useChatStore.getState().closeTab('chat-2')
+
+    const state = useChatStore.getState()
+    expect(state.tabs.map((t) => t.id)).toEqual(['chat-1'])
+    expect(state.activeTabId).toBe('chat-1')
+    expect(chatApi.fetchChat).not.toHaveBeenCalled()
+  })
+
+  it('사이드 채팅을 만들면 새 탭으로 즉시 전환된다 (0820_08 B2)', async () => {
+    sideChatApi.createSideChat.mockResolvedValue({
+      chatMeta: {
+        chatId: 'side-1', title: '새 사이드 채팅', kind: 'SIDE', parentChatId: 'chat-1',
+        parentBranchId: 'branch-1', parentMessageBlockId: 'block-1', rootChatId: 'chat-1', rootBranchId: 'branch-1',
+      },
+      branchMeta: { branchId: 'side-branch-1' },
+      messageBlocks: [],
+      branchList: [],
+    })
+
+    await useChatStore.getState().createSideChatTab('block-1')
+
+    expect(sideChatApi.createSideChat).toHaveBeenCalledWith(
+      'chat-1', 'branch-1', { anchorMessageBlockId: 'block-1', title: undefined },
+    )
+    const state = useChatStore.getState()
+    expect(state.tabs.map((t) => t.id)).toEqual(['chat-1', 'side-1'])
+    expect(state.activeTabId).toBe('side-1')
+    expect(state.chatId).toBe('side-1')
+    expect(state.branchId).toBe('side-branch-1')
+  })
+
+  it('대화를 삭제하면 그 탭도 함께 닫히고 남은 탭으로 전환한다', async () => {
+    const request = vi.fn().mockResolvedValue(true)
+    useConfirmStore.setState({ request })
+    useChatStore.setState({
+      tabs: [
+        { id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '첫째', kind: 'MAIN', parentChatId: null },
+        { id: 'chat-2', chatId: 'chat-2', branchId: 'branch-2', title: '둘째', kind: 'MAIN', parentChatId: null },
+      ],
+      chats: [{ chatId: 'chat-1', title: '첫째' }, { chatId: 'chat-2', title: '둘째' }],
+    })
+    chatApi.deleteChat.mockResolvedValue({
+      deleteSuccess: true,
+      actionMeta: { actionType: 'chat_delete', successCode: 'CHAT_DELETED', message: '대화를 삭제했습니다.', affectedResourceId: 'chat-1' },
+    })
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: mainMeta({ title: '둘째' }), branchMeta: { branchId: 'branch-2' }, messageBlocks: [], branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'x', rating: null })
+
+    await useChatStore.getState().deleteChat('chat-1')
+
+    const state = useChatStore.getState()
+    expect(state.tabs.map((t) => t.id)).toEqual(['chat-2'])
+    expect(state.chatId).toBe('chat-2')
+  })
+
+  it('사이드 채팅 목록을 불러와 만들어진 지점(블록)별로 묶는다', async () => {
+    sideChatApi.fetchSideChatTree.mockResolvedValue({
+      rootChatId: 'chat-1',
+      chats: [
+        { chatId: 'chat-1', title: '메인', kind: 'MAIN', parentChatId: null, parentBranchId: null, parentMessageBlockId: null, rootChatId: null },
+        { chatId: 'side-1', title: '사이드1', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-1', parentMessageBlockId: 'block-1', rootChatId: 'chat-1' },
+        { chatId: 'side-2', title: '사이드2', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-other', parentMessageBlockId: 'block-2', rootChatId: 'chat-1' },
+      ],
+    })
+
+    await useChatStore.getState().loadSideChatContext()
+
+    const state = useChatStore.getState()
+    expect(Object.keys(state.sideChatsByBlockId)).toEqual(['block-1'])
+    expect(state.sideChatsByBlockId['block-1'].map((c) => c.chatId)).toEqual(['side-1'])
+    expect(state.sideChatTreeRootId).toBe('chat-1')
+  })
+})
+
+// 0820_08 마일스톤 C: 사이드 채팅 결과의 선택적 메인 반영
+describe('chatStore 부모 반영', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sideChatApi.fetchSideChatTree.mockResolvedValue({ rootChatId: null, chats: [] })
+    useChatStore.setState({
+      chatId: 'side-1', branchId: 'side-branch-1',
+      blocks: [
+        { blockId: 'b1', branchId: 'side-branch-1', role: 'user', content: '질문', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+        { blockId: 'b2', branchId: 'side-branch-1', role: 'assistant', content: '답변', currentVersionId: 'v2', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      ],
+      selectedBlockIds: ['b2'],
+      chatKind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-1', parentMessageBlockId: 'anchor-1',
+      tabs: [
+        { id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '메인', kind: 'MAIN', parentChatId: null },
+        { id: 'side-1', chatId: 'side-1', branchId: 'side-branch-1', title: '사이드', kind: 'SIDE', parentChatId: 'chat-1' },
+      ],
+      activeTabId: 'side-1',
+      branchError: null, isCreatingBranch: false,
+    })
+  })
+
+  it('선택한 블록을 부모 채팅으로 전환하며 Context로 적용한다 (C1)', async () => {
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: mainMeta({ chatId: 'chat-1', title: '메인' }),
+      branchMeta: { branchId: 'branch-1' }, messageBlocks: [], branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'x', rating: null })
+
+    const ok = await useChatStore.getState().sendSelectedToParentAsContext()
+
+    expect(ok).toBe(true)
+    const state = useChatStore.getState()
+    expect(state.chatId).toBe('chat-1')
+    expect(state.appliedBlockIds).toEqual(['b2'])
+  })
+
+  it('선택한 블록을 부모 채팅 메시지로 가져온 뒤 부모 탭으로 전환한다 (C2)', async () => {
+    sideChatApi.importBlocksAsMessages.mockResolvedValue({
+      importedBlocks: [],
+      actionMeta: { actionType: 'side_chat_import_blocks', successCode: 'SIDE_CHAT_BLOCKS_IMPORTED', message: '가져왔습니다.', affectedResourceId: 'chat-1' },
+    })
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: mainMeta({ chatId: 'chat-1', title: '메인' }),
+      branchMeta: { branchId: 'branch-1' }, messageBlocks: [], branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'x', rating: null })
+
+    const ok = await useChatStore.getState().importSelectedToParentAsMessages()
+
+    expect(ok).toBe(true)
+    expect(sideChatApi.importBlocksAsMessages).toHaveBeenCalledWith('chat-1', 'branch-1', ['b2'])
+    expect(useChatStore.getState().chatId).toBe('chat-1')
+  })
+
+  it('사이드 채팅과 같은 지점에서 부모 아래 형제 브랜치를 만든다 (C3)', async () => {
+    chatApi.createBranch.mockResolvedValue({
+      branchId: 'sibling-branch', branchName: '형제', branchType: 'CHILD',
+      parentBranchId: 'branch-1', sourceContextRefId: 'ctx-1',
+    })
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: mainMeta({ chatId: 'chat-1', title: '메인' }),
+      branchMeta: { branchId: 'sibling-branch' }, messageBlocks: [], branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'x', rating: null })
+
+    const ok = await useChatStore.getState().createSiblingBranchFromSideChat('형제', '답변')
+
+    expect(ok).toBe(true)
+    expect(chatApi.createBranch).toHaveBeenCalledWith('chat-1', {
+      branchName: '형제', baseBranchId: 'branch-1', baseMessageBlockId: 'anchor-1',
+      contextBlockIds: [], editedBaseContent: '답변',
+    })
+    expect(useChatStore.getState().branchId).toBe('sibling-branch')
+  })
+
+  it('부모가 없으면(메인 채팅) 반영 액션은 아무 일도 하지 않는다 (C4)', async () => {
+    useChatStore.setState({ parentChatId: null, parentBranchId: null, parentMessageBlockId: null })
+
+    expect(await useChatStore.getState().sendSelectedToParentAsContext()).toBe(false)
+    expect(await useChatStore.getState().importSelectedToParentAsMessages()).toBe(false)
+    expect(await useChatStore.getState().createSiblingBranchFromSideChat('형제', '내용')).toBe(false)
+    expect(chatApi.fetchChat).not.toHaveBeenCalled()
+    expect(sideChatApi.importBlocksAsMessages).not.toHaveBeenCalled()
+    expect(chatApi.createBranch).not.toHaveBeenCalled()
   })
 })

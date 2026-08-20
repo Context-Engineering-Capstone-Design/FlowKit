@@ -14,11 +14,14 @@ from app.schemas.chat import (
     ChatMeta,
     CreateSideChatRequest,
     CreateSideChatResponse,
+    ImportBlocksRequest,
+    ImportBlocksResponse,
+    MessageBlockOut,
     SideChatSummary,
     SideChatTreeResponse,
 )
 from app.schemas.notification import ActionMeta
-from app.services import branch_service, chat_service
+from app.services import branch_service, chat_service, side_chat_service
 
 router = APIRouter(prefix="/api/chats", tags=["SideChat"])
 
@@ -95,4 +98,33 @@ def get_side_chat_tree(
         root_chat_id=root.id,
         chats=[SideChatSummary.of(root)]
         + [SideChatSummary.of(c) for c in descendants],
+    )
+
+
+@router.post(
+    "/{chat_id}/branches/{branch_id}/import-blocks",
+    response_model=ImportBlocksResponse,
+    status_code=201,
+)
+def import_blocks(
+    chat_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    payload: ImportBlocksRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> ImportBlocksResponse:
+    """0820_08 C2: 같은 사이드 채팅 트리에 속한 메시지를 이 브랜치로 복사해 가져온다."""
+    chat = chat_service.get_owned_chat(db, user, chat_id)
+    branch = branch_service.get_branch_in_chat(db, chat, branch_id)
+    created = side_chat_service.import_blocks_as_messages(
+        db, chat, branch, payload.block_ids
+    )
+    return ImportBlocksResponse(
+        imported_blocks=[MessageBlockOut.of(b) for b in created],
+        action_meta=ActionMeta(
+            action_type="side_chat_import_blocks",
+            success_code="SIDE_CHAT_BLOCKS_IMPORTED",
+            message="선택한 메시지를 가져왔습니다.",
+            affected_resource_id=chat.id,
+        ),
     )

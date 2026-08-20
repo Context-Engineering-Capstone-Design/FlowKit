@@ -3,6 +3,7 @@ import * as chatApi from '@/api/chat'
 import { errorCode, errorDetail, toErrorMessage } from '@/api/client'
 import * as convApi from '@/api/conversation'
 import * as inputAssistApi from '@/api/inputAssist'
+import * as sideChatApi from '@/api/sideChat'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useNotificationStore } from '@/store/notificationStore'
 import { useConfirmStore } from '@/store/confirmStore'
@@ -12,9 +13,12 @@ import type {
   AiResponseRating,
   BranchListItem,
   ChatDetail,
+  ChatKind,
+  ChatMeta,
   ChatSummary,
   MessageBlock,
   RefineJob,
+  SideChatSummary,
   SourceContextItem,
   VersionItem,
   DraftAttachment,
@@ -24,6 +28,22 @@ import type {
   SearchSource,
   WebSearchMode,
 } from '@/types/api'
+
+/** 열려 있는 채팅 탭 하나. 실제 대화 내용은 활성 탭일 때만 아래 singleton 필드에 채워진다.
+ *  비활성 탭은 다시 활성화될 때까지 이 캐시된 값만으로 표시된다 (0820_08 B1). */
+export interface ChatTab {
+  /** 탭을 구분하는 키. 실제 채팅이면 chatId와 같고, 첫 메시지를 보내기 전 임시 탭이면 `draft:...`. */
+  id: string
+  chatId: string | null
+  branchId: string | null
+  title: string
+  kind: ChatKind
+  parentChatId: string | null
+}
+
+function newDraftId() {
+  return `draft:${crypto.randomUUID()}`
+}
 
 let latestChatListRequestId: string | null = null
 let latestChatMoreRequestId: string | null = null
@@ -103,6 +123,24 @@ interface ChatState {
   branches: BranchListItem[]
   blocks: MessageBlock[]
   sourceContext: SourceContextItem[]
+
+  /** 지금 열린 채팅의 사이드 채팅 트리 관계 (0820_08 A1, C1~C3). 메인 채팅이면 kind만 채워진다. */
+  chatKind: ChatKind
+  parentChatId: string | null
+  parentBranchId: string | null
+  parentMessageBlockId: string | null
+  rootChatId: string | null
+  rootBranchId: string | null
+
+  /** 열려 있는 메인·사이드 채팅 탭 (0820_08 B1). 메인·사이드는 동등한 탭이다. */
+  tabs: ChatTab[]
+  activeTabId: string | null
+  /** 현재 열린 채팅·브랜치 흐름 중, 그 지점에서 만들어진 사이드 채팅 (blockId로 묶음, B4). */
+  sideChatsByBlockId: Record<string, SideChatSummary[]>
+  /** 좌측 트리 패널에 쓸, 현재 루트 메인 채팅 아래 전체 사이드 채팅 (B3). */
+  sideChatTree: SideChatSummary[]
+  sideChatTreeRootId: string | null
+  isCreatingSideChat: boolean
 
   /** 사용자가 Context 로 쓰려고 고른 블록. 전송 전까지는 화면 상태로만 둔다. */
   selectedBlockIds: string[]
@@ -219,6 +257,24 @@ interface ChatState {
   closeBranchModal: () => void
   openContextEditor: (blockId: string) => void
   clearSourceNavigationError: () => void
+
+  /** 탭 바에서 다른 탭을 눌렀을 때 그 탭으로 전환한다 (0820_08 B1). */
+  switchTab: (id: string) => Promise<void>
+  /** 탭을 닫는다. 활성 탭을 닫으면 옆 탭 또는 새 임시 탭으로 옮겨간다. */
+  closeTab: (id: string) => Promise<void>
+  /** 주어진 탭(없으면 새 임시 탭)으로 화면을 옮긴다. 이미 확인이 끝난 뒤에만 부른다. */
+  switchToTabOrDraft: (tab: ChatTab | null) => Promise<void>
+  /** 현재 탭의 지점(anchor)에서 자식 사이드 채팅을 만들고 새 탭으로 연다 (B2). */
+  createSideChatTab: (anchorMessageBlockId?: string, title?: string) => Promise<void>
+  /** 지금 보이는 채팅·브랜치 기준으로 사이드 채팅 북마크·트리를 다시 불러온다. */
+  loadSideChatContext: () => Promise<void>
+
+  /** 선택한 사이드 채팅 블록을 부모 채팅으로 옮겨 다음 질문의 Context 로 적용한다 (0820_08 C1). */
+  sendSelectedToParentAsContext: () => Promise<boolean>
+  /** 선택한 사이드 채팅 블록을 부모 채팅 메시지로 실제로 복사해 가져온다 (0820_08 C2). */
+  importSelectedToParentAsMessages: () => Promise<boolean>
+  /** 사이드 채팅과 같은 지점에서 부모 아래 형제 브랜치를 만든다 (0820_08 C3). */
+  createSiblingBranchFromSideChat: (branchName: string, editedBaseContent: string) => Promise<boolean>
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -234,6 +290,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   branches: [],
   blocks: [],
   sourceContext: [],
+  chatKind: 'MAIN',
+  parentChatId: null,
+  parentBranchId: null,
+  parentMessageBlockId: null,
+  rootChatId: null,
+  rootBranchId: null,
+  tabs: [],
+  activeTabId: null,
+  sideChatsByBlockId: {},
+  sideChatTree: [],
+  sideChatTreeRootId: null,
+  isCreatingSideChat: false,
   selectedBlockIds: [],
   appliedBlockIds: [],
   appliedContextLabel: null,
@@ -330,12 +398,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   async newChat() {
     if (!(await confirmPendingDiscard(get()))) return
-    resetToDraft(set, get)
+    captureActiveTabSnapshot(set, get)
+    resetToDraft(set, get, newDraftId())
   },
 
   async openDefaultChat() {
-    if (get().chatId) return
-    resetToDraft(set, get)
+    // 새로고침 뒤에도 열려 있던 탭 목록은 세션 상태라 유지하지 않는다 — 탭이 하나도
+    // 없을 때만 빈 대화 탭 하나를 만든다.
+    if (get().tabs.length > 0) return
+    resetToDraft(set, get, newDraftId())
   },
 
   resetSession() {
@@ -349,6 +420,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       branches: [],
       blocks: [],
       sourceContext: [],
+      tabs: [],
+      activeTabId: null,
+      sideChatsByBlockId: {},
+      sideChatTree: [],
+      sideChatTreeRootId: null,
+      isCreatingSideChat: false,
       selectedBlockIds: [],
       appliedBlockIds: [],
       appliedContextLabel: null,
@@ -504,10 +581,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async openChat(chatId, branchId) {
     if (get().chatId !== chatId && !(await confirmPendingDiscard(get()))) return
     try {
-      if (get().chatId !== chatId) get().clearDraft()
+      if (get().chatId !== chatId) {
+        captureActiveTabSnapshot(set, get)
+        get().clearDraft()
+      }
       const detail = await chatApi.fetchChat(chatId, branchId)
       applyDetail(set, detail)
+      upsertTab(set, get, detail.chatMeta, detail.branchMeta.branchId)
       get().reattachGeneratingBlocks()
+      void get().loadSideChatContext()
       await refreshFeedbacks(
         set,
         detail.chatMeta.chatId,
@@ -525,7 +607,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   async deleteChat(chatId) {
     if (get().deletingChatId) return
-    const title = get().chats.find((item) => item.chatId === chatId)?.title ?? '이 대화'
+    const title =
+      get().chats.find((item) => item.chatId === chatId)?.title ??
+      get().sideChatTree.find((item) => item.chatId === chatId)?.title ??
+      get().tabs.find((item) => item.chatId === chatId)?.title ??
+      '이 대화'
     const confirmed = await useConfirmStore.getState().request(
       `"${title}" 대화를 삭제할까요? 삭제한 뒤에는 되돌릴 수 없습니다.`,
       { confirmLabel: '삭제' },
@@ -536,13 +622,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ deletingChatId: chatId })
     try {
       const result = await chatApi.deleteChat(chatId)
-      set((s) => ({ chats: s.chats.filter((item) => item.chatId !== chatId) }))
+      set((s) => ({
+        chats: s.chats.filter((item) => item.chatId !== chatId),
+        tabs: s.tabs.filter((t) => t.chatId !== chatId),
+      }))
       useNotificationStore.getState().showAction(result.actionMeta)
-      if (wasCurrent) resetToDraft(set, get)
+      if (wasCurrent) await get().switchToTabOrDraft(get().tabs[0] ?? null)
+      else void get().loadSideChatContext()
     } catch (e) {
       if (errorCode(e) === 'CHAT_ACCESS_DENIED' || errorCode(e) === 'CHAT_NOT_FOUND') {
-        set((s) => ({ chats: s.chats.filter((item) => item.chatId !== chatId) }))
-        if (wasCurrent) resetToDraft(set, get)
+        set((s) => ({
+          chats: s.chats.filter((item) => item.chatId !== chatId),
+          tabs: s.tabs.filter((t) => t.chatId !== chatId),
+        }))
+        if (wasCurrent) await get().switchToTabOrDraft(get().tabs[0] ?? null)
       } else {
         set({ error: toErrorMessage(e) })
         showChatError(e, 'chat-delete', () => void get().deleteChat(chatId))
@@ -562,6 +655,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((s) => ({
         chats: s.chats.map((item) => (item.chatId === chatId ? { ...item, title: meta.title } : item)),
         chatTitle: s.chatId === chatId ? meta.title : s.chatTitle,
+        tabs: s.tabs.map((t) => (t.chatId === chatId ? { ...t, title: meta.title } : t)),
       }))
       return true
     } catch (e) {
@@ -601,8 +695,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ...b,
           isActive: b.branchId === branchId,
         })),
+        tabs: get().tabs.map((t) => (t.chatId === chatId ? { ...t, branchId } : t)),
       })
       get().reattachGeneratingBlocks()
+      void get().loadSideChatContext()
       await refreshFeedbacks(set, chatId, branchId, detail.messageBlocks)
       return true
     } catch (e) {
@@ -647,7 +743,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const created = await chatApi.createChat()
         chatId = created.chatMeta.chatId
         branchId = created.branchMeta.branchId
-        set({ chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks })
+        const draftId = get().activeTabId
+        set((s) => ({
+          chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
+          tabs: promoteDraftTab(s.tabs, draftId, created.chatMeta, created.branchMeta.branchId),
+          activeTabId: chatId,
+        }))
         void get().loadChats()
       } catch (e) {
         set({ error: toErrorMessage(e) })
@@ -700,6 +801,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((s) => ({
         blocks: [...dropTempBlock(s), res.userBlock, res.assistantBlock],
         chatTitle: res.chatTitle,
+        tabs: s.tabs.map((t) => (t.chatId === chatId ? { ...t, title: res.chatTitle } : t)),
         // 한 번 쓴 Context 는 자동으로 해제한다. 남겨두면 다음 질문까지
         // 같은 맥락에 묶여, 사용자가 의도하지 않은 답이 나온다.
         appliedBlockIds: [],
@@ -1133,10 +1235,154 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearSourceNavigationError() { set({ sourceNavigationError: null }) },
+
+  async switchTab(id) {
+    const tab = get().tabs.find((t) => t.id === id)
+    if (!tab || id === get().activeTabId) return
+    if (!(await confirmPendingDiscard(get()))) return
+    captureActiveTabSnapshot(set, get)
+    get().clearDraft()
+    set({ editingBlockId: null, editingDraft: '', editingOriginal: '' })
+    if (tab.chatId && tab.branchId) {
+      await get().openChat(tab.chatId, tab.branchId)
+      return
+    }
+    resetToDraftFields(set, get)
+    set({ activeTabId: id })
+  },
+
+  async closeTab(id) {
+    const { tabs, activeTabId } = get()
+    const index = tabs.findIndex((t) => t.id === id)
+    if (index === -1) return
+
+    if (id !== activeTabId) {
+      set((s) => ({ tabs: s.tabs.filter((t) => t.id !== id) }))
+      return
+    }
+
+    if (!(await confirmPendingDiscard(get()))) return
+    get().clearDraft()
+    set((s) => ({
+      editingBlockId: null,
+      editingDraft: '',
+      editingOriginal: '',
+      tabs: s.tabs.filter((t) => t.id !== id),
+    }))
+    const remaining = get().tabs
+    const next = remaining[index] ?? remaining[index - 1] ?? null
+    await get().switchToTabOrDraft(next)
+  },
+
+  async switchToTabOrDraft(tab) {
+    if (tab?.chatId && tab.branchId) {
+      await get().openChat(tab.chatId, tab.branchId)
+      return
+    }
+    if (tab) {
+      resetToDraftFields(set, get)
+      set({ activeTabId: tab.id })
+      return
+    }
+    resetToDraft(set, get, newDraftId())
+  },
+
+  async createSideChatTab(anchorMessageBlockId, title) {
+    const { chatId, branchId } = get()
+    if (!chatId || !branchId) return
+    if (!(await confirmPendingDiscard(get()))) return
+    captureActiveTabSnapshot(set, get)
+    get().clearDraft()
+    set({ editingBlockId: null, editingDraft: '', editingOriginal: '', isCreatingSideChat: true })
+    try {
+      const created = await sideChatApi.createSideChat(chatId, branchId, { anchorMessageBlockId, title })
+      applyDetail(set, created)
+      upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
+      void get().loadSideChatContext()
+      useNotificationStore.getState().show('사이드 채팅을 만들었습니다.', 'success')
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+    } finally {
+      set({ isCreatingSideChat: false })
+    }
+  },
+
+  async loadSideChatContext() {
+    const { chatId, branchId } = get()
+    if (!chatId) return
+    try {
+      const tree = await sideChatApi.fetchSideChatTree(chatId)
+      const byBlock: Record<string, SideChatSummary[]> = {}
+      for (const child of tree.chats) {
+        if (child.parentChatId !== chatId || child.parentBranchId !== branchId) continue
+        if (!child.parentMessageBlockId) continue
+        ;(byBlock[child.parentMessageBlockId] ??= []).push(child)
+      }
+      // 요청이 진행되는 동안 사용자가 다른 탭으로 옮겼을 수 있으니 다시 확인한다
+      if (get().chatId !== chatId) return
+      set({ sideChatsByBlockId: byBlock, sideChatTree: tree.chats, sideChatTreeRootId: tree.rootChatId })
+    } catch {
+      // 트리 조회 실패는 화면을 막을 만한 문제가 아니다 — 다음 조회 때 다시 시도된다
+    }
+  },
+
+  async sendSelectedToParentAsContext() {
+    const { parentChatId, parentBranchId, selectedBlockIds } = get()
+    if (!parentChatId || !parentBranchId || selectedBlockIds.length === 0) return false
+    const blockIds = [...selectedBlockIds]
+    const parentTab = get().tabs.find((t) => t.chatId === parentChatId)
+    await get().openChat(parentChatId, parentTab?.branchId ?? parentBranchId)
+    set({
+      appliedBlockIds: blockIds,
+      appliedContextLabel: '사이드 채팅에서 가져온 Context',
+      focusSignal: get().focusSignal + 1,
+    })
+    useNotificationStore.getState().show('사이드 채팅 내용을 부모 채팅의 Context로 추가했습니다.', 'success')
+    return true
+  },
+
+  async importSelectedToParentAsMessages() {
+    const { parentChatId, parentBranchId, selectedBlockIds } = get()
+    if (!parentChatId || !parentBranchId || selectedBlockIds.length === 0) return false
+    const blockIds = [...selectedBlockIds]
+    try {
+      const result = await sideChatApi.importBlocksAsMessages(parentChatId, parentBranchId, blockIds)
+      const parentTab = get().tabs.find((t) => t.chatId === parentChatId)
+      await get().openChat(parentChatId, parentTab?.branchId ?? parentBranchId)
+      useNotificationStore.getState().showAction(result.actionMeta)
+      return true
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+      return false
+    }
+  },
+
+  async createSiblingBranchFromSideChat(branchName, editedBaseContent) {
+    const { parentChatId, parentBranchId, parentMessageBlockId } = get()
+    if (!parentChatId || !parentBranchId || !parentMessageBlockId) return false
+    set({ isCreatingBranch: true, branchError: null })
+    try {
+      const created = await chatApi.createBranch(parentChatId, {
+        branchName,
+        baseBranchId: parentBranchId,
+        baseMessageBlockId: parentMessageBlockId,
+        contextBlockIds: [],
+        editedBaseContent,
+      })
+      await get().openChat(parentChatId, created.branchId)
+      useNotificationStore.getState().show('부모 아래 형제 브랜치를 만들었습니다.', 'success')
+      return true
+    } catch (e) {
+      set({ branchError: toErrorMessage(e) })
+      return false
+    } finally {
+      set({ isCreatingBranch: false })
+    }
+  },
 }))
 
-/** 빈 새 대화 화면으로 되돌린다. 실제 대화는 사용자가 첫 메시지를 보낼 때(sendMessage) 만든다. */
-function resetToDraft(
+/** 대화 관련 필드만 빈 상태로 되돌린다. 탭 목록 자체는 건드리지 않는다. */
+function resetToDraftFields(
   set: (partial: Partial<ChatState>) => void,
   get: () => ChatState,
 ) {
@@ -1148,6 +1394,15 @@ function resetToDraft(
     branches: [],
     blocks: [],
     sourceContext: [],
+    chatKind: 'MAIN',
+    parentChatId: null,
+    parentBranchId: null,
+    parentMessageBlockId: null,
+    rootChatId: null,
+    rootBranchId: null,
+    sideChatsByBlockId: {},
+    sideChatTree: [],
+    sideChatTreeRootId: null,
     selectedBlockIds: [],
     appliedBlockIds: [],
     appliedContextLabel: null,
@@ -1171,6 +1426,21 @@ function resetToDraft(
   })
 }
 
+/** 빈 새 대화 화면으로 되돌린다. 실제 대화는 사용자가 첫 메시지를 보낼 때(sendMessage) 만든다.
+ *  draftId 를 주면 임시 탭 하나를 새로 만들어 그 탭으로 연다 (0820_08 B1). */
+function resetToDraft(
+  set: (partial: Partial<ChatState>) => void,
+  get: () => ChatState,
+  draftId?: string,
+) {
+  resetToDraftFields(set, get)
+  if (!draftId) return
+  set({
+    tabs: [...get().tabs, { id: draftId, chatId: null, branchId: null, title: '새 대화', kind: 'MAIN', parentChatId: null }],
+    activeTabId: draftId,
+  })
+}
+
 function applyDetail(
   set: (partial: Partial<ChatState>) => void,
   detail: ChatDetail,
@@ -1182,6 +1452,15 @@ function applyDetail(
     branches: detail.branchList,
     blocks: detail.messageBlocks,
     sourceContext: [],
+    chatKind: detail.chatMeta.kind,
+    parentChatId: detail.chatMeta.parentChatId,
+    parentBranchId: detail.chatMeta.parentBranchId,
+    parentMessageBlockId: detail.chatMeta.parentMessageBlockId,
+    rootChatId: detail.chatMeta.rootChatId,
+    rootBranchId: detail.chatMeta.rootBranchId,
+    sideChatsByBlockId: {},
+    sideChatTree: [],
+    sideChatTreeRootId: null,
     selectedBlockIds: [],
     appliedBlockIds: [],
     appliedContextLabel: null,
@@ -1203,6 +1482,62 @@ function applyDetail(
     isSavingEdit: false,
     sourceNavigationError: null,
     branchError: null,
+  })
+}
+
+/** 탭 목록에 chatId 를 upsert 하고 그 탭을 활성 탭으로 표시한다. */
+function upsertTab(
+  set: (partial: Partial<ChatState>) => void,
+  get: () => ChatState,
+  meta: ChatMeta,
+  branchId: string,
+) {
+  const tabs = get().tabs
+  const index = tabs.findIndex((t) => t.chatId === meta.chatId)
+  const tab: ChatTab = {
+    id: meta.chatId,
+    chatId: meta.chatId,
+    branchId,
+    title: meta.title,
+    kind: meta.kind,
+    parentChatId: meta.parentChatId,
+  }
+  set({
+    tabs: index === -1 ? [...tabs, tab] : tabs.map((t, i) => (i === index ? tab : t)),
+    activeTabId: meta.chatId,
+  })
+}
+
+/** 방금 실제로 만들어진 채팅으로 draft 탭 자리를 그대로 대체한다 (sendMessage 첫 전송). */
+function promoteDraftTab(
+  tabs: ChatTab[],
+  draftId: string | null,
+  meta: ChatMeta,
+  branchId: string,
+): ChatTab[] {
+  const tab: ChatTab = {
+    id: meta.chatId,
+    chatId: meta.chatId,
+    branchId,
+    title: meta.title,
+    kind: meta.kind,
+    parentChatId: meta.parentChatId,
+  }
+  const index = draftId ? tabs.findIndex((t) => t.id === draftId) : -1
+  return index === -1 ? [...tabs, tab] : tabs.map((t, i) => (i === index ? tab : t))
+}
+
+/** 지금 활성 탭이 실제 채팅이면, 떠나기 전에 최신 브랜치·제목을 캐시에 남긴다. */
+function captureActiveTabSnapshot(
+  set: (partial: Partial<ChatState>) => void,
+  get: () => ChatState,
+) {
+  const { activeTabId, chatId, branchId, chatTitle } = get()
+  if (!activeTabId || !chatId || !branchId) return
+  set({
+    tabs: get().tabs.map((t) =>
+      t.id === activeTabId ? { ...t, branchId, title: chatTitle || t.title } : t,
+    ),
   })
 }
 

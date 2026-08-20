@@ -12,7 +12,7 @@ afterEach(cleanup)
 
 beforeEach(() => {
   useNotificationStore.getState().clearToast()
-  useChatStore.setState({ branchId: 'branch-1', selectedBlockIds: [], appliedBlockIds: [], inlineView: {}, ratings: {}, versionsByBlock: {}, pendingByBlockId: {}, failedJobsByBlockId: {}, editingBlockId: null })
+  useChatStore.setState({ branchId: 'branch-1', selectedBlockIds: [], appliedBlockIds: [], inlineView: {}, ratings: {}, versionsByBlock: {}, pendingByBlockId: {}, failedJobsByBlockId: {}, editingBlockId: null, sideChatsByBlockId: {} })
 })
 
 it('활성 메시지 본문 복사 성공을 알린다', async () => {
@@ -154,6 +154,33 @@ it('닫히지 않은 코드 울타리는 스트리밍 중에만 임시로 닫아
   const streaming = { ...block, role: 'assistant' as const, content: '```js\nconst a = 1', generationStatus: 'generating' as const }
   const { container } = render(<MessageBlockItem block={streaming} />)
   expect(container.querySelector('pre code')).not.toBeNull()
+})
+
+it('여기서 사이드 채팅 만들기 버튼을 누르면 이 블록을 지점으로 사이드 채팅을 만든다 (0820_08 B4)', () => {
+  const createSideChatTab = vi.fn()
+  useChatStore.setState({ createSideChatTab })
+  render(<MessageBlockItem block={block} />)
+
+  fireEvent.click(screen.getByTitle('여기서 사이드 채팅 만들기'))
+
+  expect(createSideChatTab).toHaveBeenCalledWith('block-1')
+})
+
+it('이 지점에서 만든 사이드 채팅이 있으면 칩으로 보여주고, 누르면 그 채팅을 연다', () => {
+  const openChat = vi.fn()
+  useChatStore.setState({
+    openChat,
+    sideChatsByBlockId: {
+      'block-1': [{ chatId: 'side-1', title: '탐색 대화', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-1', parentMessageBlockId: 'block-1', rootChatId: 'chat-1' }],
+    },
+  })
+  render(<MessageBlockItem block={block} />)
+
+  const chip = screen.getByTitle('사이드 채팅 열기')
+  expect(chip.textContent).toContain('탐색 대화')
+  fireEvent.click(chip)
+
+  expect(openChat).toHaveBeenCalledWith('side-1')
 })
 
 it('사용자 메시지는 오른쪽에, AI 답변은 왼쪽에 둔다', () => {
