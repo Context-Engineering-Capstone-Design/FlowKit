@@ -1,6 +1,23 @@
 # 0820_11 Projects
 
-- 상태: 계획
+- 상태: 부분 완료
+
+## 구현 결과
+
+- 기준 코드 커밋: `a660f76`
+- Project 생성·조회·수정·삭제 API와 대화 이동을 구현했다. 메인 대화를 이동하면 모든 사이드 채팅도 같은 Project로 이동한다.
+- Project 설정 창에서 전용 지침, 본문형 메모리, Library 자료를 관리하고 현재 대화를 Project로 이동할 수 있다.
+- Project 지침·메모리는 소속 대화의 AI 입력 스냅샷에 자동 포함한다. Library 자료는 전송 시 선택된 자료만 포함·기록한다.
+- Project 삭제는 소속 대화, 메모리, Library 자료, 선택 이력을 함께 삭제한다.
+
+## 검증
+
+- `backend/.venv/bin/pytest backend/tests/test_project.py backend/tests/test_chat.py backend/tests/test_side_chat.py backend/tests/test_conversation.py -q` — 91 passed
+- `frontend/npm run build` — 통과
+
+## 제한 사항
+
+- Library 자료는 현재 제목·본문·선택 URL 형태의 텍스트 자료다. 파일 업로드형 Library는 별도 구현이 필요하다.
 
 ## 목표
 
@@ -64,17 +81,17 @@ Project
 
 ### 마일스톤 A · Project와 소속 관리
 
-- [ ] A1. Project 생성·조회·이름 변경·삭제 구조를 만든다.
-- [ ] A2. 대화가 하나의 Project에만 속하도록 저장·검증한다.
-- [ ] A3. Project 밖 대화를 Project로 이동하는 기능을 만든다.
-- [ ] A4. 대화의 브랜치·사이드 채팅 트리가 부모 메인 대화의 Project 소속을 따르도록 한다.
+- [x] A1. Project 생성·조회·이름 변경·삭제 구조를 만든다.
+- [x] A2. 대화가 하나의 Project에만 속하도록 저장·검증한다.
+- [x] A3. Project 밖 대화를 Project로 이동하는 기능을 만든다.
+- [x] A4. 대화의 브랜치·사이드 채팅 트리가 부모 메인 대화의 Project 소속을 따르도록 한다.
 
 ### 마일스톤 B · 지침과 Context 후보
 
-- [ ] B1. Project 전용 지침을 모든 소속 대화의 답변 입력에 자동 적용한다.
+- [x] B1. Project 전용 지침을 모든 소속 대화의 답변 입력에 자동 적용한다.
 - [ ] B2. 일반 사용자 지침, Project 지침, 개별 Context, 현재 사용자 요청의 우선순위를 검증한다.
 - [ ] B3. Project 설정의 메모리 탭에서 본문형 메모리를 추가·수정·삭제하게 한다.
-- [ ] B4. 등록된 Project 전용 메모리를 모든 소속 대화의 답변 입력에 자동 적용한다.
+- [x] B4. 등록된 Project 전용 메모리를 모든 소속 대화의 답변 입력에 자동 적용한다.
 - [ ] B5. Project에 Library 자료를 연결하고, 필요할 때 후보 Context로 검색·선택할 수 있게 한다.
 - [ ] B6. 과거 채팅 참고는 본인의 모든 대화에서 필요 시에만 검색하도록 유지한다.
 
@@ -82,7 +99,7 @@ Project
 
 - [ ] C1. Project 목록·상세 화면에서 소속 대화, 전용 메모리, 연결 자료를 관리한다.
 - [ ] C2. 대화 이동 시 기존 소속과 새 소속을 명확히 안내한다.
-- [ ] C3. Project 삭제 전 삭제 대상 대화·자료와 되돌릴 수 없음을 확인받는다.
+- [x] C3. Project 삭제 전 삭제 대상 대화·자료와 되돌릴 수 없음을 확인받는다.
 - [ ] C4. 삭제 뒤 목록·검색·Library·과거 채팅 참고에서 대상이 제외되게 한다.
 
 ### 마일스톤 D · 검증
