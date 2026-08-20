@@ -2,6 +2,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  GitBranch,
   Pencil,
   RotateCw,
   Split,
@@ -29,6 +30,7 @@ interface Props {
   onRegenerate: () => ActionResult
   onStartEdit: () => ActionResult
   onOpenSideChat: () => ActionResult
+  onCreateBranch: () => ActionResult
 }
 
 // 메시지의 버전 이동, 평가, 복사, 수정, Context 편집, 분기 동작을 모아 보여준다
@@ -47,6 +49,7 @@ export function MessageBlockActions({
   onRegenerate,
   onStartEdit,
   onOpenSideChat,
+  onCreateBranch,
 }: Props) {
   const showNotification = useNotificationStore((state) => state.show)
 
@@ -166,6 +169,9 @@ export function MessageBlockActions({
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
+      )}
+      {eligibleForReuse && (
+        <button type="button" onClick={() => void onCreateBranch()} title="여기서 브랜치 생성" aria-label="여기서 브랜치 생성" className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"><GitBranch className="h-3.5 w-3.5" /></button>
       )}
       {eligibleForReuse && (
         <button

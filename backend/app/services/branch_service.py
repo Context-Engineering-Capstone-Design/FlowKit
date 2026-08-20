@@ -134,7 +134,10 @@ def create_branch(
     """선택 Context 기반 브랜치 생성 (BE-BRANCH-003, 004, 005)."""
     name = (branch_name or "").strip()
     if not name:
-        raise ValidationError("브랜치 이름을 입력해주세요.")
+        number = 1
+        while db.scalar(select(Branch.id).where(Branch.chat_id == chat.id, Branch.name == f"브랜치 {number}")):
+            number += 1
+        name = f"브랜치 {number}"
     if len(name) > MAX_BRANCH_NAME_LENGTH:
         raise ValidationError(
             f"브랜치 이름은 {MAX_BRANCH_NAME_LENGTH}자를 넘을 수 없습니다."

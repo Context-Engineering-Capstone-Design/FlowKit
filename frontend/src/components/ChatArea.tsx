@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, GitBranch, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
@@ -17,11 +17,10 @@ interface Props {
   onToggleSidebar: () => void
   panelOpen: boolean
   onTogglePanel: () => void
-  onCreateBranch: () => void
 }
 
 // 중앙 채팅 영역 — 메시지 블록 목록과 입력창
-export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePanel, onCreateBranch }: Props) {
+export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePanel }: Props) {
   const chatTitle = useChatStore((s) => s.chatTitle)
   const chatId = useChatStore((s) => s.chatId)
   const blocks = useChatStore((s) => s.blocks)
@@ -201,16 +200,6 @@ export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePane
           ) : null}
         </div>
         <div className="flex items-center gap-1.5">
-        {chatId && (
-          <button
-            type="button"
-            onClick={onCreateBranch}
-            className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[12px] text-txt-2 transition hover:text-txt-0"
-          >
-            <GitBranch className="h-3.5 w-3.5" />
-            브랜치 생성
-          </button>
-        )}
         <button
           type="button"
           onClick={onTogglePanel}

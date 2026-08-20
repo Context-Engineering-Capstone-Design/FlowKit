@@ -64,7 +64,7 @@ export async function fetchBranch(
 export async function createBranch(
   chatId: string,
   payload: {
-    branchName: string
+    branchName?: string
     baseBranchId: string
     baseMessageBlockId: string
     contextBlockIds: string[]

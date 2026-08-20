@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { BranchModal } from '@/components/BranchModal'
 import { ApiKeyModal } from '@/components/ApiKeyModal'
 import { ChatArea } from '@/components/ChatArea'
 import { ContextPanel } from '@/components/ContextPanel'
@@ -61,10 +60,6 @@ function Workspace() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [panelWidth, setPanelWidth] = useState(() => Number(sessionStorage.getItem('flowkit_context_panel_width')) || 310)
   const openDefaultChat = useChatStore((s) => s.openDefaultChat)
-  const blocks = useChatStore((s) => s.blocks)
-  const branchDraft = useChatStore((s) => s.branchDraft)
-  const openBranchModal = useChatStore((s) => s.openBranchModal)
-  const closeBranchModal = useChatStore((s) => s.closeBranchModal)
   const contextPanelSignal = useChatStore((s) => s.contextPanelSignal)
   const draftText = useChatStore((s) => s.draftText)
   const attachmentCount = useChatStore((s) => s.draftAttachments.length)
@@ -103,7 +98,6 @@ function Workspace() {
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         panelOpen={panelOpen}
         onTogglePanel={() => setPanelOpen((v) => !v)}
-        onCreateBranch={() => openBranchModal(blocks.at(-1)?.blockId ?? '', undefined, 'header')}
       />
       <ContextPanel
         open={panelOpen}
@@ -115,13 +109,6 @@ function Workspace() {
         window.addEventListener('pointermove', move)
         window.addEventListener('pointerup', end)
       }} />
-      {branchDraft && (
-        <BranchModal
-          onClose={closeBranchModal}
-          initialBaseBlockId={branchDraft.baseBlockId}
-          editedBaseContent={branchDraft.editedBaseContent}
-        />
-      )}
       <UserProfileModal />
       <ApiKeyModal />
     </div>

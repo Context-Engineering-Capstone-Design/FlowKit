@@ -47,7 +47,6 @@ function renderChat() {
       onToggleSidebar={() => undefined}
       panelOpen={false}
       onTogglePanel={() => undefined}
-      onCreateBranch={() => undefined}
     />,
   )
   return { renameChat }
@@ -135,7 +134,6 @@ it('새 채팅이 없으면 상단 제목을 보여주지 않는다', () => {
       onToggleSidebar={() => undefined}
       panelOpen={false}
       onTogglePanel={() => undefined}
-      onCreateBranch={() => undefined}
     />,
   )
 

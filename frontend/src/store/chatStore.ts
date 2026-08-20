@@ -285,6 +285,7 @@ interface ChatState {
     contextBlockIds: string[],
     editedBaseContent?: string,
   ) => Promise<boolean>
+  createBranchAt: (baseBlockId: string) => Promise<boolean>
   /** Context pill 을 눌렀을 때 원본 블록 위치로 이동한다 (REQ-012) */
   jumpToSource: (item: SourceContextItem) => Promise<void>
   highlightedBlockId: string | null
@@ -1338,6 +1339,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } finally {
       set({ isCreatingBranch: false })
     }
+  },
+  async createBranchAt(baseBlockId) {
+    return get().createBranch('', baseBlockId, [])
   },
 
   async jumpToSource(item) {

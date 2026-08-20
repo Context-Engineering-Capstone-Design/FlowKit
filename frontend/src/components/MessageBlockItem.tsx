@@ -39,7 +39,7 @@ export function MessageBlockItem({ block, refine }: Props) {
   const versions = useChatStore((s) => s.versionsByBlock[block.blockId])
   const loadVersions = useChatStore((s) => s.loadVersions)
   const setActiveVersion = useChatStore((s) => s.setActiveVersion)
-  const openBranchModal = useChatStore((s) => s.openBranchModal)
+  const createBranchAt = useChatStore((s) => s.createBranchAt)
   const openRefine = useChatStore((s) => s.openRefine)
   const createSideChatTab = useChatStore((s) => s.createSideChatTab)
   const openChat = useChatStore((s) => s.openChat)
@@ -229,7 +229,7 @@ export function MessageBlockItem({ block, refine }: Props) {
               busy={editBusy}
               onDraftChange={setEditingDraft}
               onCancel={cancelEdit}
-              onSaveBranch={() => openBranchModal(block.blockId, draft)}
+              onSaveBranch={() => void createBranchAt(block.blockId)}
               onSave={() => saveEdit(block.blockId, draft)}
             />
           </div>
@@ -312,6 +312,7 @@ export function MessageBlockItem({ block, refine }: Props) {
             onRegenerate={() => regenerate(block.blockId)}
             onStartEdit={() => startEdit(block.blockId, block.content)}
             onOpenSideChat={() => createSideChatTab(block.blockId)}
+            onCreateBranch={() => createBranchAt(block.blockId)}
           />
         )}
       </div>

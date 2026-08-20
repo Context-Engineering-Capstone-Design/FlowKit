@@ -208,7 +208,7 @@ class BranchDetailResponse(BaseModel):
 
 
 class CreateBranchRequest(BaseModel):
-    branch_name: str = Field(..., alias="branchName")
+    branch_name: str = Field("", alias="branchName")
     base_branch_id: uuid.UUID = Field(..., alias="baseBranchId")
     base_message_block_id: uuid.UUID = Field(..., alias="baseMessageBlockId")
     context_block_ids: list[uuid.UUID] = Field(
