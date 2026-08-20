@@ -55,6 +55,19 @@ class SearchSource:
 
 
 @dataclass(frozen=True)
+class TokenUsage:
+    """공급자가 응답에 실어 준 토큰 사용량 (AI-ANSWER-006).
+
+    질문·답변 원문은 담지 않는다. 공급자가 사용량을 안 주면 이 값 자체를
+    만들지 않는다 — 0으로 채워 넣지 않는다.
+    """
+
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+
+
+@dataclass(frozen=True)
 class RefineTarget:
     """정제할 블록 하나. content 는 실행 시점의 활성 버전 본문이다."""
 
@@ -101,10 +114,17 @@ class AnswerResult:
 
     search_sources 는 웹 검색으로 답한 경우에만 채워진다. 검색을 켰더라도
     모델이 검색을 쓰지 않았으면 비어 있다.
+
+    web_search_invoked 는 공급자가 실제로 검색 도구를 실행했다는 신호
+    (AI-SEARCH-003)다. search_sources 가 비어 있어도 실제로는 검색했을 수
+    있고, 반대로 이 값이 False 인데 인용만 남는 경우는 없다고 본다. usage
+    는 공급자가 사용량을 안 주면 None 이다 — 0으로 추정하지 않는다.
     """
 
     text: str
     search_sources: list[SearchSource] = field(default_factory=list)
+    web_search_invoked: bool = False
+    usage: TokenUsage | None = None
 
 
 @dataclass(frozen=True)

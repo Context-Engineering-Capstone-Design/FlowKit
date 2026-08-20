@@ -12,7 +12,7 @@ from modeling import attachments as attach
 from modeling.llm import get_chat_model, resolve_api_key
 from modeling.models import resolve_model
 from modeling.prompts import answer as prompt
-from modeling.types import AnswerChunk, AnswerRequest, AnswerResult, SearchSource
+from modeling.types import AnswerChunk, AnswerRequest, AnswerResult, SearchSource, TokenUsage
 
 
 class EmptyAnswerError(ValueError):
@@ -95,7 +95,12 @@ def generate_answer(
     text = _text_of(response).strip()
     if not text:
         raise EmptyAnswerError("모델이 빈 응답을 돌려줬습니다.")
-    return AnswerResult(text=text, search_sources=extract_sources(response))
+    return AnswerResult(
+        text=text,
+        search_sources=extract_sources(response),
+        web_search_invoked=web_search_invoked(response),
+        usage=extract_usage(response),
+    )
 
 
 def generate_answer_stream(
@@ -146,7 +151,15 @@ def generate_answer_stream(
     sources = extract_sources(accumulated) if accumulated is not None else []
     if sources:
         yield AnswerChunk(type="sources", sources=sources)
-    yield AnswerChunk(type="done", result=AnswerResult(text=text, search_sources=sources))
+    yield AnswerChunk(
+        type="done",
+        result=AnswerResult(
+            text=text,
+            search_sources=sources,
+            web_search_invoked=web_search_invoked(accumulated) if accumulated is not None else False,
+            usage=extract_usage(accumulated) if accumulated is not None else None,
+        ),
+    )
 
 
 def _text_of(response) -> str:
@@ -196,3 +209,38 @@ def extract_sources(response) -> list[SearchSource]:
             seen.add(url)
             sources.append(SearchSource(title=annotation.get("title") or url, url=url))
     return sources
+
+
+def web_search_invoked(response) -> bool:
+    """공급자가 실제로 검색 도구를 실행했다는 신호가 있는지 본다 (AI-SEARCH-003).
+
+    OpenAI Responses API 는 검색 도구가 실제로 돌면 본문 블록과 별도로
+    `web_search_call` 타입 블록을 응답에 함께 싣는다. 인용(url_citation)이
+    없어도 이 블록이 있으면 검색은 실행된 것이다 — 반대로 이 신호가 없으면
+    검색이 실제로 일어났다고 추정하지 않는다(0820_06 B4, B5).
+    """
+    content = getattr(response, "content", None)
+    if not isinstance(content, list):
+        return False
+    return any(
+        isinstance(block, dict) and block.get("type") == "web_search_call" for block in content
+    )
+
+
+def extract_usage(response) -> TokenUsage | None:
+    """공급자가 응답에 실어 준 토큰 사용량을 꺼낸다 (0820_06 D4).
+
+    langchain-openai 는 지원하는 모델의 응답에 `usage_metadata` 를 담아
+    준다. 없으면 추정하지 않고 None 을 돌려준다 — 사용량 미상은 0과 다르다.
+    """
+    usage = getattr(response, "usage_metadata", None)
+    if not usage:
+        return None
+    input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
+    total_tokens = usage.get("total_tokens")
+    if input_tokens is None or output_tokens is None or total_tokens is None:
+        return None
+    return TokenUsage(
+        input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens
+    )

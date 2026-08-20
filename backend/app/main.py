@@ -18,6 +18,7 @@ from app.exceptions import (
     validation_error_handler,
 )
 from app.routers import (
+    ai_execution,
     auth,
     chat,
     conversation,
@@ -80,6 +81,7 @@ app.include_router(conversation.router)
 app.include_router(user_setting.router)
 app.include_router(input_assist.router)
 app.include_router(observability.router)
+app.include_router(ai_execution.router)
 
 
 @app.get("/health")

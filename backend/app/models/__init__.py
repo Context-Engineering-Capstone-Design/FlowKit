@@ -1,5 +1,11 @@
 from app.models.base import Base
 from app.models.ai_response import AiResponseJob, AiResponseJobStatus, AiResponseJobType
+from app.models.ai_execution import (
+    AiDeliveryTiming,
+    AiExecutionEvent,
+    AiExecutionEventKind,
+    AiExecutionEventStatus,
+)
 from app.models.attachment import Attachment, AttachmentStatus, MessageAttachment
 from app.models.chat import (
     Branch,
@@ -64,4 +70,8 @@ __all__ = [
     "ClientErrorLog",
     "UserApiKey",
     "ApiKeyConnectionStatus",
+    "AiExecutionEvent",
+    "AiExecutionEventKind",
+    "AiExecutionEventStatus",
+    "AiDeliveryTiming",
 ]

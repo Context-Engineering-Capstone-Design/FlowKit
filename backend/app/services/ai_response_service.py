@@ -9,12 +9,13 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.exceptions import AiInputSnapshotIncompleteError, AiInputSnapshotNotFoundError, AiJobNotFoundError, AiJobNotRetryableError, AppError, ValidationError
 from app.models import AiResponseFeedback, AiResponseJob, AiResponseJobStatus, AiResponseJobType, AiResponseRating, Branch, BlockGenerationStatus, Chat, MessageBlock, MessageRole, User, VersionSourceType
-from app.services import chat_service, context_service, input_assist_service, message_service, streaming_service, user_setting_service
+from app.services import ai_execution_service, chat_service, context_service, input_assist_service, message_service, streaming_service, user_setting_service
 from modeling import EmptyAnswerError
 
 # 백그라운드 스레드가 새 DB 세션을 열 때 쓰는 팩토리. 요청 스레드는 DbSession
@@ -84,6 +85,7 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     job.status = AiResponseJobStatus.GENERATING
     db.add(job); db.commit(); db.refresh(user_block); db.refresh(assistant_block); db.refresh(job)
     _pin_current_version(assistant_block)
+    ai_execution_service.record_input_events(db, job, snapshot); db.commit()
 
     titled = is_first and chat.title == chat_service.DEFAULT_TITLE and _try_generate_title(db, chat, prompt, api_key, titler)
 
@@ -109,6 +111,7 @@ def regenerate(db: Session, user: User, chat: Chat, branch: Branch, block_id: uu
     job.assistant_message_block_id = block.id
     job.status = AiResponseJobStatus.GENERATING
     db.add(job); db.commit(); db.refresh(job)
+    ai_execution_service.record_input_events(db, job, origin.input_snapshot); db.commit()
 
     _start_job(job.id, block.id, block.current_version_id, chat.id, user.id, origin.input_snapshot, api_key, answerer)
 
@@ -130,6 +133,7 @@ def retry_failed_job(db: Session, user: User, chat: Chat, branch: Branch, job_id
     job.status = AiResponseJobStatus.GENERATING
     db.add(job); db.commit(); db.refresh(assistant_block); db.refresh(job)
     _pin_current_version(assistant_block)
+    ai_execution_service.record_input_events(db, job, failed.input_snapshot); db.commit()
 
     snapshot = failed.input_snapshot
     titled = (
@@ -188,6 +192,9 @@ def cleanup_stuck_jobs(db: Session) -> int:
     for job in stuck:
         job.status = AiResponseJobStatus.FAILED
         job.error_code, job.error_message = "AI_SERVER_RESTARTED", "서버가 재시작되어 답변 생성이 중단되었습니다."
+        # 재시작 전 진행 상황(생성 시작·첫 조각 시각)은 이 프로세스가 몰라 남기지
+        # 않는다 — 정리 시각과 사유만 남긴다(0820_06 A3).
+        job.finished_at = datetime.now(UTC)
         block = db.get(MessageBlock, job.assistant_message_block_id) if job.assistant_message_block_id else None
         if block is not None and block.generation_status is BlockGenerationStatus.GENERATING:
             block.generation_status = BlockGenerationStatus.FAILED
@@ -214,12 +221,15 @@ def _run_generation_job(job_id, block_id, version_id, chat_id, user_id, snapshot
     db = session_factory()
     try:
         job = db.get(AiResponseJob, job_id)
+        job.generation_started_at = datetime.now(UTC)
         chat = db.get(Chat, chat_id)
         block = db.get(MessageBlock, block_id)
         user = db.get(User, user_id)
 
         parts: list[str] = []
         sources_payload: list[dict] | None = None
+        search_invoked = False
+        usage = None
         error_code = error_message = None
         cancelled = False
 
@@ -232,6 +242,11 @@ def _run_generation_job(job_id, block_id, version_id, chat_id, user_id, snapshot
             try:
                 for chunk in gen:
                     if chunk.type == "text":
+                        if job.first_chunk_at is None:
+                            # 본문 중간 저장 주기(최대 1.5초)와 별개로 즉시 남긴다 —
+                            # 이 값은 관측 조회가 곧바로 봐야 의미가 있다(0820_06 A1).
+                            job.first_chunk_at = datetime.now(UTC)
+                            db.commit()
                         parts.append(chunk.delta)
                         streaming_service.publish_text(job_id, chunk.delta)
                         now = time.monotonic()
@@ -245,6 +260,8 @@ def _run_generation_job(job_id, block_id, version_id, chat_id, user_id, snapshot
                     elif chunk.type == "done":
                         parts = [chunk.result.text]
                         sources_payload = _sources_payload(chunk.result.search_sources)
+                        search_invoked = chunk.result.web_search_invoked
+                        usage = chunk.result.usage
                     elif chunk.type == "error":
                         error_code, error_message = _classify_error(RuntimeError(chunk.error))
                     if streaming_service.is_cancel_requested(job_id):
@@ -274,6 +291,14 @@ def _run_generation_job(job_id, block_id, version_id, chat_id, user_id, snapshot
         message_service.finalize_streaming_block(db, chat, version_id, block, final_text, status, sources_payload)
         job.status = job_status
         job.error_code, job.error_message = error_code, error_message
+        job.finished_at = datetime.now(UTC)
+        job.usage_summary = ai_execution_service.build_usage_summary(
+            snapshot.get("selectedModelId") or "", _provider_for(snapshot.get("selectedModelId")), usage
+        )
+        ai_execution_service.record_search_event(
+            db, job, snapshot.get("webSearchMode", "off"),
+            job.generation_started_at or job.finished_at, len(sources_payload or []), search_invoked,
+        )
         if status is BlockGenerationStatus.COMPLETE:
             job.result_version_id = version_id
         db.commit()
@@ -294,6 +319,16 @@ def _request_from_snapshot(db, user, chat, snapshot):
 
 def _make_snapshot(prompt, flow, context_items, model_id, web_search_mode, attachments, reasoning_effort="medium") -> dict:
     return {"schemaVersion": 1, "userPrompt": prompt, "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow], "appliedContext": [{"blockId": str(x.block_id), "versionId": str(x.version_id), "content": x.content, "orderIndex": x.order_index} for x in context_items], "selectedModelId": model_id, "webSearchMode": web_search_mode, "reasoningEffort": reasoning_effort, "attachmentIds": [str(x.id) for x in attachments]}
+
+
+def _provider_for(model_id: str | None) -> str:
+    """usage_summary에 남길 공급자명을 찾는다. 모델을 못 찾으면 'unknown'."""
+    from modeling import UnsupportedModelError, resolve_model
+
+    try:
+        return resolve_model(model_id).provider
+    except UnsupportedModelError:
+        return "unknown"
 
 
 def _sources_payload(sources: list) -> list[dict] | None:

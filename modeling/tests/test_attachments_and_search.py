@@ -14,7 +14,7 @@ from modeling.attachments import (
     AttachmentNotReadableError,
     AttachmentNotSupportedError,
 )
-from modeling.chains.answer import build_messages, extract_sources
+from modeling.chains.answer import build_messages, extract_sources, extract_usage, web_search_invoked
 from modeling.types import Attachment, AnswerRequest
 
 
@@ -185,3 +185,37 @@ def test_annotation_without_url_is_skipped():
         content=[{"type": "text", "text": "답변", "annotations": [{"type": "url_citation"}]}],
     )
     assert extract_sources(response) == []
+
+
+# ── 웹 검색 실제 실행 신호 (AI-SEARCH-003, 0820_06 B4·B5) ──────────────────────
+
+
+def test_web_search_invoked_true_when_provider_reports_a_search_call():
+    response = AIMessage(
+        content=[
+            {"type": "web_search_call", "status": "completed"},
+            {"type": "text", "text": "답변", "annotations": []},
+        ],
+    )
+    assert web_search_invoked(response) is True
+
+
+def test_web_search_invoked_false_without_provider_signal():
+    """인용이 없고 공급자 신호도 없으면 실제 실행 여부를 확정하지 않는다."""
+    assert web_search_invoked(AIMessage(content="답변")) is False
+    assert web_search_invoked(AIMessage(content=[{"type": "text", "text": "답변"}])) is False
+
+
+# ── 토큰 사용량 (0820_06 D4) ─────────────────────────────────────────────────
+
+
+def test_extract_usage_reads_provider_usage_metadata():
+    response = AIMessage(content="답변")
+    response.usage_metadata = {"input_tokens": 120, "output_tokens": 40, "total_tokens": 160}
+    usage = extract_usage(response)
+    assert (usage.input_tokens, usage.output_tokens, usage.total_tokens) == (120, 40, 160)
+
+
+def test_extract_usage_is_none_without_provider_usage():
+    """공급자가 사용량을 안 주면 0으로 채우지 않고 None을 돌려준다."""
+    assert extract_usage(AIMessage(content="답변")) is None

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import enum
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Enum, ForeignKey, JSON, String
+from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -43,3 +44,14 @@ class AiResponseJob(Base, TimestampMixin):
     input_snapshot: Mapped[dict] = mapped_column(JSON)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    # 실행 시간 기록 (0820_06 마일스톤 A). created_at은 작업이 요청된 시각이고,
+    # generation_started_at은 백그라운드 생성이 실제로 시작된 시각이다. 서버가
+    # 재시작돼 정리된 작업은 generation_started_at·first_chunk_at 없이
+    # finished_at·error_code만 남는다(A3).
+    generation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_chunk_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 공급자 토큰 사용량과 비용 요약 (0820_06 D4). 신뢰할 수 있는 사용량이
+    # 없으면 {"measured": False}만 남긴다 — 질문·답변 원문은 담지 않는다.
+    usage_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
