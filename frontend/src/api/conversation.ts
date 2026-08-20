@@ -20,7 +20,7 @@ export async function sendMessage(
   branchId: string,
   userPrompt: string,
   contextBlockIds: string[] = [],
-  options: { selectedModelId: string | null; webSearchMode: WebSearchMode; reasoningEffort: ReasoningEffort; attachmentIds: string[] } = { selectedModelId: null, webSearchMode: 'off', reasoningEffort: 'medium', attachmentIds: [] },
+  options: { selectedModelId: string | null; webSearchMode: WebSearchMode; reasoningEffort: ReasoningEffort; attachmentIds: string[] } = { selectedModelId: null, webSearchMode: 'auto', reasoningEffort: 'medium', attachmentIds: [] },
 ): Promise<SendMessageResponse> {
   const { data } = await api.post<SendMessageResponse>(
     `/api/chats/${chatId}/branches/${branchId}/messages`,

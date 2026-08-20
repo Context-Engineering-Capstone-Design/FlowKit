@@ -191,20 +191,20 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
   })
 
-  it('기본 웹 검색 상태는 끄기이고, 고른 상태 그대로 전송한다 (AI-SEARCH-001)', async () => {
+  it('기본 웹 검색 상태는 자동이고, 고른 상태 그대로 전송한다 (AI-SEARCH-001)', async () => {
     convApi.sendMessage.mockResolvedValue({
       userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
       assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답변', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
       chatTitle: '대화',
       titleGenerated: false,
     })
-    expect(useChatStore.getState().webSearchMode).toBe('off')
+    expect(useChatStore.getState().webSearchMode).toBe('auto')
 
     await useChatStore.getState().sendMessage('질문')
 
     expect(convApi.sendMessage).toHaveBeenCalledWith(
       'chat-1', 'branch-1', '질문', [],
-      expect.objectContaining({ webSearchMode: 'off' }),
+      expect.objectContaining({ webSearchMode: 'auto' }),
     )
 
     useChatStore.getState().setWebSearchMode('always')

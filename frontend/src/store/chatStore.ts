@@ -320,7 +320,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   focusSignal: 0,
   draftText: '',
   selectedModelId: null,
-  webSearchMode: 'off',
+  webSearchMode: 'auto',
   reasoningEffort: 'medium',
   draftAttachments: [],
   models: [],
@@ -443,7 +443,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       models: [],
       selectedModelId: null,
-      webSearchMode: 'off',
+      webSearchMode: 'auto',
       reasoningEffort: 'medium',
       isModelListLoading: false,
       pendingByBlockId: {},
@@ -811,7 +811,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }))
       get().clearDraft()
       useNotificationStore.getState().dismissBanner('api-key-required')
-      useNotificationStore.getState().show('메시지를 전송했습니다.', 'success')
       void get().attachToJob(res.assistantBlock.blockId, res.aiResponseJobId, clickedAt)
       if (res.titleGenerated) await get().loadChats()
     } catch (e) {
