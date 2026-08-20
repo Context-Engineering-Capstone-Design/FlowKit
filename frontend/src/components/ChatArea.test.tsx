@@ -12,6 +12,15 @@ afterEach(cleanup)
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   Element.prototype.scrollTo = vi.fn()
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 function renderChat() {

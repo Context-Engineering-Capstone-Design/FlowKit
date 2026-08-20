@@ -1,13 +1,15 @@
 import { ArrowDown, ArrowUp, GitBranch, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
 import { ModelSelector } from '@/components/ModelSelector'
 import { MessageBlockItem } from '@/components/MessageBlockItem'
+import { ConversationOutline } from '@/components/ConversationOutline'
 import { SourceContextBanner } from '@/components/SourceContextBanner'
 import { WebSearchToggle } from '@/components/WebSearchToggle'
 import { ReasoningEffortSelector } from '@/components/ReasoningEffortSelector'
 import { useChatStore } from '@/store/chatStore'
+import { buildConversationOutline } from '@/lib/conversationOutline'
 
 interface Props {
   sidebarOpen: boolean
@@ -39,6 +41,8 @@ export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePane
   const lastBlockContent = blocks.length ? blocks[blocks.length - 1].content : ''
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const outlineTurns = useMemo(() => buildConversationOutline(blocks), [blocks])
   // 사용자가 위로 스크롤하면 자동으로 따라 내려가지 않는다 (문서 C7).
   const [autoFollow, setAutoFollow] = useState(true)
   const NEAR_BOTTOM_PX = 80
@@ -227,16 +231,21 @@ export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePane
 
       <SourceContextBanner />
 
-      <div ref={scrollRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto pb-4">
-        {!chatId && <EmptyState />}
-        {blocks.map((b) => (
-          <MessageBlockItem
-            key={b.blockId}
-            block={b}
-            refine={refineByBlock.get(b.blockId)}
-          />
-        ))}
-        <div ref={bottomRef} />
+      <div className="relative flex-1 overflow-hidden">
+        <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto pb-4">
+          <div ref={contentRef}>
+            {!chatId && <EmptyState />}
+            {blocks.map((b) => (
+              <MessageBlockItem
+                key={b.blockId}
+                block={b}
+                refine={refineByBlock.get(b.blockId)}
+              />
+            ))}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+        <ConversationOutline containerRef={scrollRef} contentRef={contentRef} turns={outlineTurns} />
       </div>
 
       {!autoFollow && (
