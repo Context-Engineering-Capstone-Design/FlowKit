@@ -15,6 +15,10 @@ const chatApi = vi.hoisted(() => ({
 const convApi = vi.hoisted(() => ({
   fetchFeedback: vi.fn(),
   sendMessage: vi.fn(),
+  regenerate: vi.fn(),
+  retryAiResponseJob: vi.fn(),
+  cancelAiResponseJob: vi.fn(),
+  openAiResponseStream: vi.fn().mockResolvedValue(undefined),
   fetchRefineJob: vi.fn(),
   approveResult: vi.fn(),
   rejectResult: vi.fn(),
@@ -175,6 +179,31 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
   })
 
+  it('기본 웹 검색 상태는 끄기이고, 고른 상태 그대로 전송한다 (AI-SEARCH-001)', async () => {
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답변', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      chatTitle: '대화',
+      titleGenerated: false,
+    })
+    expect(useChatStore.getState().webSearchMode).toBe('off')
+
+    await useChatStore.getState().sendMessage('질문')
+
+    expect(convApi.sendMessage).toHaveBeenCalledWith(
+      'chat-1', 'branch-1', '질문', [],
+      expect.objectContaining({ webSearchMode: 'off' }),
+    )
+
+    useChatStore.getState().setWebSearchMode('always')
+    await useChatStore.getState().sendMessage('질문')
+
+    expect(convApi.sendMessage).toHaveBeenLastCalledWith(
+      'chat-1', 'branch-1', '질문', [],
+      expect.objectContaining({ webSearchMode: 'always' }),
+    )
+  })
+
   it('질문이 저장되기 전에 실패하면 입력 내용을 그대로 남긴다 (FE-INPUT-006)', async () => {
     convApi.sendMessage.mockRejectedValue({
       isAxiosError: true,
@@ -266,5 +295,71 @@ describe('chatStore 화면 상태', () => {
     expect(convApi.sendMessage).toHaveBeenCalledWith('chat-new', 'branch-new', '질문', [], expect.anything())
     expect(useChatStore.getState().chatId).toBe('chat-new')
     expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
+  })
+
+  it('전송 뒤 빈 답변 블록에 스트리밍 통로로 도착한 글자를 이어 붙인다 (FE-AIRESP-005)', async () => {
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
+      chatTitle: '대화',
+      titleGenerated: false,
+      aiResponseJobId: 'job-1',
+      jobStatus: 'generating',
+    })
+    convApi.openAiResponseStream.mockImplementation(async (_c, _b, _j, handlers) => {
+      handlers.onText?.('안')
+      handlers.onText?.('녕')
+      handlers.onDone?.({ status: 'completed', content: '안녕', sources: [], error: null })
+    })
+
+    await useChatStore.getState().sendMessage('질문')
+
+    expect(convApi.openAiResponseStream).toHaveBeenCalledWith(
+      'chat-1', 'branch-1', 'job-1', expect.anything(), expect.any(AbortSignal),
+    )
+    const block = useChatStore.getState().blocks.find((b) => b.blockId === 'a1')
+    expect(block?.content).toBe('안녕')
+    expect(block?.generationStatus).toBe('complete')
+  })
+
+  it('중단하면 서버가 돌려준 그때까지의 본문으로 블록을 확정한다 (BE-AIRESP-008)', async () => {
+    useChatStore.setState({
+      blocks: [
+        { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '안', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-1' },
+      ],
+    })
+    convApi.cancelAiResponseJob.mockResolvedValue({
+      blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '안녕', currentVersionId: 'v1', versionNo: 1, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'cancelled',
+    })
+
+    await useChatStore.getState().cancelGeneration('a1')
+
+    expect(convApi.cancelAiResponseJob).toHaveBeenCalledWith('chat-1', 'branch-1', 'job-1')
+    const block = useChatStore.getState().blocks.find((b) => b.blockId === 'a1')
+    expect(block?.content).toBe('안녕')
+    expect(block?.generationStatus).toBe('cancelled')
+    expect(block?.generationJobId).toBeNull()
+  })
+
+  it('대화를 열 때 아직 생성 중인 블록이 있으면 자동으로 다시 붙는다 (문서 C6)', async () => {
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: { chatId: 'chat-1', title: '대화' },
+      branchMeta: { branchId: 'branch-1' },
+      messageBlocks: [
+        { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '이어', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-1' },
+      ],
+      branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'a1', rating: null })
+    convApi.openAiResponseStream.mockImplementation(async (_c, _b, _j, handlers) => {
+      handlers.onDone?.({ status: 'completed', content: '이어서 완료', sources: [], error: null })
+    })
+
+    await useChatStore.getState().openChat('chat-1', 'branch-1')
+
+    expect(convApi.openAiResponseStream).toHaveBeenCalledWith(
+      'chat-1', 'branch-1', 'job-1', expect.anything(), expect.any(AbortSignal),
+    )
+    expect(useChatStore.getState().blocks[0].content).toBe('이어서 완료')
   })
 })

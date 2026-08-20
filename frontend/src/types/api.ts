@@ -80,6 +80,9 @@ export interface BranchListItem extends BranchMeta {
 
 export type MessageRole = 'user' | 'assistant'
 
+/** 답변 생성 진행 상태 (BE-AIRESP-007~009). 사용자 블록은 항상 complete다. */
+export type GenerationStatus = 'generating' | 'complete' | 'cancelled' | 'failed'
+
 export interface MessageBlock {
   blockId: string
   branchId: string
@@ -92,6 +95,9 @@ export interface MessageBlock {
   createdAt: string
   attachments: AttachmentResponse[]
   searchSources: SearchSource[]
+  generationStatus: GenerationStatus
+  /** generating일 때만 값이 있다. 스트리밍 통로에 (다시) 붙을 때 쓴다. */
+  generationJobId?: string | null
 }
 
 export interface ChatDetail {
@@ -181,6 +187,7 @@ export interface BlockResponse {
   createdAt: string
   attachments: AttachmentResponse[]
   searchSources: SearchSource[]
+  generationStatus: GenerationStatus
 }
 
 export interface AppliedContextOut {
@@ -196,7 +203,7 @@ export interface SendMessageResponse {
   chatTitle: string
   titleGenerated: boolean
   selectedModel: string
-  webSearchEnabled: boolean
+  webSearchMode: WebSearchMode
   reasoningEffort: ReasoningEffort
   attachments: AttachmentResponse[]
   searchSources: SearchSource[]
@@ -208,12 +215,13 @@ export interface AiResponseFailureDetail { aiResponseJobId: string; userMessageB
 export interface RegenerateResponse extends BlockResponse { aiResponseJobId: string; jobStatus: string }
 
 export interface ModelOption { modelId: string; displayName: string; provider: string; supportsWebSearch: boolean; supportsAttachment: boolean; isDefault: boolean; isAvailable: boolean; description: string; tags: string[] }
-export interface AttachmentResponse { attachmentId: string; fileName: string; mimeType: string; fileSize: number; status: 'temporary' | 'attached' | 'expired'; expiresAt: string | null }
+export interface AttachmentResponse { attachmentId: string; fileName: string; mimeType: string; fileSize: number; status: 'temporary' | 'attached' | 'expired'; expiresAt: string | null; previewUrl?: string | null }
 export interface SearchSource { title: string; url: string }
 export interface DraftAttachment { localId: string; attachmentId: string | null; file: File; fileName: string; mimeType: string; localUrl: string | null; status: 'uploading' | 'uploaded' | 'failed'; error: string | null }
 
 export type AiResponseRating = 'like' | 'dislike'
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type WebSearchMode = 'off' | 'auto' | 'always'
 
 export interface FeedbackResponse {
   aiMessageBlockId: string

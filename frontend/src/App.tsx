@@ -57,7 +57,8 @@ export default function App() {
 
 // 3단 작업 화면 — 좌측 대화·브랜치, 중앙 채팅, 우측 Context 편집 (NFR-001)
 function Workspace() {
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [panelOpen, setPanelOpen] = useState(false)
   const [panelWidth, setPanelWidth] = useState(() => Number(sessionStorage.getItem('flowkit_context_panel_width')) || 310)
   const openDefaultChat = useChatStore((s) => s.openDefaultChat)
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
@@ -101,18 +102,24 @@ function Workspace() {
 
   return (
     <div className="flex h-full">
-      <Sidebar />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <ChatArea
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
         panelOpen={panelOpen}
         onTogglePanel={() => setPanelOpen((v) => !v)}
         onCreateBranch={() => openBranchModal(blocks.at(-1)?.blockId ?? '', undefined, 'header')}
       />
-      {panelOpen && <ContextPanel onClose={() => setPanelOpen(false)} width={panelWidth} onResizeStart={() => {
+      <ContextPanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        width={panelWidth}
+        onResizeStart={() => {
         function move(event: PointerEvent) { resizePanel(event.clientX) }
         function end() { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end) }
         window.addEventListener('pointermove', move)
         window.addEventListener('pointerup', end)
-      }} />}
+      }} />
       {branchDraft && (
         <BranchModal
           onClose={closeBranchModal}

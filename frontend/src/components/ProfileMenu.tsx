@@ -49,7 +49,7 @@ export function ProfileMenu() {
   }
 
   return (
-    <><div ref={holderRef} className="relative border-t border-line">
+    <><div ref={holderRef} className="relative border-t border-line p-1.5">
       {isOpen && (
         <div className="absolute bottom-full left-2 right-2 z-40 mb-2 overflow-hidden rounded-xl border border-line bg-bg-2 p-1.5 shadow-2xl shadow-black/40">
           <div className="border-b border-line px-2.5 py-2.5">
@@ -84,7 +84,7 @@ export function ProfileMenu() {
         aria-expanded={isOpen}
         aria-haspopup="menu"
         onClick={() => setIsOpen((open) => !open)}
-        className="flex w-full items-center gap-2.5 px-3 py-3 text-left transition hover:bg-bg-2"
+        className="flex w-full items-center gap-2.5 px-2 py-3 text-left transition hover:bg-bg-2"
       >
         {user.profileImage ? (
           <img

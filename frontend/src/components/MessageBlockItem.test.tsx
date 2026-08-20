@@ -6,7 +6,7 @@ import { MessageBlockItem } from '@/components/MessageBlockItem'
 import { useChatStore } from '@/store/chatStore'
 import { useNotificationStore } from '@/store/notificationStore'
 
-const block = { blockId: 'block-1', branchId: 'branch-1', role: 'user' as const, content: '복사할 내용', currentVersionId: 'v1', versionNo: 1, orderIndex: 0, createdAt: new Date().toISOString(), attachments: [], searchSources: [] }
+const block = { blockId: 'block-1', branchId: 'branch-1', role: 'user' as const, content: '복사할 내용', currentVersionId: 'v1', versionNo: 1, orderIndex: 0, createdAt: new Date().toISOString(), attachments: [], searchSources: [], generationStatus: 'complete' as const }
 
 afterEach(cleanup)
 
@@ -74,6 +74,26 @@ it('첨부 파일 이름을 보여준다', () => {
   expect(screen.getByText('notes.md')).toBeTruthy()
 })
 
+it('이미지 첨부는 미리보기로 보여준다', () => {
+  const withImage = {
+    ...block,
+    attachments: [{
+      attachmentId: 'img-1',
+      fileName: 'screen.png',
+      mimeType: 'image/png',
+      fileSize: 20,
+      status: 'attached' as const,
+      expiresAt: null,
+      previewUrl: 'blob:image-preview',
+    }],
+  }
+  render(<MessageBlockItem block={withImage} />)
+
+  const image = screen.getByRole('img', { name: 'screen.png' })
+  expect(image.getAttribute('src')).toBe('blob:image-preview')
+  expect(screen.queryByText('screen.png')).toBeNull()
+})
+
 it('다른 브랜치에서 이어받은 답변은 재생성 버튼을 숨긴다', () => {
   const inherited = { ...block, role: 'assistant' as const, branchId: 'other-branch' }
   render(<MessageBlockItem block={inherited} />)
@@ -98,4 +118,51 @@ it('웹 검색 근거를 답변 아래에 보여준다', () => {
 
   const link = screen.getByRole('link', { name: '공식 문서' })
   expect(link.getAttribute('href')).toBe('https://example.com')
+})
+
+it('생성 중인 답변은 체크박스·Context·분기 버튼을 숨긴다 (D밀스톤)', () => {
+  const generating = { ...block, role: 'assistant' as const, content: '', generationStatus: 'generating' as const }
+  render(<MessageBlockItem block={generating} />)
+
+  expect(screen.queryByLabelText('Context로 선택')).toBeNull()
+  expect(screen.queryByTitle('Context 편집 시작')).toBeNull()
+  expect(screen.queryByTitle('여기서 브랜치 생성')).toBeNull()
+  expect(screen.getByText('생각하는 중…')).toBeTruthy()
+})
+
+it('아직 글자가 없는 생성 중 답변은 "생각하는 중"을 보여준다', () => {
+  const thinking = { ...block, role: 'assistant' as const, content: '', generationStatus: 'generating' as const }
+  render(<MessageBlockItem block={thinking} />)
+  expect(screen.getByText('생각하는 중…')).toBeTruthy()
+})
+
+it('중단된 답변에는 중단됨 배지를 붙인다', () => {
+  const cancelled = { ...block, role: 'assistant' as const, content: '여기까지만', generationStatus: 'cancelled' as const }
+  render(<MessageBlockItem block={cancelled} />)
+  expect(screen.getByText('중단됨')).toBeTruthy()
+  expect(screen.getByText('여기까지만')).toBeTruthy()
+  expect(screen.queryByLabelText('Context로 선택')).toBeNull()
+})
+
+it('실패한 답변에는 생성 실패 배지를 붙인다', () => {
+  const failed = { ...block, role: 'assistant' as const, content: '', generationStatus: 'failed' as const }
+  render(<MessageBlockItem block={failed} />)
+  expect(screen.getByText('생성 실패')).toBeTruthy()
+})
+
+it('닫히지 않은 코드 울타리는 스트리밍 중에만 임시로 닫아 그린다', () => {
+  const streaming = { ...block, role: 'assistant' as const, content: '```js\nconst a = 1', generationStatus: 'generating' as const }
+  const { container } = render(<MessageBlockItem block={streaming} />)
+  expect(container.querySelector('pre code')).not.toBeNull()
+})
+
+it('사용자 메시지는 오른쪽에, AI 답변은 왼쪽에 둔다', () => {
+  const { container: userEl } = render(<MessageBlockItem block={block} />)
+  expect(userEl.querySelector('.items-end')).not.toBeNull()
+  cleanup()
+
+  const assistant = { ...block, role: 'assistant' as const, content: '답변' }
+  const { container: aiEl } = render(<MessageBlockItem block={assistant} />)
+  expect(aiEl.querySelector('.items-start')).not.toBeNull()
+  expect(aiEl.querySelector('.rounded-2xl')).toBeNull()
 })

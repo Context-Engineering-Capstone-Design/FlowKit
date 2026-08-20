@@ -8,7 +8,9 @@ import remarkGfm from 'remark-gfm'
 import { MessageBlockActions } from '@/components/MessageBlockActions'
 import { MessageEditForm } from '@/components/MessageEditForm'
 import { useChatStore } from '@/store/chatStore'
-import type { MessageBlock, RefineResultItem, RefineStatus } from '@/types/api'
+import { closeUnterminatedMarkdown } from '@/lib/streamingMarkdown'
+import type { AttachmentResponse, MessageBlock, RefineResultItem, RefineStatus } from '@/types/api'
+import { fetchAttachmentFile } from '@/api/inputAssist'
 
 interface Props {
   block: MessageBlock
@@ -45,16 +47,22 @@ export function MessageBlockItem({ block, refine }: Props) {
   )
 
   const isUser = block.role === 'user'
+  const chatId = useChatStore((s) => s.chatId)
+  const imageAttachments = block.attachments.filter((item) => item.mimeType.startsWith('image/'))
+  const fileAttachments = block.attachments.filter((item) => !item.mimeType.startsWith('image/'))
   // 다른(조상) 브랜치에서 이어받은 블록은 재생성하면 원본 대화가 바뀌므로 버튼을 숨긴다(NFR-007)
   const isOwnBranch = block.branchId === currentBranchId
   const pending = refine?.status === 'pending'
   const rejected = refine?.status === 'rejected'
+  const isGenerating = block.generationStatus === 'generating'
+  const isCancelled = block.generationStatus === 'cancelled'
+  const isFailed = block.generationStatus === 'failed'
+  // 생성 중·중단됨·실패한 답변은 Context·정제·분기 어디에도 쓸 수 없다 (D밀스톤).
+  // 서버도 같은 조건으로 막지만, 화면에서 먼저 막아야 헛걸음을 줄인다.
+  const eligibleForReuse = block.generationStatus === 'complete'
   const shown = pending && view === 'refined' ? refine.refinedContent : block.content
+  const displayed = isGenerating ? closeUnterminatedMarkdown(shown) : shown
   const currentVersionIndex = versions?.findIndex((version) => version.isCurrent) ?? -1
-  const time = new Date(block.createdAt).toLocaleTimeString('ko', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 
   useEffect(() => {
     if ((block.versionNo ?? 0) > 1 && !versions) {
@@ -90,92 +98,119 @@ export function MessageBlockItem({ block, refine }: Props) {
                 : 'border-transparent hover:bg-white/[0.025]'
       }`}
     >
-      <input
-        type="checkbox"
-        checked={selected}
-        onChange={() => toggleBlock(block.blockId)}
-        aria-label="Context로 선택"
-        className={`absolute left-4 top-3.5 h-3.5 w-3.5 cursor-pointer accent-blue transition ${
-          selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-        }`}
-      />
-
-      <div className="mb-1.5 flex items-center gap-2">
-        <span
-          className={`text-[11px] font-bold uppercase tracking-wide ${
-            isUser ? 'text-blue' : 'text-green'
+      {eligibleForReuse && (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => toggleBlock(block.blockId)}
+          aria-label="Context로 선택"
+          className={`absolute left-4 top-3.5 h-3.5 w-3.5 cursor-pointer accent-blue transition ${
+            selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           }`}
-        >
-          {isUser ? 'User' : 'AI'}
-        </span>
-        {block.versionNo && block.versionNo > 1 && (
-          <span className="rounded bg-bg-3 px-1.5 py-px text-[10px] text-txt-2">
-            v{block.versionNo}
-          </span>
-        )}
-        {applied && (
-          <span className="rounded bg-blue-dim px-1.5 py-px text-[10px] text-blue">
-            Context 적용 중
-          </span>
-        )}
-        <span className="text-[11px] text-txt-3">{time}</span>
-      </div>
-
-      {editing ? (
-        <MessageEditForm
-          draft={draft}
-          busy={editBusy}
-          onDraftChange={setEditingDraft}
-          onCancel={cancelEdit}
-          onSaveBranch={() => openBranchModal(block.blockId, draft)}
-          onSave={() => saveEdit(block.blockId, draft)}
         />
-      ) : (
-        <div className="markdown text-[13.5px] leading-relaxed text-txt-1">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            // rehypeRaw 로 <br> 같은 원본 HTML을 실제 태그로 바꾸고, 그 결과를
-            // rehypeSanitize(기본 허용 목록)로 걸러 스크립트·이벤트 속성을 없앤 뒤에야
-            // rehypeHighlight 가 코드 블록에 강조 클래스를 붙인다. sanitize를 강조보다
-            // 뒤에 두면 강조가 붙인 클래스까지 함께 지워진다.
-            rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
-            components={{ pre: CodeBlock }}
+      )}
+
+      <div
+        className={`flex w-full flex-col ${
+          isUser ? 'ml-auto max-w-[min(85%,40rem)] items-end' : 'items-start'
+        }`}
+      >
+        {(Boolean(block.versionNo && block.versionNo > 1) || applied || isCancelled || isFailed) && (
+          <div className={`mb-1.5 flex items-center gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
+            {block.versionNo && block.versionNo > 1 && (
+              <span className="rounded bg-bg-3 px-1.5 py-px text-[10px] text-txt-2">
+                v{block.versionNo}
+              </span>
+            )}
+            {applied && (
+              <span className="rounded bg-blue-dim px-1.5 py-px text-[10px] text-blue">
+                Context 적용 중
+              </span>
+            )}
+            {isCancelled && (
+              <span className="rounded bg-bg-3 px-1.5 py-px text-[10px] text-txt-2">
+                중단됨
+              </span>
+            )}
+            {isFailed && (
+              <span className="rounded bg-red/10 px-1.5 py-px text-[10px] text-red">
+                생성 실패
+              </span>
+            )}
+          </div>
+        )}
+
+        {imageAttachments.length > 0 && (
+          <ImagePreviewList chatId={chatId} attachments={imageAttachments} />
+        )}
+
+        {editing ? (
+          <div className="w-full">
+            <MessageEditForm
+              draft={draft}
+              busy={editBusy}
+              onDraftChange={setEditingDraft}
+              onCancel={cancelEdit}
+              onSaveBranch={() => openBranchModal(block.blockId, draft)}
+              onSave={() => saveEdit(block.blockId, draft)}
+            />
+          </div>
+        ) : shown.trim() ? (
+          <div
+            className={`markdown text-[13.5px] leading-relaxed ${
+              isUser
+                ? 'w-fit max-w-full rounded-2xl bg-bg-3 px-3.5 py-2.5 text-txt-0'
+                : 'w-full text-txt-1'
+            }`}
           >
-            {shown}
-          </ReactMarkdown>
-        </div>
-      )}
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              // rehypeRaw 로 <br> 같은 원본 HTML을 실제 태그로 바꾸고, 그 결과를
+              // rehypeSanitize(기본 허용 목록)로 걸러 스크립트·이벤트 속성을 없앤 뒤에야
+              // rehypeHighlight 가 코드 블록에 강조 클래스를 붙인다. sanitize를 강조보다
+              // 뒤에 두면 강조가 붙인 클래스까지 함께 지워진다.
+              rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
+              components={{ pre: CodeBlock }}
+            >
+              {displayed}
+            </ReactMarkdown>
+          </div>
+        ) : isGenerating ? (
+          <p className="animate-pulse text-[13px] text-txt-3">생각하는 중…</p>
+        ) : null}
 
-      {block.attachments.length > 0 && <AttachmentList attachments={block.attachments} />}
-      {!isUser && block.searchSources.length > 0 && <SearchSourceList sources={block.searchSources} />}
+        {fileAttachments.length > 0 && <AttachmentList attachments={fileAttachments} />}
+        {!isUser && block.searchSources.length > 0 && <SearchSourceList sources={block.searchSources} />}
 
-      {isUser && failedJobId && <div className="mt-2 flex items-center gap-2 text-[11px] text-red"><span>답변 생성에 실패했습니다.</span><button type="button" onClick={() => void retryAiResponseJob(failedJobId)} className="rounded border border-red/40 px-1.5 py-0.5 hover:bg-red/10">다시 시도</button></div>}
-      {!isUser && pendingAi && <div className="mt-2 text-[11px] text-txt-2">답변을 다시 생성하는 중…</div>}
+        {isUser && failedJobId && <div className="mt-2 flex items-center gap-2 text-[11px] text-red"><span>답변 생성에 실패했습니다.</span><button type="button" onClick={() => void retryAiResponseJob(failedJobId)} className="rounded border border-red/40 px-1.5 py-0.5 hover:bg-red/10">다시 시도</button></div>}
+        {!isUser && pendingAi && <div className="mt-2 text-[11px] text-txt-2">답변을 다시 생성하는 중…</div>}
 
-      {pending && <InlineRefineBar result={refine} />}
+        {pending && <div className="w-full"><InlineRefineBar result={refine} /></div>}
 
-      {!pending && (
-        <MessageBlockActions
-          block={block}
-          isUser={isUser}
-          isOwnBranch={isOwnBranch}
-          pendingAi={pendingAi}
-          editing={editing}
-          rating={rating}
-          versions={versions}
-          currentVersionIndex={currentVersionIndex}
-          onSetActiveVersion={(versionId) =>
-            setActiveVersion(block.blockId, versionId)
-          }
-          onSetFeedback={(nextRating) =>
-            setFeedback(block.blockId, nextRating)
-          }
-          onRegenerate={() => regenerate(block.blockId)}
-          onStartEdit={() => startEdit(block.blockId, block.content)}
-          onOpenContextEditor={() => openContextEditor(block.blockId)}
-          onOpenBranch={() => openBranchModal(block.blockId)}
-        />
-      )}
+        {!pending && (
+          <MessageBlockActions
+            block={block}
+            isUser={isUser}
+            isOwnBranch={isOwnBranch}
+            eligibleForReuse={eligibleForReuse}
+            pendingAi={pendingAi}
+            editing={editing}
+            rating={rating}
+            versions={versions}
+            currentVersionIndex={currentVersionIndex}
+            onSetActiveVersion={(versionId) =>
+              setActiveVersion(block.blockId, versionId)
+            }
+            onSetFeedback={(nextRating) =>
+              setFeedback(block.blockId, nextRating)
+            }
+            onRegenerate={() => regenerate(block.blockId)}
+            onStartEdit={() => startEdit(block.blockId, block.content)}
+            onOpenContextEditor={() => openContextEditor(block.blockId)}
+            onOpenBranch={() => openBranchModal(block.blockId)}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -257,7 +292,72 @@ function CodeBlock(props: ComponentPropsWithoutRef<'pre'>) {
   )
 }
 
-// 메시지에 붙은 첨부 파일 이름 목록 (읽기 전용)
+// 메시지에 붙은 이미지 — 로그인 권한으로 원본을 받아 미리보기로 보여준다
+function ImagePreviewList({
+  chatId,
+  attachments,
+}: {
+  chatId: string | null
+  attachments: AttachmentResponse[]
+}) {
+  return (
+    <div className="mb-2 flex w-fit max-w-full flex-wrap gap-2">
+      {attachments.map((attachment) => (
+        <AuthenticatedImage
+          key={attachment.attachmentId}
+          chatId={chatId}
+          attachment={attachment}
+        />
+      ))}
+    </div>
+  )
+}
+
+function AuthenticatedImage({
+  chatId,
+  attachment,
+}: {
+  chatId: string | null
+  attachment: AttachmentResponse
+}) {
+  const [src, setSrc] = useState(attachment.previewUrl ?? null)
+
+  useEffect(() => {
+    if (attachment.previewUrl) {
+      setSrc(attachment.previewUrl)
+      return
+    }
+    if (!chatId) return
+    let cancelled = false
+    let created: string | null = null
+    void fetchAttachmentFile(chatId, attachment.attachmentId).then((url) => {
+      if (cancelled) {
+        URL.revokeObjectURL(url)
+        return
+      }
+      created = url
+      setSrc(url)
+    }).catch(() => undefined)
+    return () => {
+      cancelled = true
+      if (created) URL.revokeObjectURL(created)
+    }
+  }, [attachment.attachmentId, attachment.previewUrl, chatId])
+
+  if (!src) {
+    return <div className="h-40 w-56 animate-pulse rounded-2xl bg-bg-3" aria-hidden />
+  }
+
+  return (
+    <img
+      src={src}
+      alt={attachment.fileName}
+      className="max-h-72 max-w-full rounded-2xl object-contain"
+    />
+  )
+}
+
+// 메시지에 붙은 첨부 파일 이름 목록 (이미지가 아닌 파일, 읽기 전용)
 function AttachmentList({ attachments }: { attachments: MessageBlock['attachments'] }) {
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">

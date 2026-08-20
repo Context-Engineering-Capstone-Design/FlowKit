@@ -20,22 +20,49 @@ const QUICK_EDITS = [
 ]
 
 interface Props {
+  open?: boolean
   onClose: () => void
   width: number
   onResizeStart: () => void
 }
 
 // 우측 Context 편집 패널 — 선택한 블록 확인, 편집 지시 입력, 정제 결과 검토
-export function ContextPanel({ onClose, width, onResizeStart }: Props) {
+export function ContextPanel({ open = true, onClose, width, onResizeStart }: Props) {
   const blocks = useChatStore((s) => s.blocks)
   const selectedIds = useChatStore((s) => s.selectedBlockIds)
   const refineJob = useChatStore((s) => s.refineJob)
+  const [resizing, setResizing] = useState(false)
 
   const selected = blocks.filter((b) => selectedIds.includes(b.blockId))
 
+  function startResize() {
+    setResizing(true)
+    onResizeStart()
+    function end() {
+      setResizing(false)
+      window.removeEventListener('pointerup', end)
+    }
+    window.addEventListener('pointerup', end)
+  }
+
   return (
-    <aside style={{ '--panel-width': `${width}px` } as CSSProperties} className="relative flex w-[min(90vw,380px)] shrink-0 flex-col overflow-hidden bg-bg-1 shadow-2xl max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 lg:w-[var(--panel-width)]">
-      <div aria-label="Context 패널 너비 조절" onPointerDown={onResizeStart} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize hover:bg-blue lg:block" />
+    <aside
+      id="context-panel"
+      aria-hidden={!open}
+      inert={!open}
+      style={{ '--panel-width': `${width}px` } as CSSProperties}
+      className={`relative shrink-0 overflow-hidden bg-bg-1 max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 ${
+        open ? 'w-[min(90vw,380px)] shadow-2xl lg:w-[var(--panel-width)]' : 'w-0'
+      } ${resizing ? '' : 'transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none'}`}
+    >
+      <div
+        className={`flex h-full w-[min(90vw,380px)] flex-col lg:w-[var(--panel-width)] ${
+          resizing ? '' : 'transition-opacity duration-200 motion-reduce:transition-none'
+        } ${open ? 'opacity-100' : 'opacity-0'}`}
+      >
+      {open && (
+        <div aria-label="Context 패널 너비 조절" onPointerDown={startResize} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize hover:bg-blue lg:block" />
+      )}
       <header className="flex items-center justify-between px-4 py-3.5">
         <span className="flex items-center gap-2 text-[13px] font-semibold">
           <SlidersHorizontal className="h-3.5 w-3.5 text-txt-2" />
@@ -61,6 +88,7 @@ export function ContextPanel({ onClose, width, onResizeStart }: Props) {
       )}
 
       {selected.length > 0 && !refineJob && <PanelFooter />}
+      </div>
     </aside>
   )
 }

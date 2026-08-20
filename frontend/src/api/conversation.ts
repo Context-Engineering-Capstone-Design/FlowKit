@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, tokenStore } from './client'
 import { AI_REQUEST_TIMEOUT_MS } from '@/lib/requestTimeout'
 import type {
   AiResponseRating,
@@ -8,9 +8,11 @@ import type {
   FeedbackResponse,
   RefineJob,
   RefineResultItem,
+  SearchSource,
   SendMessageResponse,
   VersionItem,
   ReasoningEffort,
+  WebSearchMode,
 } from '@/types/api'
 
 export async function sendMessage(
@@ -18,7 +20,7 @@ export async function sendMessage(
   branchId: string,
   userPrompt: string,
   contextBlockIds: string[] = [],
-  options: { selectedModelId: string | null; webSearchEnabled: boolean; reasoningEffort: ReasoningEffort; attachmentIds: string[] } = { selectedModelId: null, webSearchEnabled: false, reasoningEffort: 'medium', attachmentIds: [] },
+  options: { selectedModelId: string | null; webSearchMode: WebSearchMode; reasoningEffort: ReasoningEffort; attachmentIds: string[] } = { selectedModelId: null, webSearchMode: 'off', reasoningEffort: 'medium', attachmentIds: [] },
 ): Promise<SendMessageResponse> {
   const { data } = await api.post<SendMessageResponse>(
     `/api/chats/${chatId}/branches/${branchId}/messages`,
@@ -48,6 +50,85 @@ export async function retryAiResponseJob(chatId: string, branchId: string, jobId
     { timeout: AI_REQUEST_TIMEOUT_MS },
   )
   return data
+}
+
+/** BE-AIRESP-008: 생성 중인 답변을 중단한다. 그때까지의 본문은 남는다. */
+export async function cancelAiResponseJob(
+  chatId: string,
+  branchId: string,
+  jobId: string,
+): Promise<BlockResponse> {
+  const { data } = await api.post<BlockResponse>(
+    `/api/chats/${chatId}/branches/${branchId}/ai-response-jobs/${jobId}/cancel`,
+  )
+  return data
+}
+
+export type AiStreamStatus = 'completed' | 'failed' | 'cancelled'
+
+export interface AiStreamDonePayload {
+  status: AiStreamStatus
+  content: string
+  sources: SearchSource[]
+  error: { errorCode: string; message: string } | null
+}
+
+export interface AiStreamHandlers {
+  onText?: (delta: string) => void
+  onSources?: (sources: SearchSource[]) => void
+  onDone?: (payload: AiStreamDonePayload) => void
+}
+
+/**
+ * BE-AIRESP-007, 009: 답변 조각을 실시간으로 받는다.
+ *
+ * 인증 헤더를 실어야 해서 EventSource 대신 fetch 로 직접 스트림을 읽는다
+ * (문서 C2 참고). 도중에 붙어도 서버가 지금까지의 본문을 먼저 보내준다.
+ */
+export async function openAiResponseStream(
+  chatId: string,
+  branchId: string,
+  jobId: string,
+  handlers: AiStreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const url = `${api.defaults.baseURL}/api/chats/${chatId}/branches/${branchId}/ai-response-jobs/${jobId}/stream`
+  const res = await fetch(url, {
+    headers: tokenStore.access ? { Authorization: `Bearer ${tokenStore.access}` } : undefined,
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    throw new Error(`AI 응답 스트림 연결에 실패했습니다 (${res.status}).`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let sepIndex = buffer.indexOf('\n\n')
+    while (sepIndex !== -1) {
+      dispatchStreamEvent(buffer.slice(0, sepIndex), handlers)
+      buffer = buffer.slice(sepIndex + 2)
+      sepIndex = buffer.indexOf('\n\n')
+    }
+  }
+}
+
+function dispatchStreamEvent(raw: string, handlers: AiStreamHandlers) {
+  let event = 'message'
+  let dataLine = ''
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice('event:'.length).trim()
+    else if (line.startsWith('data:')) dataLine += line.slice('data:'.length).trim()
+  }
+  if (!dataLine) return // ": ping" 같은 하트비트 줄에는 data가 없다
+  const data = JSON.parse(dataLine) as Record<string, unknown>
+  if (event === 'text') handlers.onText?.(data.delta as string)
+  else if (event === 'sources') handlers.onSources?.(data.sources as SearchSource[])
+  else if (event === 'status') handlers.onDone?.(data as unknown as AiStreamDonePayload)
 }
 
 export async function fetchFeedback(

@@ -16,6 +16,8 @@ interface Props {
   block: MessageBlock
   isUser: boolean
   isOwnBranch: boolean
+  /** 생성 중·중단됨·실패한 답변은 Context·분기 어디에도 쓸 수 없다 (D밀스톤). */
+  eligibleForReuse: boolean
   pendingAi?: boolean
   editing: boolean
   rating?: AiResponseRating
@@ -34,6 +36,7 @@ export function MessageBlockActions({
   block,
   isUser,
   isOwnBranch,
+  eligibleForReuse,
   pendingAi,
   editing,
   rating,
@@ -130,7 +133,7 @@ export function MessageBlockActions({
           >
             <ThumbsDown className="h-3.5 w-3.5" />
           </button>
-          {isOwnBranch && (
+          {isOwnBranch && eligibleForReuse && (
             <button
               type="button"
               onClick={() => void onRegenerate()}
@@ -165,24 +168,28 @@ export function MessageBlockActions({
           <Pencil className="h-3.5 w-3.5" />
         </button>
       )}
-      <button
-        type="button"
-        onClick={() => void onOpenContextEditor()}
-        title="Context 편집 시작"
-        aria-label="Context 편집 시작"
-        className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
-      >
-        Context
-      </button>
-      <button
-        type="button"
-        onClick={() => void onOpenBranch()}
-        title="여기서 브랜치 생성"
-        aria-label="여기서 브랜치 생성"
-        className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
-      >
-        분기
-      </button>
+      {eligibleForReuse && (
+        <button
+          type="button"
+          onClick={() => void onOpenContextEditor()}
+          title="Context 편집 시작"
+          aria-label="Context 편집 시작"
+          className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
+        >
+          Context
+        </button>
+      )}
+      {eligibleForReuse && (
+        <button
+          type="button"
+          onClick={() => void onOpenBranch()}
+          title="여기서 브랜치 생성"
+          aria-label="여기서 브랜치 생성"
+          className="rounded px-1 text-[10px] text-txt-3 transition hover:bg-bg-3 hover:text-txt-1"
+        >
+          분기
+        </button>
+      )}
     </div>
   )
 }

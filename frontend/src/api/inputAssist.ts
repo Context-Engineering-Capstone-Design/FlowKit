@@ -16,3 +16,10 @@ export async function uploadAttachment(chatId: string, file: File): Promise<Atta
 export async function deleteAttachment(chatId: string, attachmentId: string): Promise<void> {
   await api.delete(`/api/chats/${chatId}/attachments/${attachmentId}`)
 }
+
+export async function fetchAttachmentFile(chatId: string, attachmentId: string): Promise<string> {
+  const { data } = await api.get<Blob>(`/api/chats/${chatId}/attachments/${attachmentId}/file`, {
+    responseType: 'blob',
+  })
+  return URL.createObjectURL(data)
+}

@@ -21,10 +21,21 @@ import type {
   ModelOption,
   AiResponseFailureDetail,
   ReasoningEffort,
+  SearchSource,
+  WebSearchMode,
 } from '@/types/api'
 
 let latestChatListRequestId: string | null = null
 let latestChatMoreRequestId: string | null = null
+
+// 답변 블록별로 지금 붙어 있는 스트리밍 연결. AbortController는 직렬화할 수
+// 없는 값이라 Zustand 상태 밖(모듈 스코프)에 둔다 (BE-AIRESP-007, FE-AIRESP-005).
+const activeStreams = new Map<string, AbortController>()
+
+function stopStream(blockId: string) {
+  activeStreams.get(blockId)?.abort()
+  activeStreams.delete(blockId)
+}
 
 // 목록 조회에 실패했을 때 보여줄 기본 모델 (FE-INPUT-005). 서버 목록과 어긋나면
 // 전송 시점에 서버가 오류로 안내하므로 조용히 잘못된 모델로 보내지 않는다.
@@ -80,7 +91,7 @@ interface ChatState {
 
   draftText: string
   selectedModelId: string | null
-  webSearchEnabled: boolean
+  webSearchMode: WebSearchMode
   reasoningEffort: ReasoningEffort
   draftAttachments: DraftAttachment[]
   models: ModelOption[]
@@ -120,6 +131,12 @@ interface ChatState {
   clearSelection: () => void
   sendMessage: (prompt: string) => Promise<void>
   regenerate: (blockId: string) => Promise<void>
+  /** 스트리밍 통로에 (다시) 붙어, 도착하는 조각으로 블록을 채워간다 (FE-AIRESP-005, 006). */
+  attachToJob: (blockId: string, jobId: string) => Promise<void>
+  /** 열린 블록 중 아직 생성 중인 것에 자동으로 다시 붙는다 (새로고침·브랜치 재진입, C6). */
+  reattachGeneratingBlocks: () => void
+  /** 생성을 중단한다. 그때까지의 본문은 남는다 (BE-AIRESP-008). */
+  cancelGeneration: (blockId: string) => Promise<void>
   setFeedback: (blockId: string, rating: AiResponseRating) => Promise<void>
   loadVersions: (blockId: string) => Promise<void>
   setActiveVersion: (blockId: string, versionId: string) => Promise<void>
@@ -150,7 +167,7 @@ interface ChatState {
   loadInputAssist: () => Promise<void>
   setDraftText: (text: string) => void
   setSelectedModel: (modelId: string) => void
-  setWebSearchEnabled: (enabled: boolean) => void
+  setWebSearchMode: (mode: WebSearchMode) => void
   setReasoningEffort: (effort: ReasoningEffort) => void
   addFiles: (files: File[]) => Promise<void>
   removeAttachment: (localId: string) => Promise<void>
@@ -197,7 +214,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   focusSignal: 0,
   draftText: '',
   selectedModelId: null,
-  webSearchEnabled: false,
+  webSearchMode: 'off',
   reasoningEffort: 'medium',
   draftAttachments: [],
   models: [],
@@ -311,7 +328,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       models: [],
       selectedModelId: null,
-      webSearchEnabled: false,
+      webSearchMode: 'off',
       reasoningEffort: 'medium',
       isModelListLoading: false,
       pendingByBlockId: {},
@@ -387,10 +404,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setSelectedModel(modelId) {
     const model = get().models.find((item) => item.modelId === modelId)
-    set({ selectedModelId: modelId, webSearchEnabled: model?.supportsWebSearch ? get().webSearchEnabled : false })
+    set({ selectedModelId: modelId, webSearchMode: model?.supportsWebSearch ? get().webSearchMode : 'off' })
   },
 
-  setWebSearchEnabled(enabled) { set({ webSearchEnabled: enabled }) },
+  setWebSearchMode(mode) { set({ webSearchMode: mode }) },
   setReasoningEffort(effort) { set({ reasoningEffort: effort }) },
 
   async addFiles(files) {
@@ -452,6 +469,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (get().chatId !== chatId) get().clearDraft()
       const detail = await chatApi.fetchChat(chatId, branchId)
       applyDetail(set, detail)
+      get().reattachGeneratingBlocks()
       await refreshFeedbacks(
         set,
         detail.chatMeta.chatId,
@@ -546,6 +564,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           isActive: b.branchId === branchId,
         })),
       })
+      get().reattachGeneratingBlocks()
       await refreshFeedbacks(set, chatId, branchId, detail.messageBlocks)
       return true
     } catch (e) {
@@ -596,7 +615,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return
       }
     }
-    const { appliedBlockIds, selectedModelId, webSearchEnabled, reasoningEffort, draftAttachments } = get()
+    const { appliedBlockIds, selectedModelId, webSearchMode, reasoningEffort, draftAttachments } = get()
     if (draftAttachments.some((item) => item.status === 'uploading')) {
       set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.' })
       return
@@ -623,8 +642,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         fileSize: item.file.size,
         status: 'attached' as const,
         expiresAt: null,
+        previewUrl: item.localUrl,
       })),
       searchSources: [],
+      generationStatus: 'complete',
     }
     const dropTempBlock = (s: ChatState) => s.blocks.filter((b) => b.blockId !== tempBlockId)
 
@@ -635,7 +656,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         branchId,
         prompt,
         appliedBlockIds,
-        { selectedModelId, webSearchEnabled, reasoningEffort, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []) },
+        { selectedModelId, webSearchMode, reasoningEffort, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []) },
       )
       set((s) => ({
         blocks: [...dropTempBlock(s), res.userBlock, res.assistantBlock],
@@ -650,13 +671,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().clearDraft()
       useNotificationStore.getState().dismissBanner('api-key-required')
       useNotificationStore.getState().show('메시지를 전송했습니다.', 'success')
+      void get().attachToJob(res.assistantBlock.blockId, res.aiResponseJobId)
       if (res.titleGenerated) await get().loadChats()
     } catch (e) {
       if (openApiKeyWhenMissing(e)) {
         set((s) => ({ error: null, blocks: dropTempBlock(s) }))
       } else if (errorCode(e) === 'WEB_SEARCH_NOT_SUPPORTED') {
-        // 선택한 모델이 검색을 지원하지 않으면 다시 눌러도 같은 오류가 반복되므로 토글을 꺼둔다
-        set((s) => ({ webSearchEnabled: false, error: toErrorMessage(e), blocks: dropTempBlock(s) }))
+        // 선택한 모델이 검색을 지원하지 않으면 다시 눌러도 같은 오류가 반복되므로 끄기로 되돌린다
+        set((s) => ({ webSearchMode: 'off', error: toErrorMessage(e), blocks: dropTempBlock(s) }))
       } else {
         const detail = errorDetail<AiResponseFailureDetail>(e)
         if (detail) {
@@ -685,6 +707,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           b.blockId === blockId ? { ...b, ...block } : b,
         ),
       }))
+      void get().attachToJob(blockId, block.aiResponseJobId)
       await get().loadVersions(blockId)
     } catch (e) {
       if (openApiKeyWhenMissing(e)) set({ error: null })
@@ -702,9 +725,79 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const result = await convApi.retryAiResponseJob(chatId, branchId, jobId)
       set((s) => ({ blocks: [...s.blocks, result.assistantBlock], chatTitle: result.chatTitle,
         failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([, id]) => id !== jobId)) }))
+      void get().attachToJob(result.assistantBlock.blockId, result.aiResponseJobId)
       await get().loadChats()
     } catch (e) { set({ error: toErrorMessage(e) }) }
     finally { set({ isSending: false }) }
+  },
+
+  async attachToJob(blockId, jobId) {
+    const { chatId, branchId } = get()
+    if (!chatId || !branchId) return
+    stopStream(blockId)
+    const controller = new AbortController()
+    activeStreams.set(blockId, controller)
+
+    const handlers: convApi.AiStreamHandlers = {
+      onText: (delta) => {
+        set((s) => ({
+          blocks: s.blocks.map((b) => b.blockId === blockId ? { ...b, content: b.content + delta } : b),
+        }))
+      },
+      onSources: (sources: SearchSource[]) => {
+        set((s) => ({ blocks: s.blocks.map((b) => b.blockId === blockId ? { ...b, searchSources: sources } : b) }))
+      },
+      onDone: (payload) => {
+        set((s) => ({
+          blocks: s.blocks.map((b) =>
+            b.blockId === blockId
+              ? {
+                  ...b,
+                  content: payload.content,
+                  searchSources: payload.sources,
+                  generationStatus: payload.status === 'completed' ? 'complete' : payload.status,
+                  generationJobId: null,
+                }
+              : b,
+          ),
+        }))
+        if (payload.status === 'failed' && payload.error) {
+          useNotificationStore.getState().show(payload.error.message, 'error')
+        }
+      },
+    }
+
+    try {
+      await convApi.openAiResponseStream(chatId, branchId, jobId, handlers, controller.signal)
+    } catch {
+      if (controller.signal.aborted) return
+      await reconnectStreamWithBackoff(chatId, branchId, jobId, handlers, controller.signal)
+    } finally {
+      if (activeStreams.get(blockId) === controller) activeStreams.delete(blockId)
+    }
+  },
+
+  reattachGeneratingBlocks() {
+    for (const block of get().blocks) {
+      if (block.generationStatus === 'generating' && block.generationJobId) {
+        void get().attachToJob(block.blockId, block.generationJobId)
+      }
+    }
+  },
+
+  async cancelGeneration(blockId) {
+    const { chatId, branchId, blocks } = get()
+    const jobId = blocks.find((b) => b.blockId === blockId)?.generationJobId
+    if (!chatId || !branchId || !jobId) return
+    try {
+      const updated = await convApi.cancelAiResponseJob(chatId, branchId, jobId)
+      stopStream(blockId)
+      set((s) => ({
+        blocks: s.blocks.map((b) => (b.blockId === blockId ? { ...b, ...updated, generationJobId: null } : b)),
+      }))
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+    }
   },
 
   async setFeedback(blockId, rating) {
@@ -1108,6 +1201,34 @@ function openApiKeyWhenMissing(error: unknown): boolean {
     },
   })
   return true
+}
+
+// 연결이 끊기면 몇 번 다시 붙어보고, 안 되면 새로고침 안내로 넘긴다 (문서 C8).
+const STREAM_RECONNECT_DELAYS_MS = [1000, 2000, 4000]
+
+async function reconnectStreamWithBackoff(
+  chatId: string,
+  branchId: string,
+  jobId: string,
+  handlers: convApi.AiStreamHandlers,
+  signal: AbortSignal,
+  attempt = 0,
+): Promise<void> {
+  if (signal.aborted) return
+  if (attempt >= STREAM_RECONNECT_DELAYS_MS.length) {
+    useNotificationStore.getState().show(
+      '연결이 끊겼습니다. 새로고침하면 이어서 볼 수 있습니다.',
+      'error',
+    )
+    return
+  }
+  await new Promise((resolve) => setTimeout(resolve, STREAM_RECONNECT_DELAYS_MS[attempt]))
+  if (signal.aborted) return
+  try {
+    await convApi.openAiResponseStream(chatId, branchId, jobId, handlers, signal)
+  } catch {
+    await reconnectStreamWithBackoff(chatId, branchId, jobId, handlers, signal, attempt + 1)
+  }
 }
 
 function showChatError(error: unknown, scope: string, retry?: () => void) {
