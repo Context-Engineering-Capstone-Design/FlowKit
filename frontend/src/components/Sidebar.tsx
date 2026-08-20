@@ -17,14 +17,12 @@ interface Props {
 export function Sidebar({ open = true, onClose }: Props) {
   const chats = useChatStore((s) => s.chats)
   const chatId = useChatStore((s) => s.chatId)
-  const branches = useChatStore((s) => s.branches)
   const loadChats = useChatStore((s) => s.loadChats)
   const newChat = useChatStore((s) => s.newChat)
   const openChat = useChatStore((s) => s.openChat)
   const deleteChat = useChatStore((s) => s.deleteChat)
   const deletingChatId = useChatStore((s) => s.deletingChatId)
   const renameChat = useChatStore((s) => s.renameChat)
-  const switchBranch = useChatStore((s) => s.switchBranch)
   const nextCursor = useChatStore((s) => s.nextCursor)
   const isLoadingChats = useChatStore((s) => s.isLoadingChats)
   const isLoadingMoreChats = useChatStore((s) => s.isLoadingMoreChats)
@@ -197,30 +195,7 @@ export function Sidebar({ open = true, onClose }: Props) {
           </div>
         )}
 
-        {branches.length > 0 && (
-          <>
-            <SectionLabel>현재 대화 — 브랜치</SectionLabel>
-            {branches.map((b) => (
-              <button
-                key={b.branchId}
-                type="button"
-                onClick={() => void switchBranch(b.branchId)}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-[7px] text-left text-[12.5px] transition ${
-                  b.isActive ? 'bg-bg-3 text-txt-0' : 'text-txt-1 hover:bg-bg-2'
-                }`}
-              >
-                <GitBranch
-                  className={`h-3.5 w-3.5 shrink-0 ${
-                    b.branchType === 'MAIN' ? 'text-blue' : 'text-green'
-                  }`}
-                />
-                <span className="truncate">{b.branchName}</span>
-              </button>
-            ))}
-          </>
-        )}
-
-        <SideChatTreeSection />
+        <ConversationStructureSection />
       </div>
 
       <ProfileMenu />
@@ -291,8 +266,10 @@ function ProjectChatRow({ chat, projects, onOpen, onMoved }: { chat: { chatId: s
   return <div className="flex items-center gap-1 rounded-md text-txt-2 hover:bg-bg-2"><button type="button" onClick={() => void onOpen(chat.chatId)} className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-[12px]">{chat.title}</button><select aria-label={`${chat.title} Project 이동`} value={chat.projectId ?? ''} onChange={(event) => void move(event.target.value)} className="mr-1 max-w-16 bg-transparent text-[10px] text-txt-3 outline-none"><option value="">밖</option>{projects.map((project) => <option key={project.projectId} value={project.projectId}>{project.name}</option>)}</select></div>
 }
 
-// 좌측 사이드 채팅 관리 패널 — 루트 메인 채팅 아래 생성 관계를 트리로 보여준다 (0820_08 B3)
-function SideChatTreeSection() {
+// 현재 대화의 브랜치와 루트 메인 아래 사이드 채팅을 한 목록으로 보여준다
+function ConversationStructureSection() {
+  const branches = useChatStore((s) => s.branches)
+  const switchBranch = useChatStore((s) => s.switchBranch)
   const sideChatTree = useChatStore((s) => s.sideChatTree)
   const sideChatTreeRootId = useChatStore((s) => s.sideChatTreeRootId)
   const activeTabId = useChatStore((s) => s.activeTabId)
@@ -301,11 +278,23 @@ function SideChatTreeSection() {
   const deletingChatId = useChatStore((s) => s.deletingChatId)
 
   const nodes = buildSideChatTreeOrder(sideChatTree, sideChatTreeRootId)
-  if (nodes.length < 2) return null
+  if (branches.length === 0 && nodes.length < 2) return null
 
   return (
     <>
-      <SectionLabel>사이드 채팅</SectionLabel>
+      <SectionLabel>대화 구조</SectionLabel>
+      {branches.map((branch) => (
+        <button
+          key={branch.branchId}
+          type="button"
+          onClick={() => void switchBranch(branch.branchId)}
+          className={`flex w-full items-center gap-2 rounded-md px-2 py-[7px] text-left text-[12.5px] transition ${branch.isActive ? 'bg-bg-3 text-txt-0' : 'text-txt-1 hover:bg-bg-2'}`}
+        >
+          <GitBranch className={`h-3.5 w-3.5 shrink-0 ${branch.branchType === 'MAIN' ? 'text-blue' : 'text-green'}`} />
+          <span className="truncate">{branch.branchName}</span>
+        </button>
+      ))}
+      {branches.length > 0 && nodes.length > 1 && <div className="mx-2 my-1 border-t border-line" />}
       {nodes.map(({ chat, depth }) => (
         <div
           key={chat.chatId}

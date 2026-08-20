@@ -99,7 +99,7 @@ it('접힌 사이드바에서는 닫기 버튼을 누르지 못한다', () => {
   expect(screen.queryByRole('button', { name: '사이드바 닫기' })).toBeNull()
 })
 
-it('사이드 채팅이 없으면 트리 섹션을 보여주지 않는다 (0820_08 B3)', () => {
+it('브랜치와 사이드 채팅이 없으면 대화 구조 섹션을 보여주지 않는다', () => {
   useChatStore.setState({
     chats: [], chatId: null, branches: [], nextCursor: null, isLoadingChats: false,
     chatListError: null, deletingChatId: null, loadChats: vi.fn().mockResolvedValue(undefined),
@@ -108,7 +108,7 @@ it('사이드 채팅이 없으면 트리 섹션을 보여주지 않는다 (0820_
 
   render(<Sidebar onClose={() => undefined} />)
 
-  expect(screen.queryByText('사이드 채팅')).toBeNull()
+  expect(screen.queryByText('대화 구조')).toBeNull()
 })
 
 it('루트와 자식 사이드 채팅을 트리로 보여주고, 누르면 그 채팅을 연다', () => {
@@ -127,7 +127,7 @@ it('루트와 자식 사이드 채팅을 트리로 보여주고, 누르면 그 �
 
   render(<Sidebar onClose={() => undefined} />)
 
-  expect(screen.getByText('사이드 채팅')).not.toBeNull()
+  expect(screen.getByText('대화 구조')).not.toBeNull()
   fireEvent.click(screen.getByText('탐색 대화'))
 
   expect(openChat).toHaveBeenCalledWith('side-1')
