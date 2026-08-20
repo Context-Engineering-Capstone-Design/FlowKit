@@ -1,5 +1,6 @@
 import { ChevronDown, Folder, FolderCog, FolderPlus, MessageSquare, PanelLeft, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
 import { buildSideChatTreeOrder } from '@/lib/sideChatTree'
@@ -330,12 +331,13 @@ export function Sidebar({
       </div>
 
       <ProfileMenu />
-      {projectManagerOpen && (
+      {projectManagerOpen && createPortal(
         <ProjectManager
           chatId={chatId}
           initialProjectId={selectedProjectId}
           onClose={() => { setProjectManagerOpen(false); setProjectListRefreshKey((key) => key + 1) }}
-        />
+        />,
+        document.body,
       )}
       </div>
     </aside>
