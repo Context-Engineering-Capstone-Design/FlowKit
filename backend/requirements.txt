@@ -13,5 +13,5 @@ cryptography>=44.0.0
 pyjwt>=2.8.0
 python-multipart>=0.0.9
 langchain-core>=0.3.0
-langchain-google-genai>=2.0.0
+langchain-openai>=1.6.0
 pytest>=8.0.0

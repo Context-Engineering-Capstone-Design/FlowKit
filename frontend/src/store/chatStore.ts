@@ -28,15 +28,15 @@ let latestChatMoreRequestId: string | null = null
 // 목록 조회에 실패했을 때 보여줄 기본 모델 (FE-INPUT-005). 서버 목록과 어긋나면
 // 전송 시점에 서버가 오류로 안내하므로 조용히 잘못된 모델로 보내지 않는다.
 const FALLBACK_MODEL: ModelOption = {
-  modelId: 'gemini-3.6-flash',
-  displayName: 'Gemini 3.6 Flash',
-  provider: 'google',
+  modelId: 'gpt-5.6-terra',
+  displayName: 'Terra',
+  provider: 'openai',
   supportsWebSearch: true,
   supportsAttachment: true,
   isDefault: true,
   isAvailable: true,
-  description: '빠른 응답과 폭넓은 기능을 갖춘 기본 모델',
-  tags: ['최신', '빠름'],
+  description: '일반 채팅에 쓰는 균형 잡힌 기본 모델',
+  tags: ['기본', '균형'],
 }
 
 interface ChatState {
@@ -1062,7 +1062,7 @@ async function refreshRefineJob(
 
 function openApiKeyWhenMissing(error: unknown): boolean {
   if (errorCode(error) !== 'API_KEY_NOT_REGISTERED') return false
-  const message = 'AI 기능을 사용하려면 먼저 Google AI API 키를 등록해주세요.'
+  const message = 'AI 기능을 사용하려면 먼저 OpenAI API 키를 등록해주세요.'
   useNotificationStore.getState().showError(error, {
     message,
     scope: 'api-key-required',

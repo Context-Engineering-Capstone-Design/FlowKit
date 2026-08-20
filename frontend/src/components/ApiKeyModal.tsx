@@ -89,7 +89,7 @@ export function ApiKeyModal() {
             className="flex items-center gap-2 text-[14px] font-semibold"
           >
             <KeyRound className="h-4 w-4 text-blue" />
-            Google AI API 키
+            OpenAI API 키
           </h2>
           <button
             type="button"
@@ -139,7 +139,7 @@ export function ApiKeyModal() {
                     setApiKey(event.target.value)
                     clearMessages()
                   }}
-                  placeholder="Google AI API 키 입력"
+                  placeholder="OpenAI API 키 입력"
                   className="w-full rounded-lg border border-line bg-bg-2 py-2.5 pl-3 pr-10 text-[13px] outline-none transition placeholder:text-txt-3 focus:border-blue"
                 />
                 <button

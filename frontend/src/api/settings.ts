@@ -11,7 +11,7 @@ export async function fetchSettings(signal?: AbortSignal): Promise<UserSettingRe
 }
 
 export async function saveApiKey(apiKey: string, signal?: AbortSignal): Promise<ApiKeyStatus> {
-  const { data } = await api.put<ApiKeyStatus>('/api/settings/api-keys/google', {
+  const { data } = await api.put<ApiKeyStatus>('/api/settings/api-keys/openai', {
     apiKey,
   }, { signal })
   return data
@@ -19,7 +19,7 @@ export async function saveApiKey(apiKey: string, signal?: AbortSignal): Promise<
 
 export async function deleteApiKey(signal?: AbortSignal): Promise<DeleteApiKeyResponse> {
   const { data } = await api.delete<DeleteApiKeyResponse>(
-    '/api/settings/api-keys/google',
+    '/api/settings/api-keys/openai',
     { signal },
   )
   return data
@@ -27,7 +27,7 @@ export async function deleteApiKey(signal?: AbortSignal): Promise<DeleteApiKeyRe
 
 export async function checkApiKey(signal?: AbortSignal): Promise<ApiKeyStatus> {
   const { data } = await api.post<ApiKeyStatus>(
-    '/api/settings/api-keys/google/check',
+    '/api/settings/api-keys/openai/check',
     undefined,
     { signal },
   )

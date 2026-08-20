@@ -21,7 +21,7 @@ pytest tests/ -q
 `api_key` 인자로 직접 전달한다.
 
 ```bash
-export GOOGLE_API_KEY=...
+export OPENAI_API_KEY=...
 ```
 
 ## 백엔드에서 쓰기
@@ -35,7 +35,7 @@ pip install -e ../modeling
 
 **의존성을 바꿨으면 백엔드 환경에도 다시 설치해야 한다.** 두 환경이 따로라 여기서만 올리면 단독 테스트는 통과하는데 서버에서는 실패한다.
 
-백엔드는 `modeling/.env`나 서버 공용 `GOOGLE_API_KEY`를 사용하지 않는다.
+백엔드는 `modeling/.env`나 서버 공용 `OPENAI_API_KEY`를 사용하지 않는다.
 설정 화면에 등록된 현재 사용자의 키를 복호화해 각 함수의 `api_key` 인자로
 전달한다. 백엔드에는 사용자 키 암호화를 위한 `API_KEY_ENCRYPTION_KEY`가 필요하다.
 
@@ -54,19 +54,19 @@ DB 모델을 참조하지 않고 위 데이터 구조로만 주고받는다. 그
 
 ## 모델
 
-쓸 수 있는 모델은 `config.py` 의 `MODELS` 에 정의한다. 현재는 `gemini-3.6-flash` 하나이고 이것이 기본값이다. `gemini-2.5-flash` 는 신규 사용자에게 더 이상 열리지 않아 404 가 난다.
+쓸 수 있는 모델은 `config.py` 의 `MODELS` 에 정의한다. 현재는 Sol(`gpt-5.6-sol`) · Terra(`gpt-5.6-terra`, 기본) · Luna(`gpt-5.6-luna`) 세 가지다.
 
 목록에 모델을 더할 때는 실제 키로 호출해 보고 검색·첨부 지원 여부까지 확인한 뒤 넣는다. 확인하지 않은 모델을 넣으면 사용자가 고른 뒤에야 실패한다.
 
-이 모델은 온도(temperature) 같은 샘플링 값을 고정으로 쓰므로 지정하지 않는다. 넘겨도 무시되고 경고만 남는다.
+이 모델들은 추론 모델이라 온도(temperature)를 지정하지 않는다. 넘기면 거부되거나 조용히 무시된다. 추론 단계(reasoning effort)는 `config.py` 의 `DEFAULT_REASONING_EFFORT` 로 고정해 둔다. 사용자가 단계를 고르는 화면은 아직 없다.
 
 사용 가능한 모델은 아래로 확인한다.
 
 ```python
-from google import genai
-client = genai.Client(api_key="...")
+from openai import OpenAI
+client = OpenAI(api_key="...")
 for m in client.models.list():
-    print(m.name)
+    print(m.id)
 ```
 
 ## 하는 일

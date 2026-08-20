@@ -82,7 +82,7 @@ test -f .env || cp .env.example .env
 | `GOOGLE_CLIENT_ID` | Google 로그인 토큰 검증 |
 | `DEV_LOGIN_ENABLED` | Cursor 내장 브라우저용 로컬 로그인. 기본값 `false` |
 | `JWT_SECRET` | 로그인 토큰 서명. 32자 이상 사용 |
-| `API_KEY_ENCRYPTION_KEY` | 사용자가 등록한 Gemini 키 암호화 |
+| `API_KEY_ENCRYPTION_KEY` | 사용자가 등록한 OpenAI 키 암호화 |
 
 `API_KEY_ENCRYPTION_KEY`가 비어 있으면 백엔드 가상환경에서 새 키를 만든다.
 
@@ -92,7 +92,7 @@ test -f .env || cp .env.example .env
 
 출력값을 `backend/.env`의 `API_KEY_ENCRYPTION_KEY`에 넣는다. 이 값은 암호화된 사용자 키를 다시 읽는 데 필요하므로 임의로 바꾸거나 커밋하지 않는다.
 
-AI 호출에 쓰는 Gemini 키는 서버 공용 환경 변수가 아니다. 백엔드 실행 후 FlowKit 설정 화면에서 사용자별로 등록한다. `modeling/.env`는 필요하지 않다.
+AI 호출에 쓰는 OpenAI 키는 서버 공용 환경 변수가 아니다. 백엔드 실행 후 FlowKit 설정 화면에서 사용자별로 등록한다. `modeling/.env`는 필요하지 않다.
 
 ## 3. DB 마이그레이션과 백엔드 실행
 
@@ -177,7 +177,7 @@ pip install -e .
 pytest tests/ -q
 ```
 
-단위 테스트는 실제 Gemini API를 호출하지 않으므로 키 없이 실행된다.
+단위 테스트는 실제 OpenAI API를 호출하지 않으므로 키 없이 실행된다.
 
 ## 권장 실행 순서
 
@@ -185,7 +185,7 @@ pytest tests/ -q
 2. 백엔드에서 `alembic upgrade head`를 적용한다.
 3. 백엔드를 실행하고 `/health`를 확인한다.
 4. 프론트엔드를 실행한다.
-5. 로그인 후 설정 화면에서 Gemini API 키를 등록하고 연결을 확인한다.
+5. 로그인 후 설정 화면에서 OpenAI API 키를 등록하고 연결을 확인한다.
 
 ## 종료 방법
 

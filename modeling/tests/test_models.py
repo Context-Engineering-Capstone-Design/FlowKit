@@ -19,7 +19,7 @@ def clear_key(monkeypatch):
     앞 테스트가 넣어 둔 키가 남아 있으면 '키 없음'을 검증할 수 없다.
     """
     monkeypatch.setattr(llm, "_fallback_api_key", None)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
 
 # ── 모델 목록과 선택값 ──────────────────────────────────────────────────────
@@ -80,14 +80,14 @@ def test_client_cache_separates_key_and_options(monkeypatch):
 
     class FakeClient:
         def __init__(self, **kwargs):
-            built.append((kwargs.get("google_api_key"), kwargs.get("model")))
+            built.append((kwargs.get("api_key"), kwargs.get("model")))
 
         def bind_tools(self, tools):
             built[-1] = built[-1] + ("search",)
             return self
 
-    fake_module = type("M", (), {"ChatGoogleGenerativeAI": FakeClient})
-    monkeypatch.setitem(__import__("sys").modules, "langchain_google_genai", fake_module)
+    fake_module = type("M", (), {"ChatOpenAI": FakeClient})
+    monkeypatch.setitem(__import__("sys").modules, "langchain_openai", fake_module)
     llm.get_chat_model.cache_clear()
 
     model_id = resolve_model(None).model_id
@@ -122,8 +122,8 @@ def test_connection_check_reports_provider_failure(monkeypatch):
         def invoke(self, _):
             raise RuntimeError("잘못된 키입니다\n요청 상세 정보")
 
-    fake_module = type("M", (), {"ChatGoogleGenerativeAI": FailingClient})
-    monkeypatch.setitem(__import__("sys").modules, "langchain_google_genai", fake_module)
+    fake_module = type("M", (), {"ChatOpenAI": FailingClient})
+    monkeypatch.setitem(__import__("sys").modules, "langchain_openai", fake_module)
 
     result = check_connection("키")
     assert result.success is False
@@ -139,8 +139,8 @@ def test_connection_check_succeeds(monkeypatch):
         def invoke(self, _):
             return "pong"
 
-    fake_module = type("M", (), {"ChatGoogleGenerativeAI": OkClient})
-    monkeypatch.setitem(__import__("sys").modules, "langchain_google_genai", fake_module)
+    fake_module = type("M", (), {"ChatOpenAI": OkClient})
+    monkeypatch.setitem(__import__("sys").modules, "langchain_openai", fake_module)
 
     result = check_connection("키")
     assert result.success is True

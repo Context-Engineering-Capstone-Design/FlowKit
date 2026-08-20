@@ -13,7 +13,7 @@ def auth(client, monkeypatch) -> dict:
     monkeypatch.setattr(auth_router, "verify_google_id_token", lambda _t: USER)
     result = client.post("/api/auth/google", json={"idToken": "dummy"})
     headers = {"Authorization": f"Bearer {result.json()['accessToken']}"}
-    client.put("/api/settings/api-keys/google", json={"apiKey": "test-api-key-1234567890"}, headers=headers)
+    client.put("/api/settings/api-keys/openai", json={"apiKey": "test-api-key-1234567890"}, headers=headers)
     return headers
 
 
@@ -33,7 +33,7 @@ def message_url(chat: dict) -> str:
 def test_models_are_from_modeling_settings(client):
     response = client.get("/api/models")
     assert response.status_code == 200
-    assert response.json()[0]["modelId"] == "gemini-3.6-flash"
+    assert response.json()[0]["modelId"] == "gpt-5.6-terra"
     assert response.json()[0]["isDefault"] is True
 
 

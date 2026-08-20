@@ -13,13 +13,14 @@ from langchain_core.language_models import BaseChatModel
 
 from modeling.config import (
     CONNECTION_CHECK_TIMEOUT_SECONDS,
+    DEFAULT_REASONING_EFFORT,
     REQUEST_TIMEOUT_SECONDS,
 )
 from modeling.models import resolve_model
 from modeling.types import ConnectionResult
 
-# 모델에 내장된 Google 검색 도구 (AI-SEARCH-001). 별도 검색 서비스를 부르지 않는다.
-_SEARCH_TOOL = {"google_search": {}}
+# OpenAI Responses API 의 내장 웹 검색 도구 (AI-SEARCH-001). 별도 검색 서비스를 부르지 않는다.
+_SEARCH_TOOL = {"type": "web_search"}
 
 
 class MissingApiKeyError(RuntimeError):
@@ -52,7 +53,7 @@ def resolve_api_key(api_key: str | None = None) -> str:
     요청에 실려 온 사용자 키를 먼저 쓴다. 없으면 예비 키를, 그것도 없으면
     환경변수를 본다. 셋 다 없으면 모델을 부르지 않고 오류를 낸다.
     """
-    for candidate in (api_key, _fallback_api_key, os.getenv("GOOGLE_API_KEY")):
+    for candidate in (api_key, _fallback_api_key, os.getenv("OPENAI_API_KEY")):
         if candidate and candidate.strip():
             return candidate.strip()
     raise MissingApiKeyError("API 키가 등록되지 않았습니다. API 키를 등록해주세요.")
@@ -76,12 +77,16 @@ def get_chat_model(
             f"{model.display_name} 모델은 웹 검색을 지원하지 않습니다."
         )
 
-    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_openai import ChatOpenAI
 
-    client: BaseChatModel = ChatGoogleGenerativeAI(
+    # output_version="responses/v1" 로 Responses API 형식을 쓴다. 웹 검색
+    # 도구와 첨부 파일 입력이 이 API 에서만 지원된다.
+    client: BaseChatModel = ChatOpenAI(
         model=model.model_id,
-        google_api_key=api_key,
+        api_key=api_key,
         timeout=REQUEST_TIMEOUT_SECONDS,
+        output_version="responses/v1",
+        reasoning={"effort": DEFAULT_REASONING_EFFORT},
     )
     if web_search_enabled:
         client = client.bind_tools([_SEARCH_TOOL])
@@ -102,13 +107,13 @@ def check_connection(
         return ConnectionResult(success=False, reason=str(exc))
 
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_openai import ChatOpenAI
 
-        client = ChatGoogleGenerativeAI(
+        client = ChatOpenAI(
             model=resolve_model(model_id).model_id,
-            google_api_key=key,
+            api_key=key,
             timeout=CONNECTION_CHECK_TIMEOUT_SECONDS,
-            max_output_tokens=1,
+            max_tokens=16,
         )
         client.invoke("ping")
     except Exception as exc:

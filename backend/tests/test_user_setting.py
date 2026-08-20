@@ -15,7 +15,7 @@ from app.services.google_auth import GoogleUser
 from modeling.types import ConnectionResult
 
 USER = GoogleUser("sub-setting", "setting@example.com", "설정테스터", None)
-RAW_KEY = "google-api-key-1234567890"
+RAW_KEY = "openai-api-key-1234567890"
 
 
 def login(client, monkeypatch, user: GoogleUser = USER) -> dict[str, str]:
@@ -32,7 +32,7 @@ def auth(client, monkeypatch) -> dict[str, str]:
 
 def save_key(client, auth, api_key: str = RAW_KEY):
     return client.put(
-        "/api/settings/api-keys/google",
+        "/api/settings/api-keys/openai",
         json={"apiKey": api_key},
         headers=auth,
     )
@@ -53,7 +53,7 @@ def test_settings_returns_profile_and_empty_key_status(client, auth):
         },
         "apiKeyStatus": {
             "hasApiKey": False,
-            "provider": "google",
+            "provider": "openai",
             "last4": None,
             "connectedStatus": None,
             "checkedAt": None,
@@ -69,7 +69,7 @@ def test_save_encrypts_key_and_returns_only_masked_status(client, auth, db_sessi
     body = response.json()
     assert body == {
         "hasApiKey": True,
-        "provider": "google",
+        "provider": "openai",
         "last4": "7890",
         "connectedStatus": "unchecked",
         "checkedAt": None,
@@ -100,7 +100,7 @@ def test_save_updates_one_record_and_resets_connection_status(
         lambda **_kwargs: ConnectionResult(success=True),
     )
     assert client.post(
-        "/api/settings/api-keys/google/check", headers=auth
+        "/api/settings/api-keys/openai/check", headers=auth
     ).json()["connectedStatus"] == "connected"
 
     updated = save_key(client, auth, "replacement-key-0987654321")
@@ -115,17 +115,17 @@ def test_save_updates_one_record_and_resets_connection_status(
     ("url", "payload", "error_code"),
     [
         (
-            "/api/settings/api-keys/openai",
+            "/api/settings/api-keys/google",
             {"apiKey": RAW_KEY},
             "PROVIDER_NOT_CONFIGURED",
         ),
         (
-            "/api/settings/api-keys/google",
+            "/api/settings/api-keys/openai",
             {"apiKey": "too-short"},
             "API_KEY_INVALID_FORMAT",
         ),
         (
-            "/api/settings/api-keys/google",
+            "/api/settings/api-keys/openai",
             {"apiKey": "invalid key with spaces"},
             "API_KEY_INVALID_FORMAT",
         ),
@@ -152,7 +152,7 @@ def test_check_connection_saves_success_and_safe_failure_message(
         lambda **_kwargs: ConnectionResult(success=True),
     )
     connected = client.post(
-        "/api/settings/api-keys/google/check", headers=auth
+        "/api/settings/api-keys/openai/check", headers=auth
     )
     assert connected.status_code == 200
     assert connected.json()["connectedStatus"] == "connected"
@@ -167,7 +167,7 @@ def test_check_connection_saves_success_and_safe_failure_message(
             reason=f"401 invalid api key {RAW_KEY}",
         ),
     )
-    failed = client.post("/api/settings/api-keys/google/check", headers=auth)
+    failed = client.post("/api/settings/api-keys/openai/check", headers=auth)
 
     assert failed.status_code == 200
     assert failed.json()["connectedStatus"] == "failed"
@@ -181,7 +181,7 @@ def test_check_connection_saves_success_and_safe_failure_message(
             success=False, reason="request timed out"
         ),
     )
-    timed_out = client.post("/api/settings/api-keys/google/check", headers=auth)
+    timed_out = client.post("/api/settings/api-keys/openai/check", headers=auth)
     assert timed_out.status_code == 200
     assert timed_out.json()["message"] == (
         "연결 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
@@ -191,7 +191,7 @@ def test_check_connection_saves_success_and_safe_failure_message(
 def test_delete_removes_key_and_missing_delete_is_not_found(client, auth):
     assert save_key(client, auth).status_code == 200
 
-    deleted = client.delete("/api/settings/api-keys/google", headers=auth)
+    deleted = client.delete("/api/settings/api-keys/openai", headers=auth)
 
     assert deleted.status_code == 200
     assert deleted.json()["deleteSuccess"] is True
@@ -202,7 +202,7 @@ def test_delete_removes_key_and_missing_delete_is_not_found(client, auth):
         "message": "API 키를 삭제했습니다.",
         "affectedResourceId": None,
     }
-    missing = client.delete("/api/settings/api-keys/google", headers=auth)
+    missing = client.delete("/api/settings/api-keys/openai", headers=auth)
     assert missing.status_code == 404
     assert missing.json()["errorCode"] == "API_KEY_NOT_FOUND"
 
@@ -222,7 +222,7 @@ def test_users_can_only_read_and_delete_their_own_key(client, monkeypatch):
         "last4"
     ] == "2222"
     assert client.delete(
-        "/api/settings/api-keys/google", headers=first_auth
+        "/api/settings/api-keys/openai", headers=first_auth
     ).status_code == 200
     assert client.get("/api/settings", headers=second_auth).json()["apiKeyStatus"][
         "last4"

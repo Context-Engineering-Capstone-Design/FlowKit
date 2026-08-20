@@ -18,7 +18,7 @@ from app.services import service_feedback_service, user_setting_service
 router = APIRouter(prefix="/api/settings", tags=["UserSetting"])
 
 
-def _api_key_status(record, provider: str = "google") -> ApiKeyStatus:
+def _api_key_status(record, provider: str = "openai") -> ApiKeyStatus:
     if record is None:
         return ApiKeyStatus(
             has_api_key=False,

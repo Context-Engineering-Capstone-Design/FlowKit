@@ -114,13 +114,26 @@ def extract_sources(response) -> list[SearchSource]:
 
     근거가 없다고 해서 실패로 보지 않는다. 검색을 켜도 모델이 검색을 쓰지 않고
     답할 수 있다.
+
+    OpenAI Responses API 는 본문 블록의 `annotations` 에 인라인 인용
+    (`url_citation`)을 실어 준다. 같은 자료가 여러 번 인용될 수 있어 주소로
+    중복을 없앤다.
     """
-    metadata = getattr(response, "response_metadata", None) or {}
-    grounding = metadata.get("grounding_metadata") or {}
-    sources = []
-    for chunk in grounding.get("grounding_chunks") or []:
-        web = (chunk or {}).get("web") or {}
-        url = web.get("uri")
-        if url:
-            sources.append(SearchSource(title=web.get("title") or url, url=url))
+    content = getattr(response, "content", None)
+    if not isinstance(content, list):
+        return []
+
+    sources: list[SearchSource] = []
+    seen: set[str] = set()
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        for annotation in block.get("annotations") or []:
+            if not isinstance(annotation, dict) or annotation.get("type") != "url_citation":
+                continue
+            url = annotation.get("url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            sources.append(SearchSource(title=annotation.get("title") or url, url=url))
     return sources

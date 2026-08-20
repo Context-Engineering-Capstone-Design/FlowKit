@@ -17,7 +17,7 @@ from app.exceptions import (
 from app.models import ApiKeyConnectionStatus, User, UserApiKey
 from app.services.api_key_crypto import decrypt_api_key, encrypt_api_key
 
-SUPPORTED_PROVIDER = "google"
+SUPPORTED_PROVIDER = "openai"
 MIN_API_KEY_LENGTH = 16
 MAX_API_KEY_LENGTH = 512
 _KEY_PATTERN = re.compile(r"^[A-Za-z0-9_\-.]+$")

@@ -130,16 +130,26 @@ def test_image_and_document_can_be_mixed():
 
 
 def test_search_sources_are_extracted():
+    """OpenAI Responses API 는 본문 블록의 annotations 에 인용을 싣는다."""
     response = AIMessage(
-        content="답변",
-        response_metadata={
-            "grounding_metadata": {
-                "grounding_chunks": [
-                    {"web": {"title": "파이프라이닝 정리", "uri": "https://example.com/a"}},
-                    {"web": {"title": None, "uri": "https://example.com/b"}},
-                ]
+        content=[
+            {
+                "type": "text",
+                "text": "답변",
+                "annotations": [
+                    {
+                        "type": "url_citation",
+                        "title": "파이프라이닝 정리",
+                        "url": "https://example.com/a",
+                    },
+                    {
+                        "type": "url_citation",
+                        "title": None,
+                        "url": "https://example.com/b",
+                    },
+                ],
             }
-        },
+        ],
     )
     sources = extract_sources(response)
 
@@ -148,14 +158,30 @@ def test_search_sources_are_extracted():
     assert sources[1].title == "https://example.com/b"  # 제목이 없으면 주소로 채운다
 
 
-def test_missing_grounding_is_not_a_failure():
+def test_duplicate_urls_are_deduplicated():
+    """같은 자료가 여러 번 인용될 수 있다."""
+    response = AIMessage(
+        content=[
+            {
+                "type": "text",
+                "text": "답변",
+                "annotations": [
+                    {"type": "url_citation", "title": "정리", "url": "https://example.com/a"},
+                    {"type": "url_citation", "title": "정리", "url": "https://example.com/a"},
+                ],
+            }
+        ],
+    )
+    assert len(extract_sources(response)) == 1
+
+
+def test_missing_annotations_is_not_a_failure():
     """검색을 켜도 모델이 검색을 쓰지 않을 수 있다 (AI-SEARCH-002)."""
     assert extract_sources(AIMessage(content="답변")) == []
 
 
-def test_chunk_without_url_is_skipped():
+def test_annotation_without_url_is_skipped():
     response = AIMessage(
-        content="답변",
-        response_metadata={"grounding_metadata": {"grounding_chunks": [{"web": {}}]}},
+        content=[{"type": "text", "text": "답변", "annotations": [{"type": "url_citation"}]}],
     )
     assert extract_sources(response) == []

@@ -16,7 +16,7 @@ def auth(client, monkeypatch) -> dict:
     res = client.post("/api/auth/google", json={"idToken": "dummy"})
     headers = {"Authorization": f"Bearer {res.json()['accessToken']}"}
     saved = client.put(
-        "/api/settings/api-keys/google",
+        "/api/settings/api-keys/openai",
         json={"apiKey": "test-api-key-1234567890"},
         headers=headers,
     )
