@@ -11,6 +11,7 @@ from typing import Literal
 
 Role = Literal["user", "assistant"]
 ReasoningEffort = Literal["low", "medium", "high", "xhigh", "max"]
+WebSearchMode = Literal["off", "auto", "always"]
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,7 @@ class AnswerRequest:
     message_flow: list[ChatTurn]
     applied_context: list[str]
     attachments: list[Attachment] = field(default_factory=list)
-    web_search_enabled: bool = False
+    web_search_mode: WebSearchMode = "off"
     model_id: str | None = None
     reasoning_effort: ReasoningEffort = "medium"
 

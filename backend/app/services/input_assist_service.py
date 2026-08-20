@@ -43,14 +43,14 @@ def list_models():
     return available_models()
 
 
-def validate_options(selected_model_id: str | None, web_search_enabled: bool, has_attachments: bool):
+def validate_options(selected_model_id: str | None, web_search_mode: str, has_attachments: bool):
     from modeling.models import UnsupportedModelError, resolve_model
 
     try:
         model = resolve_model(selected_model_id)
     except UnsupportedModelError as exc:
         raise ModelNotSupportedError() from exc
-    if web_search_enabled and not model.supports_web_search:
+    if web_search_mode != "off" and not model.supports_web_search:
         raise WebSearchNotSupportedError()
     if has_attachments and not model.supports_attachment:
         raise AttachmentInvalidTypeError("선택한 모델은 파일 첨부를 지원하지 않습니다.")

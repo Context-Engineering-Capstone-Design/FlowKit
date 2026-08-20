@@ -82,8 +82,9 @@ def test_client_cache_separates_key_and_options(monkeypatch):
         def __init__(self, **kwargs):
             built.append((kwargs.get("api_key"), kwargs.get("model")))
 
-        def bind_tools(self, tools):
-            built[-1] = built[-1] + ("search",)
+        def bind_tools(self, tools, tool_choice=None):
+            tag = "forced" if tool_choice is not None else "search"
+            built[-1] = built[-1] + (tag,)
             return self
 
     fake_module = type("M", (), {"ChatOpenAI": FakeClient})
@@ -91,21 +92,43 @@ def test_client_cache_separates_key_and_options(monkeypatch):
     llm.get_chat_model.cache_clear()
 
     model_id = resolve_model(None).model_id
-    llm.get_chat_model("키A", model_id, False)
-    llm.get_chat_model("키A", model_id, False)  # 같은 조합이라 새로 만들지 않는다
-    llm.get_chat_model("키B", model_id, False)
-    llm.get_chat_model("키A", model_id, True)
+    llm.get_chat_model("키A", model_id, "off")
+    llm.get_chat_model("키A", model_id, "off")  # 같은 조합이라 새로 만들지 않는다
+    llm.get_chat_model("키B", model_id, "off")
+    llm.get_chat_model("키A", model_id, "auto")
 
     assert len(built) == 3
     assert ("키A", model_id) in built
     assert ("키B", model_id) in built
     assert ("키A", model_id, "search") in built
 
-    # 자동 판단을 허용한 답변 클라이언트에도 검색 도구를 붙인다.
-    llm.get_chat_model("키A", model_id, False, auto_web_search=True)
+    # always는 도구를 붙이고 tool_choice로 반드시 쓰도록 강제한다.
+    llm.get_chat_model("키A", model_id, "always")
     assert len(built) == 4
-    assert built[-1] == ("키A", model_id, "search")
+    assert built[-1] == ("키A", model_id, "forced")
 
+    llm.get_chat_model.cache_clear()
+
+
+def test_off_mode_does_not_attach_search_tool(monkeypatch):
+    """웹 검색을 끄면 도구를 붙이지 않아 모델이 검색을 쓸 수 없다 (AI-SEARCH-001)."""
+    built: list[tuple] = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            built.append(())
+
+        def bind_tools(self, tools, tool_choice=None):
+            built[-1] = built[-1] + ("bound",)
+            return self
+
+    fake_module = type("M", (), {"ChatOpenAI": FakeClient})
+    monkeypatch.setitem(__import__("sys").modules, "langchain_openai", fake_module)
+    llm.get_chat_model.cache_clear()
+
+    llm.get_chat_model("키", resolve_model(None).model_id, "off")
+
+    assert built == [()]
     llm.get_chat_model.cache_clear()
 
 

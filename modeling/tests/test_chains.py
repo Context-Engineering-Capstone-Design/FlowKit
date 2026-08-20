@@ -9,10 +9,15 @@ import pytest
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 
-from modeling.chains.answer import EmptyAnswerError, build_messages, generate_answer
+from modeling.chains.answer import (
+    EmptyAnswerError,
+    build_messages,
+    generate_answer,
+    generate_answer_stream,
+)
 from modeling.chains.refine import EmptyRefineResultError, refine_blocks
 from modeling.chains.title import generate_title
 from modeling.config import MAX_TITLE_LENGTH
@@ -155,6 +160,16 @@ def test_applied_context_goes_into_system_message():
 
     assert "구조적 해저드는 자원 충돌이다" in system
     assert "해결은 캐시 분리" in system
+
+
+def test_system_message_has_date_length_and_format_rules():
+    """시스템 프롬프트에 날짜·길이·서식 규칙이 담겨 있어야 한다."""
+    from datetime import datetime
+
+    system = build_messages(AnswerRequest("질문", [], []))[0].content
+
+    assert datetime.now().strftime("%Y-%m-%d") in system
+    assert "필요한 만큼만" in system
 
 
 def test_empty_context_entries_are_ignored():

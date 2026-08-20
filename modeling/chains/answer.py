@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from datetime import datetime
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
@@ -9,7 +12,7 @@ from modeling import attachments as attach
 from modeling.llm import get_chat_model, resolve_api_key
 from modeling.models import resolve_model
 from modeling.prompts import answer as prompt
-from modeling.types import AnswerRequest, AnswerResult, SearchSource
+from modeling.types import AnswerChunk, AnswerRequest, AnswerResult, SearchSource
 
 
 class EmptyAnswerError(ValueError):
@@ -22,7 +25,7 @@ def build_messages(request: AnswerRequest) -> list[BaseMessage]:
     적용된 Context 가 있으면 시스템 메시지에 함께 실어, 이전 대화보다 그쪽을
     우선 보게 한다.
     """
-    system = prompt.SYSTEM
+    system = prompt.SYSTEM.format(today=datetime.now(UTC).strftime("%Y-%m-%d"))
     if request.applied_context:
         joined = "\n\n---\n\n".join(c.strip() for c in request.applied_context if c.strip())
         if joined:
@@ -58,6 +61,20 @@ def _build_question(request: AnswerRequest) -> HumanMessage:
     return HumanMessage(content=[{"type": "text", "text": text}, *attach.image_blocks(images)])
 
 
+def _resolve_model(request: AnswerRequest, api_key: str | None) -> BaseChatModel:
+    selected = resolve_model(request.model_id)
+    if request.attachments and not selected.supports_attachment:
+        raise attach.AttachmentNotSupportedError(
+            f"{selected.display_name} 모델은 첨부 입력을 지원하지 않습니다."
+        )
+    return get_chat_model(
+        resolve_api_key(api_key),
+        selected.model_id,
+        request.web_search_mode,
+        reasoning_effort=request.reasoning_effort,
+    )
+
+
 def generate_answer(
     request: AnswerRequest,
     model: BaseChatModel | None = None,
@@ -72,18 +89,7 @@ def generate_answer(
         raise ValueError("질문이 비어 있습니다.")
 
     if model is None:
-        selected = resolve_model(request.model_id)
-        if request.attachments and not selected.supports_attachment:
-            raise attach.AttachmentNotSupportedError(
-                f"{selected.display_name} 모델은 첨부 입력을 지원하지 않습니다."
-            )
-        model = get_chat_model(
-            resolve_api_key(api_key),
-            selected.model_id,
-            request.web_search_enabled,
-            auto_web_search=True,
-            reasoning_effort=request.reasoning_effort,
-        )
+        model = _resolve_model(request, api_key)
 
     response = model.invoke(build_messages(request))
     text = _text_of(response).strip()

@@ -19,6 +19,7 @@ from modeling.config import (
 from modeling.models import resolve_model
 from modeling.types import ConnectionResult
 from modeling.types import ReasoningEffort
+from modeling.types import WebSearchMode
 
 # OpenAI Responses API 의 내장 웹 검색 도구 (AI-SEARCH-001). 별도 검색 서비스를 부르지 않는다.
 _SEARCH_TOOL = {"type": "web_search"}
@@ -64,18 +65,17 @@ def resolve_api_key(api_key: str | None = None) -> str:
 def get_chat_model(
     api_key: str,
     model_id: str | None = None,
-    web_search_enabled: bool = False,
-    auto_web_search: bool = False,
+    web_search_mode: WebSearchMode = "off",
     reasoning_effort: ReasoningEffort = DEFAULT_REASONING_EFFORT,
 ) -> BaseChatModel:
-    """모델 클라이언트를 만든다 (AI-CORE-003).
+    """모델 클라이언트를 만든다 (AI-CORE-003, AI-SEARCH-001).
 
     키·모델·옵션을 모두 재사용 기준으로 삼는다. 모델 이름만 기준으로 삼으면
-    검색을 켠 클라이언트가 검색을 끈 요청에도 쓰이고, 한 사용자의 키가 다른
+    검색 도구가 붙은 클라이언트가 다른 요청에도 쓰이고, 한 사용자의 키가 다른
     사용자 요청에 쓰인다.
     """
     model = resolve_model(model_id)
-    if web_search_enabled and not model.supports_web_search:
+    if web_search_mode != "off" and not model.supports_web_search:
         raise WebSearchNotSupportedError(
             f"{model.display_name} 모델은 웹 검색을 지원하지 않습니다."
         )
@@ -91,11 +91,13 @@ def get_chat_model(
         output_version="responses/v1",
         reasoning={"effort": reasoning_effort},
     )
-    # 답변 생성에서는 도구를 항상 제공해 모델이 질문에 따라 자동으로
-    # 검색 여부를 판단할 수 있게 한다. 제목·정제처럼 검색이 필요 없는 호출은
-    # auto_web_search를 끄고 기존처럼 도구를 제공하지 않는다.
-    if web_search_enabled or (auto_web_search and model.supports_web_search):
+    # off: 도구를 붙이지 않아 검색 자체가 불가능하다(AI-SEARCH-001).
+    # auto: 도구는 붙이되 실제로 쓸지는 모델이 질문을 보고 판단한다.
+    # always: 도구를 붙이고 tool_choice로 반드시 쓰도록 강제한다.
+    if web_search_mode == "auto":
         client = client.bind_tools([_SEARCH_TOOL])
+    elif web_search_mode == "always":
+        client = client.bind_tools([_SEARCH_TOOL], tool_choice=_SEARCH_TOOL)
     return client
 
 

@@ -18,7 +18,7 @@ class SendMessageRequest(BaseModel):
         default_factory=list, alias="contextBlockIds"
     )
     selected_model_id: str | None = Field(None, alias="selectedModelId")
-    web_search_enabled: bool = Field(False, alias="webSearchEnabled")
+    web_search_mode: Literal["off", "auto", "always"] = Field("off", alias="webSearchMode")
     attachment_ids: list[uuid.UUID] = Field(default_factory=list, alias="attachmentIds")
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field("medium", alias="reasoningEffort")
 
@@ -42,7 +42,7 @@ class SendMessageResponse(BaseModel):
     chat_title: str = Field(..., serialization_alias="chatTitle")
     title_generated: bool = Field(..., serialization_alias="titleGenerated")
     selected_model: str = Field(..., serialization_alias="selectedModel")
-    web_search_enabled: bool = Field(..., serialization_alias="webSearchEnabled")
+    web_search_mode: Literal["off", "auto", "always"] = Field(..., serialization_alias="webSearchMode")
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field(..., serialization_alias="reasoningEffort")
     attachments: list[AttachmentOut]
     search_sources: list[SearchSourceOut] = Field(..., serialization_alias="searchSources")
