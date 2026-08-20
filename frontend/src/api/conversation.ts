@@ -1,4 +1,5 @@
 import { api } from './client'
+import { AI_REQUEST_TIMEOUT_MS } from '@/lib/requestTimeout'
 import type {
   AiResponseRating,
   BlockResponse,
@@ -21,6 +22,7 @@ export async function sendMessage(
   const { data } = await api.post<SendMessageResponse>(
     `/api/chats/${chatId}/branches/${branchId}/messages`,
     { userPrompt, contextBlockIds, ...options },
+    { timeout: AI_REQUEST_TIMEOUT_MS },
   )
   return data
 }
@@ -32,12 +34,18 @@ export async function regenerate(
 ): Promise<RegenerateResponse> {
   const { data } = await api.post<RegenerateResponse>(
     `/api/chats/${chatId}/branches/${branchId}/blocks/${blockId}/regenerate`,
+    undefined,
+    { timeout: AI_REQUEST_TIMEOUT_MS },
   )
   return data
 }
 
 export async function retryAiResponseJob(chatId: string, branchId: string, jobId: string): Promise<SendMessageResponse> {
-  const { data } = await api.post<SendMessageResponse>(`/api/chats/${chatId}/branches/${branchId}/ai-response-jobs/${jobId}/retry`)
+  const { data } = await api.post<SendMessageResponse>(
+    `/api/chats/${chatId}/branches/${branchId}/ai-response-jobs/${jobId}/retry`,
+    undefined,
+    { timeout: AI_REQUEST_TIMEOUT_MS },
+  )
   return data
 }
 
@@ -111,6 +119,7 @@ export async function runRefine(
   const { data } = await api.post<RefineJob>(
     `/api/chats/${chatId}/branches/${branchId}/refine-jobs`,
     { selectedBlockIds, instructionText },
+    { timeout: AI_REQUEST_TIMEOUT_MS },
   )
   return data
 }

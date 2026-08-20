@@ -1,5 +1,11 @@
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 
+// 답변 생성·재생성·정제처럼 모델을 부르는 요청은 더 오래 기다린다.
+// 모델 호출 자체의 제한(modeling/config.py REQUEST_TIMEOUT_SECONDS, 60초)보다
+// 화면이 먼저 끊으면, 서버는 계속 진행해 답변을 저장하는데 화면만 실패로
+// 보고하는 어긋난 상태가 생긴다.
+export const AI_REQUEST_TIMEOUT_MS = 65_000
+
 export interface RequestTaskContext {
   requestId: string
   signal: AbortSignal

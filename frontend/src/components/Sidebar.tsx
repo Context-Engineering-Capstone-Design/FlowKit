@@ -1,5 +1,5 @@
-import { GitBranch, Layers, Search, SquarePen, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { GitBranch, Layers, Pencil, Search, SquarePen, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
 import { useInfiniteChatList } from '@/hooks/useInfiniteChatList'
@@ -14,6 +14,7 @@ export function Sidebar() {
   const openChat = useChatStore((s) => s.openChat)
   const deleteChat = useChatStore((s) => s.deleteChat)
   const deletingChatId = useChatStore((s) => s.deletingChatId)
+  const renameChat = useChatStore((s) => s.renameChat)
   const switchBranch = useChatStore((s) => s.switchBranch)
   const nextCursor = useChatStore((s) => s.nextCursor)
   const isLoadingChats = useChatStore((s) => s.isLoadingChats)
@@ -25,11 +26,30 @@ export function Sidebar() {
   const loadMoreRef = useInfiniteChatList(Boolean(nextCursor), isLoadingMoreChats, loadMoreChats)
   const searchKeyword = keyword.trim()
 
+  const [editingChatId, setEditingChatId] = useState<string | null>(null)
+  const [editingValue, setEditingValue] = useState('')
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  function startRename(id: string, title: string) {
+    setEditingChatId(id)
+    setEditingValue(title)
+  }
+
+  async function commitRename(id: string) {
+    const value = editingValue
+    setEditingChatId(null)
+    await renameChat(id, value)
+  }
+
   useEffect(() => {
     // 입력할 때마다 요청하지 않도록 잠시 기다렸다 검색한다
     const timer = setTimeout(() => void loadChats(searchKeyword || undefined), 250)
     return () => clearTimeout(timer)
   }, [loadChats, searchKeyword])
+
+  useEffect(() => {
+    if (editingChatId) renameInputRef.current?.select()
+  }, [editingChatId])
 
   return (
     <aside className="flex w-[236px] shrink-0 flex-col overflow-hidden bg-bg-1">
@@ -82,23 +102,50 @@ export function Sidebar() {
                 : 'text-txt-1 hover:bg-bg-2'
             }`}
           >
-            <button
-              type="button"
-              onClick={() => void openChat(c.chatId)}
-              className="min-w-0 flex-1 truncate px-2 py-[7px] text-left text-[12.5px] transition"
-            >
-              {c.title}
-            </button>
-            <button
-              type="button"
-              title="대화 삭제"
-              aria-label={`${c.title} 삭제`}
-              disabled={deletingChatId === c.chatId}
-              onClick={() => void deleteChat(c.chatId)}
-              className="mr-0.5 shrink-0 rounded-md p-1 text-txt-3 transition hover:bg-bg-3 hover:text-red disabled:opacity-40"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            {editingChatId === c.chatId ? (
+              <input
+                ref={renameInputRef}
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onBlur={() => void commitRename(c.chatId)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); void commitRename(c.chatId) }
+                  if (e.key === 'Escape') { e.preventDefault(); setEditingChatId(null) }
+                }}
+                className="min-w-0 flex-1 rounded-md bg-bg-0 px-2 py-[6px] text-[12.5px] text-txt-0 outline-none ring-1 ring-blue-line"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => void openChat(c.chatId)}
+                className="min-w-0 flex-1 truncate px-2 py-[7px] text-left text-[12.5px] transition"
+              >
+                {c.title}
+              </button>
+            )}
+            {editingChatId !== c.chatId && (
+              <button
+                type="button"
+                title="이름 변경"
+                aria-label={`${c.title} 이름 변경`}
+                onClick={() => startRename(c.chatId, c.title)}
+                className="mr-0.5 shrink-0 rounded-md p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-0"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {editingChatId !== c.chatId && (
+              <button
+                type="button"
+                title="대화 삭제"
+                aria-label={`${c.title} 삭제`}
+                disabled={deletingChatId === c.chatId}
+                onClick={() => void deleteChat(c.chatId)}
+                className="mr-0.5 shrink-0 rounded-md p-1 text-txt-3 transition hover:bg-bg-3 hover:text-red disabled:opacity-40"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         ))}
         {nextCursor && (

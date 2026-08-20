@@ -1,5 +1,5 @@
-import { ArrowUp, GitBranch, PanelRight, X } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { ArrowUp, GitBranch, PanelRight, Upload, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
 import { ModelSelector } from '@/components/ModelSelector'
@@ -24,6 +24,7 @@ export function ChatArea({ panelOpen, onTogglePanel, onCreateBranch }: Props) {
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
   const isSending = useChatStore((s) => s.isSending)
   const branchId = useChatStore((s) => s.branchId)
+  const addFiles = useChatStore((s) => s.addFiles)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -39,8 +40,46 @@ export function ChatArea({ panelOpen, onTogglePanel, onCreateBranch }: Props) {
     (refineJob?.results ?? []).map((r) => [r.blockId, r]),
   )
 
+  // 채팅 영역 어디에 놓아도 첨부되도록 드래그 진입 횟수를 센다 (FE-INPUT-008).
+  const [isDragging, setIsDragging] = useState(false)
+  const dragDepth = useRef(0)
+
+  function hasFiles(e: React.DragEvent) {
+    return Array.from(e.dataTransfer.types).includes('Files')
+  }
+
   return (
-    <main className="flex min-w-0 flex-1 flex-col bg-bg-0">
+    <main
+      className="relative flex min-w-0 flex-1 flex-col bg-bg-0"
+      onDragEnter={(e) => {
+        if (!chatId || !hasFiles(e)) return
+        e.preventDefault()
+        dragDepth.current += 1
+        setIsDragging(true)
+      }}
+      onDragOver={(e) => {
+        if (!chatId || !hasFiles(e)) return
+        e.preventDefault()
+      }}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1)
+        if (dragDepth.current === 0) setIsDragging(false)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        dragDepth.current = 0
+        setIsDragging(false)
+        if (!chatId) return
+        const files = Array.from(e.dataTransfer.files)
+        if (files.length) void addFiles(files)
+      }}
+    >
+      {isDragging && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-blue bg-blue-dim/80">
+          <Upload className="h-6 w-6 text-blue" />
+          <p className="text-[13px] font-medium text-blue">여기에 파일을 놓으세요</p>
+        </div>
+      )}
       <header className="flex items-center justify-between px-5 py-3.5">
         <span className="truncate text-[13.5px] font-semibold">
           {chatId ? chatTitle : 'FlowKit'}
@@ -186,6 +225,16 @@ function Composer() {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               void submit()
+            }
+          }}
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData.items)
+              .filter((item) => item.kind === 'file')
+              .map((item) => item.getAsFile())
+              .filter((file): file is File => file !== null)
+            if (files.length) {
+              e.preventDefault()
+              void addFiles(files)
             }
           }}
           rows={1}

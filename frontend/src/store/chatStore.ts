@@ -113,6 +113,8 @@ interface ChatState {
   resetSession: () => void
   openChat: (chatId: string, branchId?: string) => Promise<void>
   deleteChat: (chatId: string) => Promise<void>
+  /** 대화 이름을 사용자가 직접 입력한 값으로 바꾼다 (FE-CHAT-007). */
+  renameChat: (chatId: string, title: string) => Promise<boolean>
   switchBranch: (branchId: string) => Promise<boolean>
   toggleBlock: (blockId: string) => void
   clearSelection: () => void
@@ -494,6 +496,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     } finally {
       set({ deletingChatId: null })
+    }
+  },
+
+  async renameChat(chatId, title) {
+    const trimmed = title.trim()
+    if (!trimmed) return false
+    const current = get().chats.find((item) => item.chatId === chatId)
+    if (current && current.title === trimmed) return true
+    try {
+      const meta = await chatApi.updateChatTitle(chatId, trimmed)
+      set((s) => ({
+        chats: s.chats.map((item) => (item.chatId === chatId ? { ...item, title: meta.title } : item)),
+        chatTitle: s.chatId === chatId ? meta.title : s.chatTitle,
+      }))
+      return true
+    } catch (e) {
+      set({ error: toErrorMessage(e) })
+      return false
     }
   },
 
