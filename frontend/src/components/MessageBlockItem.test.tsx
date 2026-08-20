@@ -35,6 +35,21 @@ it('마크다운 표를 표 태그로 그린다', () => {
   expect(screen.getByRole('cell', { name: '하나' })).toBeTruthy()
 })
 
+it('표 칸 안의 <br> 을 줄바꿈 태그로 바꾼다', () => {
+  const withBr = { ...block, role: 'assistant' as const, content: '| 이름 | 설명 |\n| --- | --- |\n| A<br>B | 둘째 줄 |' }
+  const { container } = render(<MessageBlockItem block={withBr} />)
+
+  expect(container.querySelector('td br')).not.toBeNull()
+  expect(container.textContent).not.toContain('<br>')
+})
+
+it('스크립트가 섞인 응답에서도 실행 가능한 핸들러를 남기지 않는다', () => {
+  const withScript = { ...block, role: 'assistant' as const, content: '설명<script>window.__hacked = true</script>' }
+  const { container } = render(<MessageBlockItem block={withScript} />)
+
+  expect(container.querySelector('script')).toBeNull()
+})
+
 it('코드 블록에 언어별 강조와 블록 전용 복사 버튼을 붙인다', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined)
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })

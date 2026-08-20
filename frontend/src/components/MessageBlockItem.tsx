@@ -2,6 +2,8 @@ import { Check, Copy, ExternalLink, Paperclip, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import { MessageBlockActions } from '@/components/MessageBlockActions'
 import { MessageEditForm } from '@/components/MessageEditForm'
@@ -132,7 +134,11 @@ export function MessageBlockItem({ block, refine }: Props) {
         <div className="markdown text-[13.5px] leading-relaxed text-txt-1">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
+            // rehypeRaw 로 <br> 같은 원본 HTML을 실제 태그로 바꾸고, 그 결과를
+            // rehypeSanitize(기본 허용 목록)로 걸러 스크립트·이벤트 속성을 없앤 뒤에야
+            // rehypeHighlight 가 코드 블록에 강조 클래스를 붙인다. sanitize를 강조보다
+            // 뒤에 두면 강조가 붙인 클래스까지 함께 지워진다.
+            rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
             components={{ pre: CodeBlock }}
           >
             {shown}
