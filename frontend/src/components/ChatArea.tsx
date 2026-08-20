@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, BookOpen, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BookOpen, PanelRight, Square, Upload, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
@@ -15,14 +15,12 @@ import * as projectApi from '@/api/project'
 import type { ProjectLibraryResource } from '@/types/api'
 
 interface Props {
-  sidebarOpen: boolean
-  onToggleSidebar: () => void
   panelOpen: boolean
   onTogglePanel: () => void
 }
 
 // 중앙 채팅 영역 — 메시지 블록 목록과 입력창
-export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePanel }: Props) {
+export function ChatArea({ panelOpen, onTogglePanel }: Props) {
   const chatTitle = useChatStore((s) => s.chatTitle)
   const chatId = useChatStore((s) => s.chatId)
   const blocks = useChatStore((s) => s.blocks)
@@ -31,7 +29,6 @@ export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePane
   const isSending = useChatStore((s) => s.isSending)
   const branchId = useChatStore((s) => s.branchId)
   const addFiles = useChatStore((s) => s.addFiles)
-  const newChat = useChatStore((s) => s.newChat)
   const renameChat = useChatStore((s) => s.renameChat)
 
   const [editingTitle, setEditingTitle] = useState(false)
@@ -147,36 +144,6 @@ export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePane
       <ChatTabBar />
       <header className="flex items-center justify-between px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-1">
-          <div
-            className={`grid transition-[grid-template-columns,opacity] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none ${
-              sidebarOpen ? 'grid-cols-[0fr] opacity-0' : 'grid-cols-[1fr] opacity-100'
-            }`}
-            aria-hidden={sidebarOpen}
-          >
-            <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-              <button
-                type="button"
-                onClick={onToggleSidebar}
-                title="사이드바 열기"
-                aria-label="사이드바 열기"
-                aria-expanded={sidebarOpen}
-                aria-controls="sidebar"
-                tabIndex={sidebarOpen ? -1 : 0}
-                className="rounded-md p-1.5 text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"
-              >
-                <PanelLeft className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void newChat()}
-                title="새 채팅"
-                tabIndex={sidebarOpen ? -1 : 0}
-                className="rounded-md p-1.5 text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"
-              >
-                <SquarePen className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
           {chatId && editingTitle ? (
             <input
               ref={titleInputRef}
@@ -205,16 +172,17 @@ export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePane
         <button
           type="button"
           onClick={onTogglePanel}
-          className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition ${
-            panelOpen
-              ? 'border-blue-line bg-blue-dim text-blue'
-              : 'border-line text-txt-2 hover:text-txt-0'
+          title="Context 패널"
+          aria-label="Context 패널"
+          aria-expanded={panelOpen}
+          aria-controls="context-panel"
+          className={`relative rounded-md p-1.5 transition hover:bg-bg-3 ${
+            panelOpen ? 'text-blue' : 'text-txt-2 hover:text-txt-0'
           }`}
         >
-          <PanelRight className="h-3.5 w-3.5" />
-          Context 패널
+          <PanelRight className="h-4 w-4" />
           {selectedCount > 0 && (
-            <span className="rounded bg-blue px-1.5 text-[10px] font-bold text-white">
+            <span className="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-blue px-1 text-center text-[9px] font-bold leading-[14px] text-white">
               {selectedCount}
             </span>
           )}

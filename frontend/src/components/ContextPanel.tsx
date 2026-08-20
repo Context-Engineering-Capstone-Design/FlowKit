@@ -1,23 +1,13 @@
-import { Check, SlidersHorizontal, Split, X } from 'lucide-react'
+import { Check, Pencil, SlidersHorizontal, Split, X } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { toPreview } from '@/lib/preview'
 import { useChatStore } from '@/store/chatStore'
 import type { RefineStatus } from '@/types/api'
+import { MessageEditForm } from '@/components/MessageEditForm'
 
 /** 항목이 밀려 나가는 시간(ms). 여러 개를 승인하면 이만큼씩 늦게 시작한다. */
 const LEAVE_DURATION = 320
 const LEAVE_STAGGER = 55
-
-const QUICK_EDITS = [
-  '핵심만 요약',
-  '불필요한 내용 제거',
-  '초보자용으로',
-  '예시 추가',
-  '용어 설명 추가',
-  '시험 대비용',
-  '발표 대본용',
-  '표로 정리',
-]
 
 interface Props {
   open?: boolean
@@ -171,25 +161,55 @@ function EmptyGuide() {
   )
 }
 
-// 드래그 범위에서 연 단일 정제 대상
+// 드래그 범위에서 연 단일 정제 대상 — 연필 아이콘으로 바로 고칠 수 있다
 function SelectedBlocks() {
   const blocks = useChatStore((s) => s.blocks)
+  const branchId = useChatStore((s) => s.branchId)
   const refineTargetBlockId = useChatStore((s) => s.refineTargetBlockId)
+  const refineJob = useChatStore((s) => s.refineJob)
+  const editing = useChatStore((s) => s.editingBlockId === refineTargetBlockId)
+  const draft = useChatStore((s) => s.editingDraft)
+  const editBusy = useChatStore((s) => s.isSavingEdit)
+  const startEdit = useChatStore((s) => s.startEdit)
+  const setEditingDraft = useChatStore((s) => s.setEditingDraft)
+  const cancelEdit = useChatStore((s) => s.cancelEdit)
+  const saveEdit = useChatStore((s) => s.editBlock)
+  const createBranchAt = useChatStore((s) => s.createBranchAt)
 
   const selected = blocks.find((b) => b.blockId === refineTargetBlockId)
   if (!selected) return null
 
+  const canEdit = !refineJob && selected.branchId === branchId
+
   return (
     <section className="pt-3">
-      <SectionLabel>
-        정제할 블록
-      </SectionLabel>
+      <div className="flex items-center justify-between gap-2">
+        <SectionLabel>정제할 블록</SectionLabel>
+        {canEdit && !editing && (
+          <button
+            type="button"
+            title="블록 내용 수정"
+            aria-label="정제할 블록 내용 수정"
+            onClick={() => void startEdit(selected.blockId, selected.content)}
+            className="rounded-md p-1 text-txt-3 transition hover:bg-bg-2 hover:text-txt-0"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
 
       <div className="mt-2 space-y-1.5">
-          <div
-            key={selected.blockId}
-            className="flex items-start gap-2 rounded-md bg-bg-2 px-2.5 py-2"
-          >
+        {editing ? (
+          <MessageEditForm
+            draft={draft}
+            busy={editBusy}
+            onDraftChange={setEditingDraft}
+            onCancel={cancelEdit}
+            onSaveBranch={() => void createBranchAt(selected.blockId)}
+            onSave={() => saveEdit(selected.blockId, draft)}
+          />
+        ) : (
+          <div className="flex items-start gap-2 rounded-md bg-bg-2 px-2.5 py-2">
             <span
               className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
                 selected.role === 'user' ? 'bg-blue' : 'bg-green'
@@ -199,12 +219,13 @@ function SelectedBlocks() {
               {toPreview(selected.content)}
             </span>
           </div>
+        )}
       </div>
     </section>
   )
 }
 
-// 빠른 편집 버튼과 자연어 편집 지시 입력 (REQ-024, REQ-025)
+// 자연어 편집 지시 입력 (REQ-025)
 function RefineForm() {
   const instruction = useChatStore((s) => s.contextInstruction)
   const setInstruction = useChatStore((s) => s.setContextInstruction)
@@ -232,69 +253,48 @@ function RefineForm() {
   )
 
   return (
-    <>
-      <section className="pt-5">
-        <SectionLabel>빠른 편집</SectionLabel>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {QUICK_EDITS.map((q) => (
-            <button
-              key={q}
-              type="button"
-            onClick={() => {
-              setInstruction(q)
-              textareaRef.current?.focus()
-            }}
-              className="rounded-full bg-bg-2 px-2.5 py-1 text-[11px] text-txt-1 transition hover:bg-bg-3 hover:text-txt-0"
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="pt-5">
-        <SectionLabel>AI 편집 지시</SectionLabel>
-        <textarea
-          ref={textareaRef}
-          value={instruction}
-          onChange={(e) => setInstruction(e.target.value)}
-          maxLength={2000}
-          rows={3}
-          placeholder="어떻게 정리할지 적어주세요"
-          className="mt-2 w-full resize-none rounded-lg bg-bg-2 p-2.5 text-[12.5px] text-txt-0 outline-none placeholder:text-txt-3"
-        />
-        <button
-          type="button"
-          onClick={() => void runRefine(instruction)}
-          disabled={isRefining || !instruction.trim() || hasInheritedBlock}
-          className="mt-2 w-full rounded-lg bg-blue py-2.5 text-[12.5px] font-semibold text-white transition disabled:opacity-40"
-        >
-          {isRefining ? '정제 중…' : '블록별로 정제하기'}
-        </button>
-        {hasInheritedBlock ? (
-          <p className="mt-1.5 text-[11px] text-txt-3">
-            다른 브랜치에서 이어받은 블록은 정제할 수 없습니다. 선택에서 제외해주세요.
-          </p>
-        ) : (
-          !instruction.trim() && !isRefining && (
-            <p className="mt-1.5 text-[11px] text-txt-3">
-              편집 지시를 입력해야 정제할 수 있습니다.
-            </p>
-          )
-        )}
-        {refineFailed && !isRefining && (
-          <>
-            {refineError && (
-              <p className="mt-1.5 text-[11px] text-red">{refineError}</p>
-            )}
-            <button type="button" onClick={() => void retryRefine()} className="mt-1 w-full rounded-lg bg-bg-3 py-2 text-[12px] text-txt-1">같은 지시로 다시 시도</button>
-          </>
-        )}
-        <p className="mt-2 text-[11px] leading-relaxed text-txt-3">
-          선택한 블록을 각각 따로 정제합니다. 승인한 결과만 원본에 반영됩니다.
+    <section className="pt-5">
+      <SectionLabel>AI 편집 지시</SectionLabel>
+      <textarea
+        ref={textareaRef}
+        value={instruction}
+        onChange={(e) => setInstruction(e.target.value)}
+        maxLength={2000}
+        rows={3}
+        placeholder="어떻게 정리할지 적어주세요"
+        className="mt-2 w-full resize-none rounded-lg bg-bg-2 p-2.5 text-[12.5px] text-txt-0 outline-none placeholder:text-txt-3"
+      />
+      <button
+        type="button"
+        onClick={() => void runRefine(instruction)}
+        disabled={isRefining || !instruction.trim() || hasInheritedBlock}
+        className="mt-2 w-full rounded-lg bg-blue py-2.5 text-[12.5px] font-semibold text-white transition disabled:opacity-40"
+      >
+        {isRefining ? '정제 중…' : '블록별로 정제하기'}
+      </button>
+      {hasInheritedBlock ? (
+        <p className="mt-1.5 text-[11px] text-txt-3">
+          다른 브랜치에서 이어받은 블록은 정제할 수 없습니다. 선택에서 제외해주세요.
         </p>
-      </section>
-    </>
+      ) : (
+        !instruction.trim() && !isRefining && (
+          <p className="mt-1.5 text-[11px] text-txt-3">
+            편집 지시를 입력해야 정제할 수 있습니다.
+          </p>
+        )
+      )}
+      {refineFailed && !isRefining && (
+        <>
+          {refineError && (
+            <p className="mt-1.5 text-[11px] text-red">{refineError}</p>
+          )}
+          <button type="button" onClick={() => void retryRefine()} className="mt-1 w-full rounded-lg bg-bg-3 py-2 text-[12px] text-txt-1">같은 지시로 다시 시도</button>
+        </>
+      )}
+      <p className="mt-2 text-[11px] leading-relaxed text-txt-3">
+        선택한 블록을 각각 따로 정제합니다. 승인한 결과만 원본에 반영됩니다.
+      </p>
+    </section>
   )
 }
 

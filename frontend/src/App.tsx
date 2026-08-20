@@ -56,7 +56,8 @@ export default function App() {
 
 // 3단 작업 화면 — 좌측 대화·브랜치, 중앙 채팅, 우측 Context 편집 (NFR-001)
 function Workspace() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarPinned, setSidebarPinned] = useState(true)
+  const [sidebarPeeking, setSidebarPeeking] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [panelWidth, setPanelWidth] = useState(() => Number(sessionStorage.getItem('flowkit_context_panel_width')) || 310)
   const openDefaultChat = useChatStore((s) => s.openDefaultChat)
@@ -66,6 +67,8 @@ function Workspace() {
   const editingBlockId = useChatStore((s) => s.editingBlockId)
   const editingDraft = useChatStore((s) => s.editingDraft)
   const editingOriginal = useChatStore((s) => s.editingOriginal)
+
+  const sidebarOpen = sidebarPinned || sidebarPeeking
 
   useEffect(() => {
     void openDefaultChat()
@@ -90,12 +93,42 @@ function Workspace() {
     sessionStorage.setItem('flowkit_context_panel_width', String(next))
   }
 
+  function closeSidebar() {
+    setSidebarPinned(false)
+    setSidebarPeeking(false)
+  }
+
+  function pinSidebar() {
+    setSidebarPinned(true)
+    setSidebarPeeking(false)
+  }
+
   return (
     <div className="flex h-full">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      {/* 고정 시에만 자리를 차지해 메인 패널이 부드럽게 밀리도록 한다 */}
+      <div
+        aria-hidden
+        className={`shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none ${
+          sidebarPinned ? 'w-[236px]' : 'w-0'
+        }`}
+      />
+      {!sidebarPinned && (
+        <div
+          aria-hidden
+          data-testid="sidebar-hover-zone"
+          className="fixed inset-y-0 left-0 z-30 w-3"
+          onPointerEnter={() => setSidebarPeeking(true)}
+        />
+      )}
+      <Sidebar
+        open={sidebarOpen}
+        pinned={sidebarPinned}
+        onClose={closeSidebar}
+        onPin={pinSidebar}
+        onPeekEnter={() => setSidebarPeeking(true)}
+        onPeekLeave={() => setSidebarPeeking(false)}
+      />
       <ChatArea
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
         panelOpen={panelOpen}
         onTogglePanel={() => setPanelOpen((v) => !v)}
       />

@@ -14,7 +14,7 @@ export function ChatTabBar() {
     <div
       role="tablist"
       aria-label="열린 채팅 탭"
-      className="flex items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5"
+      className="scrollbar-none flex items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5"
     >
       {tabs.map((tab) => {
         const active = tab.id === activeTabId

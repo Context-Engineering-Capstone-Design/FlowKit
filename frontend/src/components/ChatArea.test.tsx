@@ -43,8 +43,6 @@ function renderChat() {
   })
   render(
     <ChatArea
-      sidebarOpen
-      onToggleSidebar={() => undefined}
       panelOpen={false}
       onTogglePanel={() => undefined}
     />,
@@ -130,8 +128,6 @@ it('새 채팅이 없으면 상단 제목을 보여주지 않는다', () => {
   })
   render(
     <ChatArea
-      sidebarOpen
-      onToggleSidebar={() => undefined}
       panelOpen={false}
       onTogglePanel={() => undefined}
     />,

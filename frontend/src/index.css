@@ -157,3 +157,12 @@ body {
 .approve-flash {
   animation: approve-flash 900ms ease-out;
 }
+
+/* 스크롤바는 숨기고 스크롤만 남긴다 */
+@utility scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

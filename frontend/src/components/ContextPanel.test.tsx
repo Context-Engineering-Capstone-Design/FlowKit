@@ -66,3 +66,31 @@ it('이 채팅에서 만든 사이드 채팅 목록을 보여주고, 누르면 �
 
   expect(openChat).toHaveBeenCalledWith('side-1')
 })
+
+it('정제할 블록 옆 수정 아이콘으로 내용 편집을 시작한다', () => {
+  const startEdit = vi.fn()
+  useChatStore.setState({
+    chatId: 'chat-1',
+    branchId: 'branch-1',
+    blocks: [
+      {
+        blockId: 'b1', branchId: 'branch-1', role: 'assistant', content: 'TV 화소 설명',
+        currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete',
+      },
+    ],
+    refineTargetBlockId: 'b1',
+    refineJob: null,
+    editingBlockId: null,
+    editingDraft: '',
+    isSavingEdit: false,
+    sideChatTree: [],
+    tabs: [],
+    isCreatingSideChat: false,
+    startEdit,
+  })
+
+  renderPanel()
+  fireEvent.click(screen.getByRole('button', { name: '정제할 블록 내용 수정' }))
+
+  expect(startEdit).toHaveBeenCalledWith('b1', 'TV 화소 설명')
+})
