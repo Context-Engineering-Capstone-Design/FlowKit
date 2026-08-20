@@ -300,18 +300,44 @@ def test_side_chat_message_flow_reflects_new_parent_messages(client, ai_auth, ca
     ]
 
 
-def test_grandchild_side_chat_ignores_intermediate_parent_flow(client, ai_auth, captured):
+def test_grandchild_side_chat_includes_root_and_direct_ancestor_flow(client, ai_auth, captured):
+    """0820_10 B1: 손자(항상 Temporary)는 루트 메인과 직계 조상 사이드 채팅의 흐름을 함께 참고한다."""
     main = client.post("/api/chats", headers=ai_auth).json()
     _send(client, ai_auth, main, "메인 질문")
 
     side_a = _create_side_chat(client, ai_auth, main)
-    _send(client, ai_auth, side_a, "A 안에서의 질문")  # B가 이 내용을 참고하면 안 된다
+    _send(client, ai_auth, side_a, "A 안에서의 질문")  # B는 이 내용을 참고해야 한다(직계 조상)
 
     side_b = _create_side_chat(client, ai_auth, side_a)
     _send(client, ai_auth, side_b, "B 질문")
 
     side_b_request = captured[-1]
-    assert [t.content for t in side_b_request.message_flow] == ["메인 질문", "답변(1)"]
+    assert [t.content for t in side_b_request.message_flow] == [
+        "메인 질문", "답변(1)", "A 안에서의 질문", "답변(2)",
+    ]
+
+
+def test_great_grandchild_side_chat_includes_full_ancestor_chain_not_siblings(client, ai_auth, captured):
+    """0820_10 B1, B2: 3단계 깊이에서도 직계 조상 전체를 순서대로 참고하고, 무관한 형제는 섞이지 않는다."""
+    main = client.post("/api/chats", headers=ai_auth).json()
+    _send(client, ai_auth, main, "메인 질문")
+
+    side_a = _create_side_chat(client, ai_auth, main)
+    _send(client, ai_auth, side_a, "A 질문")
+
+    side_sibling = _create_side_chat(client, ai_auth, main)  # 무관한 형제 — 참고되면 안 된다
+    _send(client, ai_auth, side_sibling, "형제 질문")
+
+    side_b = _create_side_chat(client, ai_auth, side_a)
+    _send(client, ai_auth, side_b, "B 질문")
+
+    side_c = _create_side_chat(client, ai_auth, side_b)
+    _send(client, ai_auth, side_c, "C 질문")
+
+    side_c_request = captured[-1]
+    assert [t.content for t in side_c_request.message_flow] == [
+        "메인 질문", "답변(1)", "A 질문", "답변(2)", "B 질문", "답변(4)",
+    ]
 
 
 def test_main_chat_message_flow_has_no_parent_prefix(client, ai_auth, captured):

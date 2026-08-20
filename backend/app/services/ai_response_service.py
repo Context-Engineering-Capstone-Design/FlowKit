@@ -102,20 +102,25 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
 
 
 def _ancestor_context_flow(db: Session, chat: Chat) -> tuple[list, list[dict]]:
-    """직계 부모부터 루트까지의 흐름만 답변 생성 순간에 고정한다.
+    """루트 메인부터 직계 조상 사이드 채팅까지의 흐름을 답변 생성 순간에 고정한다 (0820_10 B1).
 
+    각 사이드 채팅은 자신이 갈라져 나온 지점(parent_branch_id)을 이미 들고 있다.
+    그 포인터를 따라 올라가면 몇 단계를 거치든 각 조상의 올바른 브랜치를 얻을 수
+    있다 — 형제 사이드 채팅의 흐름은 이 경로에 없으므로 섞이지 않는다.
     자식 메시지는 부모 대화에 기록하거나 다음 부모 입력으로 되돌려 쓰지 않는다.
     snapshot에는 출처와 시각만 함께 남겨 실행 중 어떤 맥락을 썼는지 확인할 수 있다.
     """
-    # 사이드 채팅은 최상위 메인 대화의 공통 흐름만 자동 참고한다. 중간 사이드
-    # 채팅의 독립 질문은 손자 대화로 퍼지지 않는다.
-    root_id = chat.root_chat_id
-    root = db.get(Chat, root_id) if root_id else None
-    ancestors: list[Chat] = [root] if root is not None else []
+    chain: list[tuple[Chat, uuid.UUID | None]] = []
+    current = chat
+    while current.parent_chat_id is not None:
+        parent = db.get(Chat, current.parent_chat_id)
+        if parent is None:
+            break
+        chain.append((parent, current.parent_branch_id))
+        current = parent
     flow: list = []
     sources: list[dict] = []
-    for ancestor in reversed(ancestors):
-        branch_id = chat.parent_branch_id if ancestor.id == chat.parent_chat_id else ancestor.root_branch_id
+    for ancestor, branch_id in reversed(chain):
         if branch_id is None:
             branch_id = next((b.id for b in ancestor.branches if b.branch_type.value == "MAIN"), None)
         branch = db.get(Branch, branch_id) if branch_id else None
