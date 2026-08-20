@@ -1,10 +1,12 @@
-import { FolderCog, GitBranch, MessageSquare, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
+import { Folder, FolderCog, GitBranch, MessageSquare, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
 import { useInfiniteChatList } from '@/hooks/useInfiniteChatList'
 import { buildSideChatTreeOrder } from '@/lib/sideChatTree'
 import { ProjectManager } from '@/components/ProjectManager'
+import * as projectApi from '@/api/project'
+import type { ProjectSummary } from '@/types/api'
 
 interface Props {
   open?: boolean
@@ -36,6 +38,8 @@ export function Sidebar({ open = true, onClose }: Props) {
   const [editingChatId, setEditingChatId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
   const [projectManagerOpen, setProjectManagerOpen] = useState(false)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [projectListRefreshKey, setProjectListRefreshKey] = useState(0)
   const renameInputRef = useRef<HTMLInputElement>(null)
 
   function startRename(id: string, title: string) {
@@ -80,7 +84,7 @@ export function Sidebar({ open = true, onClose }: Props) {
           >
             <SquarePen className="h-4 w-4" />
           </button>
-          <button type="button" onClick={() => setProjectManagerOpen(true)} title="Project 관리" className="rounded-md p-1.5 text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"><FolderCog className="h-4 w-4" /></button>
+          <button type="button" onClick={() => { setSelectedProjectId(null); setProjectManagerOpen(true) }} title="Project 관리" className="rounded-md p-1.5 text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"><FolderCog className="h-4 w-4" /></button>
           <button
             type="button"
             onClick={onClose}
@@ -108,6 +112,10 @@ export function Sidebar({ open = true, onClose }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-2">
+        <ProjectListSection
+          refreshKey={projectListRefreshKey}
+          onSelect={(projectId) => { setSelectedProjectId(projectId); setProjectManagerOpen(true) }}
+        />
         <SectionLabel>최근 대화</SectionLabel>
         {chatListError && (
           <div className="mb-1 rounded-md bg-red/10 px-2 py-2 text-[11px] text-red">
@@ -216,9 +224,54 @@ export function Sidebar({ open = true, onClose }: Props) {
       </div>
 
       <ProfileMenu />
-      {projectManagerOpen && <ProjectManager chatId={chatId} onClose={() => setProjectManagerOpen(false)} />}
+      {projectManagerOpen && (
+        <ProjectManager
+          chatId={chatId}
+          initialProjectId={selectedProjectId}
+          onClose={() => { setProjectManagerOpen(false); setProjectListRefreshKey((key) => key + 1) }}
+        />
+      )}
       </div>
     </aside>
+  )
+}
+
+// 좌측 패널에서 Project 이름과 소속 대화 수를 빠르게 확인하는 목록
+function ProjectListSection({ refreshKey, onSelect }: { refreshKey: number; onSelect: (projectId: string) => void }) {
+  const [projects, setProjects] = useState<ProjectSummary[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setIsLoading(true)
+    setError(false)
+    void projectApi.fetchProjects()
+      .then((items) => { if (active) setProjects(items) })
+      .catch(() => { if (active) setError(true) })
+      .finally(() => { if (active) setIsLoading(false) })
+    return () => { active = false }
+  }, [refreshKey])
+
+  return (
+    <>
+      <SectionLabel>Projects</SectionLabel>
+      {isLoading && <p className="px-2 py-1 text-[12px] text-txt-3">불러오는 중…</p>}
+      {error && <p className="px-2 py-1 text-[12px] text-red">Project를 불러오지 못했습니다</p>}
+      {!isLoading && !error && projects.length === 0 && <p className="px-2 py-1 text-[12px] text-txt-3">Project가 없습니다</p>}
+      {projects.map((project) => (
+        <button
+          key={project.projectId}
+          type="button"
+          onClick={() => onSelect(project.projectId)}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-[7px] text-left text-[12.5px] text-txt-1 transition hover:bg-bg-2"
+        >
+          <Folder className="h-3.5 w-3.5 shrink-0 text-blue" />
+          <span className="min-w-0 flex-1 truncate">{project.name}</span>
+          <span className="text-[11px] text-txt-3">{project.chatCount}</span>
+        </button>
+      ))}
+    </>
   )
 }
 

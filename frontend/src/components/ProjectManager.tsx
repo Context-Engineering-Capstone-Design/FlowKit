@@ -4,7 +4,7 @@ import * as projectApi from '@/api/project'
 import type { ProjectDetail, ProjectSummary } from '@/types/api'
 
 // Project 목록과 지침·메모리·Library 자료를 한곳에서 관리하는 설정 창
-export function ProjectManager({ onClose, chatId }: { onClose: () => void; chatId: string | null }) {
+export function ProjectManager({ onClose, chatId, initialProjectId = null }: { onClose: () => void; chatId: string | null; initialProjectId?: string | null }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [selected, setSelected] = useState<ProjectDetail | null>(null)
   const [name, setName] = useState('')
@@ -14,6 +14,7 @@ export function ProjectManager({ onClose, chatId }: { onClose: () => void; chatI
   const [resourceContent, setResourceContent] = useState('')
   const refresh = async () => setProjects(await projectApi.fetchProjects())
   useEffect(() => { void refresh() }, [])
+  useEffect(() => { if (initialProjectId) void select(initialProjectId) }, [initialProjectId])
   async function select(id: string) { const item = await projectApi.fetchProject(id); setSelected(item); setName(item.name); setInstructions(item.instructions) }
   async function create() { const item = await projectApi.createProject('새 Project'); await refresh(); await select(item.projectId) }
   async function save() { if (!selected || !name.trim()) return; await projectApi.updateProject(selected.projectId, name, instructions); await select(selected.projectId); await refresh() }

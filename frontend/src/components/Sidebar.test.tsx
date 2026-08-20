@@ -4,11 +4,41 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Sidebar } from '@/components/Sidebar'
 import { useChatStore } from '@/store/chatStore'
+import * as projectApi from '@/api/project'
 
 vi.mock('@/components/ProfileMenu', () => ({ ProfileMenu: () => null }))
 vi.mock('@/hooks/useInfiniteChatList', () => ({ useInfiniteChatList: () => undefined }))
+vi.mock('@/components/ProjectManager', () => ({ ProjectManager: ({ initialProjectId }: { initialProjectId?: string | null }) => <div>관리 중: {initialProjectId ?? '새 Project'}</div> }))
+vi.mock('@/api/project', () => ({ fetchProjects: vi.fn() }))
 
 afterEach(cleanup)
+
+it('좌측 패널에 Project 이름과 소속 대화 수를 표시하고, 선택한 Project 관리 창을 연다', async () => {
+  vi.mocked(projectApi.fetchProjects).mockResolvedValue([{ projectId: 'project-1', name: '졸업 프로젝트', chatCount: 3 }])
+  useChatStore.setState({
+    chats: [], chatId: null, branches: [], nextCursor: null, isLoadingChats: false,
+    chatListError: null, deletingChatId: null, loadChats: vi.fn().mockResolvedValue(undefined),
+  })
+
+  render(<Sidebar onClose={() => undefined} />)
+
+  expect(await screen.findByRole('button', { name: /졸업 프로젝트/ })).not.toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /졸업 프로젝트/ }))
+
+  expect(screen.getByText('관리 중: project-1')).not.toBeNull()
+})
+
+it('Project 목록을 불러오지 못하면 오류를 표시한다', async () => {
+  vi.mocked(projectApi.fetchProjects).mockRejectedValue(new Error('network'))
+  useChatStore.setState({
+    chats: [], chatId: null, branches: [], nextCursor: null, isLoadingChats: false,
+    chatListError: null, deletingChatId: null, loadChats: vi.fn().mockResolvedValue(undefined),
+  })
+
+  render(<Sidebar onClose={() => undefined} />)
+
+  expect(await screen.findByText('Project를 불러오지 못했습니다')).not.toBeNull()
+})
 
 it('최근 대화 항목에서 삭제를 누르면 해당 대화를 지운다', () => {
   const deleteChat = vi.fn()
