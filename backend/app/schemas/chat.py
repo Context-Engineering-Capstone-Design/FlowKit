@@ -18,12 +18,18 @@ class ChatSummary(BaseModel):
     title: str
     is_generating: bool = Field(False, serialization_alias="isGenerating")
     has_unseen_completion: bool = Field(False, serialization_alias="hasUnseenCompletion")
+    project_id: uuid.UUID | None = Field(None, serialization_alias="projectId")
 
     model_config = ConfigDict(populate_by_name=True)
 
     @classmethod
     def of(cls, chat: Chat, *, is_generating: bool = False, has_unseen_completion: bool = False) -> ChatSummary:
-        return cls(chat_id=chat.id, title=chat.title, is_generating=is_generating, has_unseen_completion=has_unseen_completion)
+        return cls(chat_id=chat.id, title=chat.title, is_generating=is_generating, has_unseen_completion=has_unseen_completion, project_id=chat.project_id)
+
+
+class CreateChatRequest(BaseModel):
+    project_id: uuid.UUID | None = Field(None, alias="projectId")
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatListResponse(BaseModel):

@@ -94,7 +94,7 @@ def test_list_chats_excludes_internal_sort_field(client, auth, chat):
     res = client.get("/api/chats", headers=auth)
     assert res.status_code == 200
     item = res.json()["chats"][0]
-    assert set(item) == {"chatId", "title"}
+    assert set(item) == {"chatId", "title", "projectId", "isGenerating", "hasUnseenCompletion"}
 
 
 def test_list_chats_is_scoped_to_owner(client, auth, chat, monkeypatch):

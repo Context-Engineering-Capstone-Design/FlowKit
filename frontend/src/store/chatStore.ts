@@ -163,6 +163,7 @@ interface ChatState {
   chatListKeyword: string
 
   chatId: string | null
+  projectId: string | null
   chatTitle: string
   branchId: string | null
   branches: BranchListItem[]
@@ -221,6 +222,7 @@ interface ChatState {
   webSearchMode: WebSearchMode
   reasoningEffort: ReasoningEffort
   draftAttachments: DraftAttachment[]
+  selectedLibraryResourceIds: string[]
   models: ModelOption[]
   isModelListLoading: boolean
   pendingByBlockId: Record<string, boolean>
@@ -244,7 +246,7 @@ interface ChatState {
 
   loadChats: (keyword?: string) => Promise<void>
   loadMoreChats: () => Promise<void>
-  newChat: () => Promise<void>
+  newChat: (projectId?: string) => Promise<void>
   /** 로그인·새로고침 후 작업 화면에 들어오면 바로 빈 대화를 연다. */
   openDefaultChat: () => Promise<void>
   /** 로그아웃·세션 만료 때 이전 사용자의 대화 상태를 비운다. */
@@ -297,6 +299,7 @@ interface ChatState {
   setSelectedModel: (modelId: string) => void
   setWebSearchMode: (mode: WebSearchMode) => void
   setReasoningEffort: (effort: ReasoningEffort) => void
+  setSelectedLibraryResourceIds: (resourceIds: string[]) => void
   addFiles: (files: File[]) => Promise<void>
   removeAttachment: (localId: string) => Promise<void>
   retryAttachment: (localId: string) => Promise<void>
@@ -346,6 +349,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   chatListError: null,
   chatListKeyword: '',
   chatId: null,
+  projectId: null,
   chatTitle: '',
   branchId: null,
   branches: [],
@@ -387,6 +391,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   webSearchMode: 'auto',
   reasoningEffort: 'medium',
   draftAttachments: [],
+  selectedLibraryResourceIds: [],
   models: [],
   isModelListLoading: false,
   pendingByBlockId: {},
@@ -462,8 +467,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  async newChat() {
+  async newChat(projectId) {
     if (!(await confirmPendingDiscard(get()))) return
+    if (projectId) {
+      try {
+        const created = await chatApi.createChat(projectId)
+        captureActiveTabSnapshot(set, get)
+        applyDetail(set, created)
+        upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
+        await get().loadChats()
+      } catch (e) { set({ error: toErrorMessage(e) }) }
+      return
+    }
     captureActiveTabSnapshot(set, get)
     resetToDraft(set, get, newDraftId())
   },
@@ -486,6 +501,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       chats: [],
       nextCursor: null,
       chatId: null,
+      projectId: null,
       chatTitle: '',
       branchId: null,
       branches: [],
@@ -599,6 +615,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setWebSearchMode(mode) { set({ webSearchMode: mode }) },
   setReasoningEffort(effort) { set({ reasoningEffort: effort }) },
+  setSelectedLibraryResourceIds(resourceIds) { set({ selectedLibraryResourceIds: resourceIds }) },
 
   async addFiles(files) {
     const { chatId } = get()
@@ -881,7 +898,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           chatId = created.chatMeta.chatId
           branchId = created.branchMeta.branchId
           set((s) => ({
-            chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
+            chatId, projectId: created.chatMeta.projectId ?? null, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
             tabs: promoteDraftTab(s.tabs, draftId, created.chatMeta, created.branchMeta.branchId),
             activeTabId: chatId,
           }))
@@ -892,7 +909,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return
       }
     }
-    const { appliedBlockIds, contextRangeTags, selectedModelId, webSearchMode, reasoningEffort, draftAttachments } = get()
+    const { appliedBlockIds, contextRangeTags, selectedModelId, webSearchMode, reasoningEffort, draftAttachments, selectedLibraryResourceIds } = get()
     if (draftAttachments.some((item) => item.status === 'uploading')) {
       set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.' })
       return
@@ -933,7 +950,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         branchId,
         prompt,
         appliedBlockIds,
-        { selectedModelId, webSearchMode, reasoningEffort, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []) },
+        { selectedModelId, webSearchMode, reasoningEffort, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []), libraryResourceIds: selectedLibraryResourceIds },
         contextRangeTags.map((tag): ContextRangeIn => ({
           blockId: tag.messageBlockId, versionId: tag.messageVersionId, snippetText: tag.selectedText,
         })),
@@ -948,6 +965,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         appliedContextLabel: null,
         selectedBlockIds: [],
         contextRangeTags: [],
+        selectedLibraryResourceIds: [],
         failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([id]) => id !== res.userBlock.blockId)),
       }))
       get().clearDraft()
@@ -1547,6 +1565,7 @@ function resetToDraftFields(
   get().clearDraft()
   set({
     chatId: null,
+    projectId: null,
     chatTitle: '',
     branchId: null,
     branches: [],
@@ -1606,6 +1625,7 @@ function applyDetail(
 ) {
   set({
     chatId: detail.chatMeta.chatId,
+    projectId: detail.chatMeta.projectId ?? null,
     chatTitle: detail.chatMeta.title,
     branchId: detail.branchMeta.branchId,
     branches: detail.branchList,

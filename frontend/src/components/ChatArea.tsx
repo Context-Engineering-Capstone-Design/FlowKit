@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BookOpen, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
@@ -11,6 +11,8 @@ import { WebSearchToggle } from '@/components/WebSearchToggle'
 import { ReasoningEffortSelector } from '@/components/ReasoningEffortSelector'
 import { useChatStore, type ContextRangeTag } from '@/store/chatStore'
 import { buildConversationOutline } from '@/lib/conversationOutline'
+import * as projectApi from '@/api/project'
+import type { ProjectLibraryResource } from '@/types/api'
 
 interface Props {
   sidebarOpen: boolean
@@ -270,6 +272,7 @@ function Composer() {
   const text = useChatStore((s) => s.draftText)
   const setText = useChatStore((s) => s.setDraftText)
   const chatId = useChatStore((s) => s.chatId)
+  const projectId = useChatStore((s) => s.projectId)
   const isSending = useChatStore((s) => s.isSending)
   // 생성 중인 답변이 있으면 전송 버튼 자리를 중단 버튼으로 바꾼다 (문서 C5).
   const generatingBlockId = useChatStore(
@@ -293,14 +296,22 @@ function Composer() {
   const setReasoningEffort = useChatStore((s) => s.setReasoningEffort)
   const isModelListLoading = useChatStore((s) => s.isModelListLoading)
   const loadInputAssist = useChatStore((s) => s.loadInputAssist)
+  const selectedLibraryResourceIds = useChatStore((s) => s.selectedLibraryResourceIds)
+  const setSelectedLibraryResourceIds = useChatStore((s) => s.setSelectedLibraryResourceIds)
   const focusSignal = useChatStore((s) => s.focusSignal)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [libraryResources, setLibraryResources] = useState<ProjectLibraryResource[]>([])
 
   useEffect(() => {
     textareaRef.current?.focus()
   }, [focusSignal])
 
   useEffect(() => { void loadInputAssist() }, [loadInputAssist])
+  useEffect(() => {
+    if (!projectId) { setLibraryResources([]); setSelectedLibraryResourceIds([]); return }
+    void projectApi.fetchProject(projectId).then((project) => setLibraryResources(project.libraryResources)).catch(() => setLibraryResources([]))
+  }, [projectId, setSelectedLibraryResourceIds])
 
   const selectedModel = models.find((model) => model.modelId === selectedModelId)
   const uploading = attachments.some((item) => item.status === 'uploading')
@@ -365,6 +376,7 @@ function Composer() {
             <AttachmentMenu disabled={!chatId || isSending || selectedModel?.supportsAttachment === false} onSelect={(files) => void addFiles(files)} />
             <WebSearchToggle mode={webSearchMode} disabled={!selectedModel?.supportsWebSearch} reason={selectedModel?.supportsWebSearch ? undefined : '선택한 모델은 웹 검색을 지원하지 않습니다.'} onChange={setWebSearchMode} />
             <ReasoningEffortSelector value={reasoningEffort} onChange={setReasoningEffort} />
+            {projectId && libraryResources.length > 0 && <div className="relative"><button type="button" onClick={() => setLibraryOpen((open) => !open)} title="Project 자료 선택" className={`rounded p-1.5 ${selectedLibraryResourceIds.length ? 'bg-blue-dim text-blue' : 'text-txt-2 hover:bg-bg-3'}`}><BookOpen className="h-3.5 w-3.5" /></button>{libraryOpen && <ProjectLibraryMenu resources={libraryResources} selectedIds={selectedLibraryResourceIds} onChange={setSelectedLibraryResourceIds} />}</div>}
             <ModelSelector models={models} selectedId={selectedModelId} loading={isModelListLoading} onChange={setSelectedModel} />
           </div>
           {generatingBlockId ? (
@@ -391,6 +403,11 @@ function Composer() {
       </div>
     </div>
   )
+}
+
+function ProjectLibraryMenu({ resources, selectedIds, onChange }: { resources: ProjectLibraryResource[]; selectedIds: string[]; onChange: (ids: string[]) => void }) {
+  function toggle(resourceId: string) { onChange(selectedIds.includes(resourceId) ? selectedIds.filter((id) => id !== resourceId) : [...selectedIds, resourceId]) }
+  return <div className="absolute bottom-9 left-0 z-30 w-56 rounded-lg border border-line bg-bg-1 p-2 shadow-xl"><p className="px-1 pb-1 text-[11px] text-txt-3">이번 질문에 참고할 자료</p>{resources.map((resource) => <label key={resource.resourceId} className="flex cursor-pointer items-start gap-2 rounded p-1.5 text-[12px] hover:bg-bg-2"><input type="checkbox" checked={selectedIds.includes(resource.resourceId)} onChange={() => toggle(resource.resourceId)} /><span className="min-w-0"><b className="block truncate font-medium">{resource.title}</b><span className="line-clamp-1 text-txt-3">{resource.content}</span></span></label>)}</div>
 }
 
 /** 태그 미리보기에 보일 짧은 문구 (0820_13 B1: 앞 5~10자 이하) */

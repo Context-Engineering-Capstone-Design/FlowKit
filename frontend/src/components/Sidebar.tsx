@@ -1,4 +1,4 @@
-import { Folder, FolderCog, GitBranch, MessageSquare, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
+import { ChevronDown, Folder, FolderCog, FolderPlus, GitBranch, MessageSquare, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
@@ -114,7 +114,7 @@ export function Sidebar({ open = true, onClose }: Props) {
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         <ProjectListSection
           refreshKey={projectListRefreshKey}
-          onSelect={(projectId) => { setSelectedProjectId(projectId); setProjectManagerOpen(true) }}
+          onNewChat={(projectId) => void newChat(projectId)}
         />
         <SectionLabel>최근 대화</SectionLabel>
         {chatListError && (
@@ -126,7 +126,7 @@ export function Sidebar({ open = true, onClose }: Props) {
         {chats.length === 0 && !isLoadingChats && (
           <p className="px-2 py-1 text-[12px] text-txt-3">{keyword ? '검색 결과가 없습니다' : '대화가 없습니다'}</p>
         )}
-        {chats.map((c) => (
+        {chats.filter((c) => !c.projectId).map((c) => (
           <div
             key={c.chatId}
             className={`group flex items-center rounded-md ${
@@ -237,10 +237,14 @@ export function Sidebar({ open = true, onClose }: Props) {
 }
 
 // 좌측 패널에서 Project 이름과 소속 대화 수를 빠르게 확인하는 목록
-function ProjectListSection({ refreshKey, onSelect }: { refreshKey: number; onSelect: (projectId: string) => void }) {
+function ProjectListSection({ refreshKey, onNewChat }: { refreshKey: number; onNewChat: (projectId: string) => void }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([])
+  const chats = useChatStore((s) => s.chats)
+  const openChat = useChatStore((s) => s.openChat)
+  const loadChats = useChatStore((s) => s.loadChats)
 
   useEffect(() => {
     let active = true
@@ -259,20 +263,32 @@ function ProjectListSection({ refreshKey, onSelect }: { refreshKey: number; onSe
       {isLoading && <p className="px-2 py-1 text-[12px] text-txt-3">불러오는 중…</p>}
       {error && <p className="px-2 py-1 text-[12px] text-red">Project를 불러오지 못했습니다</p>}
       {!isLoading && !error && projects.length === 0 && <p className="px-2 py-1 text-[12px] text-txt-3">Project가 없습니다</p>}
-      {projects.map((project) => (
-        <button
-          key={project.projectId}
-          type="button"
-          onClick={() => onSelect(project.projectId)}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-[7px] text-left text-[12.5px] text-txt-1 transition hover:bg-bg-2"
-        >
-          <Folder className="h-3.5 w-3.5 shrink-0 text-blue" />
-          <span className="min-w-0 flex-1 truncate">{project.name}</span>
-          <span className="text-[11px] text-txt-3">{project.chatCount}</span>
-        </button>
-      ))}
+      {projects.map((project) => {
+        const expanded = expandedProjectIds.includes(project.projectId)
+        const projectChats = chats.filter((chat) => chat.projectId === project.projectId)
+        return <div key={project.projectId}>
+          <div className="group flex items-center rounded-md text-txt-1 hover:bg-bg-2">
+            <button type="button" onClick={() => setExpandedProjectIds((ids) => expanded ? ids.filter((id) => id !== project.projectId) : [...ids, project.projectId])} className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-[7px] text-left text-[12.5px]">
+              <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? '' : '-rotate-90'}`} />
+              <Folder className="h-3.5 w-3.5 shrink-0 text-blue" />
+              <span className="min-w-0 flex-1 truncate">{project.name}</span>
+              <span className="text-[11px] text-txt-3">{project.chatCount}</span>
+            </button>
+            <button type="button" title={`${project.name}에 새 대화 만들기`} onClick={() => onNewChat(project.projectId)} className="mr-1 rounded p-1 text-txt-3 opacity-0 hover:bg-bg-3 hover:text-txt-0 group-hover:opacity-100"><FolderPlus className="h-3.5 w-3.5" /></button>
+          </div>
+          {expanded && <div className="ml-4 border-l border-line pl-1">{projectChats.map((chat) => <ProjectChatRow key={chat.chatId} chat={chat} projects={projects} onOpen={openChat} onMoved={() => void loadChats()} />)}{projectChats.length === 0 && <p className="px-2 py-1 text-[11px] text-txt-3">대화가 없습니다</p>}</div>}
+        </div>
+      })}
     </>
   )
+}
+
+function ProjectChatRow({ chat, projects, onOpen, onMoved }: { chat: { chatId: string; title: string; projectId?: string | null }; projects: ProjectSummary[]; onOpen: (chatId: string) => Promise<void>; onMoved: () => void }) {
+  async function move(projectId: string) {
+    await projectApi.moveChat(chat.chatId, projectId || null)
+    onMoved()
+  }
+  return <div className="flex items-center gap-1 rounded-md text-txt-2 hover:bg-bg-2"><button type="button" onClick={() => void onOpen(chat.chatId)} className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-[12px]">{chat.title}</button><select aria-label={`${chat.title} Project 이동`} value={chat.projectId ?? ''} onChange={(event) => void move(event.target.value)} className="mr-1 max-w-16 bg-transparent text-[10px] text-txt-3 outline-none"><option value="">밖</option>{projects.map((project) => <option key={project.projectId} value={project.projectId}>{project.name}</option>)}</select></div>
 }
 
 // 좌측 사이드 채팅 관리 패널 — 루트 메인 채팅 아래 생성 관계를 트리로 보여준다 (0820_08 B3)

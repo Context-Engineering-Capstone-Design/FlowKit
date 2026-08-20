@@ -64,11 +64,10 @@ def move_chat(db: Session, user: User, chat: Chat, project_id: uuid.UUID | None)
     db.commit(); db.refresh(chat); return chat
 
 def delete_project(db: Session, project: Project) -> None:
-    # SQLite 개발 DB는 외래키 cascade가 비활성일 수 있어 대화 삭제 서비스를 먼저 쓴다.
-    from app.services import chat_service
-    chats = list(db.scalars(select(Chat).where(Chat.project_id == project.id)).all())
-    for chat in chats:
-        chat_service.delete_chat(db, chat)
+    # Project는 대화 폴더다. 삭제해도 대화·브랜치·사이드 채팅은 Project 밖에 보존한다.
+    db.execute(
+        Chat.__table__.update().where(Chat.project_id == project.id).values(project_id=None)
+    )
     db.execute(delete(ProjectLibrarySelection).where(ProjectLibrarySelection.project_id == project.id))
     db.execute(delete(ProjectLibraryResource).where(ProjectLibraryResource.project_id == project.id))
     db.execute(delete(ProjectMemory).where(ProjectMemory.project_id == project.id))

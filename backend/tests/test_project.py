@@ -13,7 +13,7 @@ def _auth(client, monkeypatch):
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_project_moves_whole_side_chat_tree_and_deletes_everything(client, db_session, monkeypatch):
+def test_project_moves_whole_side_chat_tree_and_preserves_them_when_deleted(client, db_session, monkeypatch):
     auth_headers = _auth(client, monkeypatch)
     created = client.post("/api/projects", json={"name": "졸업 작품", "instructions": "한국어로 답해"}, headers=auth_headers)
     assert created.status_code == 201
@@ -32,9 +32,18 @@ def test_project_moves_whole_side_chat_tree_and_deletes_everything(client, db_se
     resource = client.post(f"/api/projects/{project_id}/library-resources", json={"title": "기획", "content": "선택해서만 전달"}, headers=auth_headers)
     assert resource.status_code == 201
     assert client.delete(f"/api/projects/{project_id}", headers=auth_headers).json()["deleteSuccess"] is True
-    assert db_session.get(Chat, uuid.UUID(chat_id)) is None
-    assert db_session.get(Chat, uuid.UUID(side_id)) is None
+    assert db_session.get(Chat, uuid.UUID(chat_id)).project_id is None
+    assert db_session.get(Chat, uuid.UUID(side_id)).project_id is None
     assert db_session.get(ProjectLibraryResource, uuid.UUID(resource.json()["resourceId"])) is None
+
+
+def test_can_create_chat_inside_project(client, db_session, monkeypatch):
+    auth_headers = _auth(client, monkeypatch)
+    project_id = client.post("/api/projects", json={"name": "폴더"}, headers=auth_headers).json()["projectId"]
+    created = client.post("/api/chats", json={"projectId": project_id}, headers=auth_headers)
+    assert created.status_code == 201
+    assert created.json()["chatMeta"]["projectId"] == project_id
+    assert db_session.get(Chat, uuid.UUID(created.json()["chatMeta"]["chatId"])).project_id == uuid.UUID(project_id)
 
 
 def test_project_data_only_enters_ai_snapshot_when_chat_belongs_and_resource_selected(client, db_session, monkeypatch):

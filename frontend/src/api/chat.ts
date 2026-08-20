@@ -9,8 +9,8 @@ import type {
   DeleteChatResponse,
 } from '@/types/api'
 
-export async function createChat(): Promise<ChatDetail> {
-  const { data } = await api.post<ChatDetail>('/api/chats')
+export async function createChat(projectId?: string | null): Promise<ChatDetail> {
+  const { data } = await api.post<ChatDetail>('/api/chats', { projectId: projectId ?? null })
   return data
 }
 

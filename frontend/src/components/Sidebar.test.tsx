@@ -13,19 +13,22 @@ vi.mock('@/api/project', () => ({ fetchProjects: vi.fn() }))
 
 afterEach(cleanup)
 
-it('좌측 패널에 Project 이름과 소속 대화 수를 표시하고, 선택한 Project 관리 창을 연다', async () => {
+it('좌측 패널에 Project 폴더와 소속 대화를 표시한다', async () => {
   vi.mocked(projectApi.fetchProjects).mockResolvedValue([{ projectId: 'project-1', name: '졸업 프로젝트', chatCount: 3 }])
+  const openChat = vi.fn()
   useChatStore.setState({
-    chats: [], chatId: null, branches: [], nextCursor: null, isLoadingChats: false,
+    chats: [{ chatId: 'chat-1', title: '설계 논의', projectId: 'project-1' }], chatId: null, branches: [], nextCursor: null, isLoadingChats: false,
     chatListError: null, deletingChatId: null, loadChats: vi.fn().mockResolvedValue(undefined),
+    openChat,
   })
 
   render(<Sidebar onClose={() => undefined} />)
 
-  expect(await screen.findByRole('button', { name: /졸업 프로젝트/ })).not.toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: /졸업 프로젝트/ }))
+  const folder = await screen.findByRole('button', { name: '졸업 프로젝트3' })
+  fireEvent.click(folder)
+  fireEvent.click(screen.getByRole('button', { name: '설계 논의' }))
 
-  expect(screen.getByText('관리 중: project-1')).not.toBeNull()
+  expect(openChat).toHaveBeenCalledWith('chat-1')
 })
 
 it('Project 목록을 불러오지 못하면 오류를 표시한다', async () => {

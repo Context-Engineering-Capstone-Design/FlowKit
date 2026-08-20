@@ -79,6 +79,7 @@ export interface ChatMeta {
   rootChatId: string | null
   rootBranchId: string | null
   isTemporary?: boolean
+  projectId?: string | null
 }
 
 export type BranchType = 'MAIN' | 'CHILD'

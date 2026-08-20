@@ -46,9 +46,9 @@ MAX_LIMIT = 100
 _FORBIDDEN_TITLE_CHARS = {"\n", "\r", "\t", "\x00"}
 
 
-def create_chat_with_main_branch(db: Session, user: User) -> tuple[Chat, Branch]:
+def create_chat_with_main_branch(db: Session, user: User, project_id: uuid.UUID | None = None) -> tuple[Chat, Branch]:
     """새 채팅과 Main 브랜치를 한 트랜잭션으로 생성한다 (BE-CHAT-001, 002)."""
-    chat = Chat(owner_id=user.id, title=DEFAULT_TITLE)
+    chat = Chat(owner_id=user.id, title=DEFAULT_TITLE, project_id=project_id)
     db.add(chat)
     db.flush()
 

@@ -21,7 +21,7 @@ export async function sendMessage(
   branchId: string,
   userPrompt: string,
   contextBlockIds: string[] = [],
-  options: { selectedModelId: string | null; webSearchMode: WebSearchMode; reasoningEffort: ReasoningEffort; attachmentIds: string[] } = { selectedModelId: null, webSearchMode: 'auto', reasoningEffort: 'medium', attachmentIds: [] },
+  options: { selectedModelId: string | null; webSearchMode: WebSearchMode; reasoningEffort: ReasoningEffort; attachmentIds: string[]; libraryResourceIds: string[] } = { selectedModelId: null, webSearchMode: 'auto', reasoningEffort: 'medium', attachmentIds: [], libraryResourceIds: [] },
   contextRanges: ContextRangeIn[] = [],
 ): Promise<SendMessageResponse> {
   const { data } = await api.post<SendMessageResponse>(

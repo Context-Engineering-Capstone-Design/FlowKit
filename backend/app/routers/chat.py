@@ -15,6 +15,7 @@ from app.schemas.chat import (
     ChatListResponse,
     ChatMeta,
     ChatSummary,
+    CreateChatRequest,
     CreateBranchRequest,
     CreateBranchResponse,
     CreateChatResponse,
@@ -25,7 +26,7 @@ from app.schemas.chat import (
     UpdateChatTitleResponse,
 )
 from app.schemas.notification import ActionMeta
-from app.services import ai_response_service, branch_service, chat_service
+from app.services import ai_response_service, branch_service, chat_service, project_service
 
 router = APIRouter(prefix="/api/chats", tags=["Chat"])
 
@@ -48,9 +49,12 @@ def _branch_list(db, chat, active_branch_id: uuid.UUID) -> list[BranchListItem]:
 
 
 @router.post("", response_model=CreateChatResponse, status_code=201)
-def create_chat(user: CurrentUser, db: DbSession) -> CreateChatResponse:
+def create_chat(user: CurrentUser, db: DbSession, payload: CreateChatRequest | None = None) -> CreateChatResponse:
     """BE-CHAT-001, 002: 새 채팅 + Main 브랜치 생성 후 초기 화면 상태를 돌려준다."""
-    chat, main_branch = chat_service.create_chat_with_main_branch(db, user)
+    project_id = payload.project_id if payload else None
+    if project_id:
+        project_service.get_owned_project(db, user, project_id)
+    chat, main_branch = chat_service.create_chat_with_main_branch(db, user, project_id)
     return CreateChatResponse(
         chat_meta=ChatMeta.of(chat),
         branch_meta=BranchMeta.of(main_branch),
