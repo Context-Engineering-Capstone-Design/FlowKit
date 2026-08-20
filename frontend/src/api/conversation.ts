@@ -74,6 +74,8 @@ export interface AiStreamDonePayload {
 }
 
 export interface AiStreamHandlers {
+  /** 0820_06 마일스톤 C: 스트림 연결이 열린 시각을 잰다. 재접속마다 다시 불린다. */
+  onOpen?: () => void
   onText?: (delta: string) => void
   onSources?: (sources: SearchSource[]) => void
   onDone?: (payload: AiStreamDonePayload) => void
@@ -100,6 +102,7 @@ export async function openAiResponseStream(
   if (!res.ok || !res.body) {
     throw new Error(`AI 응답 스트림 연결에 실패했습니다 (${res.status}).`)
   }
+  handlers.onOpen?.()
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
@@ -262,4 +265,32 @@ export async function cleanupJob(chatId: string, branchId: string, jobId: string
     `/api/chats/${chatId}/branches/${branchId}/refine-jobs/${jobId}/cleanup`,
   )
   return data
+}
+
+export type DeliveryOutcome = 'completed' | 'cancelled' | 'failed' | 'connection_failed'
+
+export interface DeliveryTimingPayload {
+  clickedAt: string | null
+  blockShownAt: string | null
+  streamConnectedAt: string | null
+  firstChunkShownAt: string | null
+  doneAt: string | null
+  reconnectCount: number
+  finalOutcome: DeliveryOutcome
+}
+
+/**
+ * 0820_06 마일스톤 C: 화면이 잰 전달 시간을 서버에 남긴다. 질문·답변 본문은
+ * 싣지 않는다. 개발·운영 조회용이라 실패해도 화면 흐름을 막지 않는다.
+ */
+export async function sendDeliveryTiming(
+  chatId: string,
+  branchId: string,
+  jobId: string,
+  payload: DeliveryTimingPayload,
+): Promise<void> {
+  await api.post(
+    `/api/chats/${chatId}/branches/${branchId}/ai-response-jobs/${jobId}/delivery-timing`,
+    payload,
+  )
 }

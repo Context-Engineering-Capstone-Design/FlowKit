@@ -19,6 +19,7 @@ const convApi = vi.hoisted(() => ({
   retryAiResponseJob: vi.fn(),
   cancelAiResponseJob: vi.fn(),
   openAiResponseStream: vi.fn().mockResolvedValue(undefined),
+  sendDeliveryTiming: vi.fn().mockResolvedValue(undefined),
   fetchRefineJob: vi.fn(),
   approveResult: vi.fn(),
   rejectResult: vi.fn(),
@@ -320,6 +321,58 @@ describe('chatStore 화면 상태', () => {
     const block = useChatStore.getState().blocks.find((b) => b.blockId === 'a1')
     expect(block?.content).toBe('안녕')
     expect(block?.generationStatus).toBe('complete')
+  })
+
+  it('스트리밍이 끝나면 화면 전달 시간을 서버에 보낸다 (0820_06 마일스톤 C)', async () => {
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
+      chatTitle: '대화',
+      titleGenerated: false,
+      aiResponseJobId: 'job-1',
+      jobStatus: 'generating',
+    })
+    convApi.openAiResponseStream.mockImplementation(async (_c, _b, _j, handlers) => {
+      handlers.onOpen?.()
+      handlers.onText?.('안녕')
+      handlers.onDone?.({ status: 'completed', content: '안녕', sources: [], error: null })
+    })
+
+    await useChatStore.getState().sendMessage('질문')
+
+    expect(convApi.sendDeliveryTiming).toHaveBeenCalledWith(
+      'chat-1', 'branch-1', 'job-1',
+      expect.objectContaining({ finalOutcome: 'completed', reconnectCount: 0 }),
+    )
+    const payload = convApi.sendDeliveryTiming.mock.calls.at(-1)?.[3]
+    expect(payload.clickedAt).not.toBeNull()
+    expect(payload.streamConnectedAt).not.toBeNull()
+    expect(payload.firstChunkShownAt).not.toBeNull()
+    // 질문·답변 원문은 어떤 필드에도 실리지 않는다.
+    expect(JSON.stringify(payload)).not.toContain('질문')
+    expect(JSON.stringify(payload)).not.toContain('안녕')
+  })
+
+  it('중단하면 화면 전달 시간을 cancelled로 보낸다', async () => {
+    useChatStore.setState({
+      blocks: [
+        { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '안', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-1' },
+      ],
+    })
+    // 연결이 아직 열려 있는 상태를 흉내 낸다 — onDone이 오지 않아야 cancelGeneration의
+    // 명시적 flush를 그대로 검증할 수 있다.
+    convApi.openAiResponseStream.mockImplementation(() => new Promise(() => {}))
+    void useChatStore.getState().attachToJob('a1', 'job-1')
+    convApi.cancelAiResponseJob.mockResolvedValue({
+      blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '안녕', currentVersionId: 'v1', versionNo: 1, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'cancelled',
+    })
+
+    await useChatStore.getState().cancelGeneration('a1')
+
+    expect(convApi.sendDeliveryTiming).toHaveBeenCalledWith(
+      'chat-1', 'branch-1', 'job-1',
+      expect.objectContaining({ finalOutcome: 'cancelled' }),
+    )
   })
 
   it('중단하면 서버가 돌려준 그때까지의 본문으로 블록을 확정한다 (BE-AIRESP-008)', async () => {

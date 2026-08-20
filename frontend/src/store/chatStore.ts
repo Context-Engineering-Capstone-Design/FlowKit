@@ -37,6 +37,44 @@ function stopStream(blockId: string) {
   activeStreams.delete(blockId)
 }
 
+// 0820_06 마일스톤 C: 작업별 화면 전달 시간 측정값. 질문·답변 본문은 담지
+// 않는다 — 시각과 재접속 횟수만 모아뒀다가 끝날 때 한 번에 보낸다.
+interface DeliveryDraft {
+  clickedAt?: number
+  blockShownAt?: number
+  streamConnectedAt?: number
+  firstChunkShownAt?: number
+  reconnectCount: number
+}
+const deliveryDrafts = new Map<string, DeliveryDraft>()
+
+function beginDelivery(jobId: string, clickedAt?: number) {
+  deliveryDrafts.set(jobId, { clickedAt, blockShownAt: Date.now(), reconnectCount: 0 })
+}
+
+function flushDeliveryTiming(
+  chatId: string,
+  branchId: string,
+  jobId: string,
+  finalOutcome: convApi.DeliveryOutcome,
+) {
+  const draft = deliveryDrafts.get(jobId)
+  if (!draft) return // 이미 보냈거나 측정을 시작하지 않은 작업(예: 재접속 실패 후 중복 호출)
+  deliveryDrafts.delete(jobId)
+  const iso = (ms?: number) => (ms ? new Date(ms).toISOString() : null)
+  void convApi
+    .sendDeliveryTiming(chatId, branchId, jobId, {
+      clickedAt: iso(draft.clickedAt),
+      blockShownAt: iso(draft.blockShownAt),
+      streamConnectedAt: iso(draft.streamConnectedAt),
+      firstChunkShownAt: iso(draft.firstChunkShownAt),
+      doneAt: new Date().toISOString(),
+      reconnectCount: draft.reconnectCount,
+      finalOutcome,
+    })
+    .catch(() => {}) // 개발·운영 조회용 신호라 실패해도 화면 흐름을 막지 않는다
+}
+
 // 목록 조회에 실패했을 때 보여줄 기본 모델 (FE-INPUT-005). 서버 목록과 어긋나면
 // 전송 시점에 서버가 오류로 안내하므로 조용히 잘못된 모델로 보내지 않는다.
 const FALLBACK_MODEL: ModelOption = {
@@ -132,7 +170,7 @@ interface ChatState {
   sendMessage: (prompt: string) => Promise<void>
   regenerate: (blockId: string) => Promise<void>
   /** 스트리밍 통로에 (다시) 붙어, 도착하는 조각으로 블록을 채워간다 (FE-AIRESP-005, 006). */
-  attachToJob: (blockId: string, jobId: string) => Promise<void>
+  attachToJob: (blockId: string, jobId: string, clickedAt?: number) => Promise<void>
   /** 열린 블록 중 아직 생성 중인 것에 자동으로 다시 붙는다 (새로고침·브랜치 재진입, C6). */
   reattachGeneratingBlocks: () => void
   /** 생성을 중단한다. 그때까지의 본문은 남는다 (BE-AIRESP-008). */
@@ -601,6 +639,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   async sendMessage(prompt) {
     if (!prompt.trim()) return
+    const clickedAt = Date.now() // 0820_06 C1: 전송 클릭 시각(네트워크 요청 전에 잰다)
     let { chatId, branchId } = get()
     if (!chatId || !branchId) {
       // 대화는 화면을 열 때가 아니라 사용자가 첫 메시지를 보낼 때 만든다 (새로고침마다 빈 대화가 쌓이는 문제 방지)
@@ -671,7 +710,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().clearDraft()
       useNotificationStore.getState().dismissBanner('api-key-required')
       useNotificationStore.getState().show('메시지를 전송했습니다.', 'success')
-      void get().attachToJob(res.assistantBlock.blockId, res.aiResponseJobId)
+      void get().attachToJob(res.assistantBlock.blockId, res.aiResponseJobId, clickedAt)
       if (res.titleGenerated) await get().loadChats()
     } catch (e) {
       if (openApiKeyWhenMissing(e)) {
@@ -696,6 +735,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   async regenerate(blockId) {
+    const clickedAt = Date.now() // 0820_06 C1
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
     set((s) => ({ isSending: true, pendingByBlockId: { ...s.pendingByBlockId, [blockId]: true } }))
@@ -707,7 +747,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           b.blockId === blockId ? { ...b, ...block } : b,
         ),
       }))
-      void get().attachToJob(blockId, block.aiResponseJobId)
+      void get().attachToJob(blockId, block.aiResponseJobId, clickedAt)
       await get().loadVersions(blockId)
     } catch (e) {
       if (openApiKeyWhenMissing(e)) set({ error: null })
@@ -718,6 +758,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   async retryAiResponseJob(jobId) {
+    const clickedAt = Date.now() // 0820_06 C1
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
     set({ isSending: true, error: null })
@@ -725,21 +766,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const result = await convApi.retryAiResponseJob(chatId, branchId, jobId)
       set((s) => ({ blocks: [...s.blocks, result.assistantBlock], chatTitle: result.chatTitle,
         failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([, id]) => id !== jobId)) }))
-      void get().attachToJob(result.assistantBlock.blockId, result.aiResponseJobId)
+      void get().attachToJob(result.assistantBlock.blockId, result.aiResponseJobId, clickedAt)
       await get().loadChats()
     } catch (e) { set({ error: toErrorMessage(e) }) }
     finally { set({ isSending: false }) }
   },
 
-  async attachToJob(blockId, jobId) {
+  async attachToJob(blockId, jobId, clickedAt) {
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
     stopStream(blockId)
     const controller = new AbortController()
     activeStreams.set(blockId, controller)
+    beginDelivery(jobId, clickedAt)
+    let firstChunkSeen = false
 
     const handlers: convApi.AiStreamHandlers = {
+      onOpen: () => {
+        const draft = deliveryDrafts.get(jobId)
+        if (draft && draft.streamConnectedAt === undefined) draft.streamConnectedAt = Date.now()
+      },
       onText: (delta) => {
+        if (!firstChunkSeen) {
+          firstChunkSeen = true
+          const draft = deliveryDrafts.get(jobId)
+          if (draft) draft.firstChunkShownAt = Date.now()
+        }
         set((s) => ({
           blocks: s.blocks.map((b) => b.blockId === blockId ? { ...b, content: b.content + delta } : b),
         }))
@@ -764,6 +816,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (payload.status === 'failed' && payload.error) {
           useNotificationStore.getState().show(payload.error.message, 'error')
         }
+        flushDeliveryTiming(chatId, branchId, jobId, payload.status)
       },
     }
 
@@ -795,6 +848,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((s) => ({
         blocks: s.blocks.map((b) => (b.blockId === blockId ? { ...b, ...updated, generationJobId: null } : b)),
       }))
+      // 스트림이 중단으로 끊기면 onDone이 못 올 수 있어 여기서도 남긴다 —
+      // 이미 onDone이 먼저 보냈다면 flushDeliveryTiming이 조용히 넘어간다.
+      flushDeliveryTiming(chatId, branchId, jobId, 'cancelled')
     } catch (e) {
       set({ error: toErrorMessage(e) })
     }
@@ -1216,12 +1272,16 @@ async function reconnectStreamWithBackoff(
 ): Promise<void> {
   if (signal.aborted) return
   if (attempt >= STREAM_RECONNECT_DELAYS_MS.length) {
+    // 0820_06 C3: 재시도를 다 썼는데도 안 되면 연결 실패로 남긴다.
+    flushDeliveryTiming(chatId, branchId, jobId, 'connection_failed')
     useNotificationStore.getState().show(
       '연결이 끊겼습니다. 새로고침하면 이어서 볼 수 있습니다.',
       'error',
     )
     return
   }
+  const draft = deliveryDrafts.get(jobId)
+  if (draft) draft.reconnectCount += 1
   await new Promise((resolve) => setTimeout(resolve, STREAM_RECONNECT_DELAYS_MS[attempt]))
   if (signal.aborted) return
   try {
