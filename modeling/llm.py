@@ -18,6 +18,7 @@ from modeling.config import (
 )
 from modeling.models import resolve_model
 from modeling.types import ConnectionResult
+from modeling.types import ReasoningEffort
 
 # OpenAI Responses API 의 내장 웹 검색 도구 (AI-SEARCH-001). 별도 검색 서비스를 부르지 않는다.
 _SEARCH_TOOL = {"type": "web_search"}
@@ -64,6 +65,8 @@ def get_chat_model(
     api_key: str,
     model_id: str | None = None,
     web_search_enabled: bool = False,
+    auto_web_search: bool = False,
+    reasoning_effort: ReasoningEffort = DEFAULT_REASONING_EFFORT,
 ) -> BaseChatModel:
     """모델 클라이언트를 만든다 (AI-CORE-003).
 
@@ -86,9 +89,12 @@ def get_chat_model(
         api_key=api_key,
         timeout=REQUEST_TIMEOUT_SECONDS,
         output_version="responses/v1",
-        reasoning={"effort": DEFAULT_REASONING_EFFORT},
+        reasoning={"effort": reasoning_effort},
     )
-    if web_search_enabled:
+    # 답변 생성에서는 도구를 항상 제공해 모델이 질문에 따라 자동으로
+    # 검색 여부를 판단할 수 있게 한다. 제목·정제처럼 검색이 필요 없는 호출은
+    # auto_web_search를 끄고 기존처럼 도구를 제공하지 않는다.
+    if web_search_enabled or (auto_web_search and model.supports_web_search):
         client = client.bind_tools([_SEARCH_TOOL])
     return client
 

@@ -81,6 +81,7 @@ def generate_answer(
             resolve_api_key(api_key),
             selected.model_id,
             request.web_search_enabled,
+            auto_web_search=True,
         )
 
     response = model.invoke(build_messages(request))

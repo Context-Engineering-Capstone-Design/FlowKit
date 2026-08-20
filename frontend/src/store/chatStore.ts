@@ -20,6 +20,7 @@ import type {
   DraftAttachment,
   ModelOption,
   AiResponseFailureDetail,
+  ReasoningEffort,
 } from '@/types/api'
 
 let latestChatListRequestId: string | null = null
@@ -80,6 +81,7 @@ interface ChatState {
   draftText: string
   selectedModelId: string | null
   webSearchEnabled: boolean
+  reasoningEffort: ReasoningEffort
   draftAttachments: DraftAttachment[]
   models: ModelOption[]
   isModelListLoading: boolean
@@ -149,6 +151,7 @@ interface ChatState {
   setDraftText: (text: string) => void
   setSelectedModel: (modelId: string) => void
   setWebSearchEnabled: (enabled: boolean) => void
+  setReasoningEffort: (effort: ReasoningEffort) => void
   addFiles: (files: File[]) => Promise<void>
   removeAttachment: (localId: string) => Promise<void>
   retryAttachment: (localId: string) => Promise<void>
@@ -195,6 +198,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   draftText: '',
   selectedModelId: null,
   webSearchEnabled: false,
+  reasoningEffort: 'medium',
   draftAttachments: [],
   models: [],
   isModelListLoading: false,
@@ -308,6 +312,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       models: [],
       selectedModelId: null,
       webSearchEnabled: false,
+      reasoningEffort: 'medium',
       isModelListLoading: false,
       pendingByBlockId: {},
       failedJobsByBlockId: {},
@@ -386,6 +391,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setWebSearchEnabled(enabled) { set({ webSearchEnabled: enabled }) },
+  setReasoningEffort(effort) { set({ reasoningEffort: effort }) },
 
   async addFiles(files) {
     const { chatId } = get()
@@ -590,7 +596,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return
       }
     }
-    const { appliedBlockIds, selectedModelId, webSearchEnabled, draftAttachments } = get()
+    const { appliedBlockIds, selectedModelId, webSearchEnabled, reasoningEffort, draftAttachments } = get()
     if (draftAttachments.some((item) => item.status === 'uploading')) {
       set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.' })
       return
@@ -629,7 +635,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         branchId,
         prompt,
         appliedBlockIds,
-        { selectedModelId, webSearchEnabled, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []) },
+        { selectedModelId, webSearchEnabled, reasoningEffort, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []) },
       )
       set((s) => ({
         blocks: [...dropTempBlock(s), res.userBlock, res.assistantBlock],

@@ -6,6 +6,7 @@ import { ModelSelector } from '@/components/ModelSelector'
 import { MessageBlockItem } from '@/components/MessageBlockItem'
 import { SourceContextBanner } from '@/components/SourceContextBanner'
 import { WebSearchToggle } from '@/components/WebSearchToggle'
+import { ReasoningEffortSelector } from '@/components/ReasoningEffortSelector'
 import { useChatStore } from '@/store/chatStore'
 
 interface Props {
@@ -164,6 +165,8 @@ function Composer() {
   const setSelectedModel = useChatStore((s) => s.setSelectedModel)
   const webSearchEnabled = useChatStore((s) => s.webSearchEnabled)
   const setWebSearchEnabled = useChatStore((s) => s.setWebSearchEnabled)
+  const reasoningEffort = useChatStore((s) => s.reasoningEffort)
+  const setReasoningEffort = useChatStore((s) => s.setReasoningEffort)
   const isModelListLoading = useChatStore((s) => s.isModelListLoading)
   const loadInputAssist = useChatStore((s) => s.loadInputAssist)
   const focusSignal = useChatStore((s) => s.focusSignal)
@@ -236,6 +239,7 @@ function Composer() {
           <div className="flex items-center gap-1">
             <AttachmentMenu disabled={!chatId || isSending || selectedModel?.supportsAttachment === false} onSelect={(files) => void addFiles(files)} />
             <WebSearchToggle enabled={webSearchEnabled} disabled={!selectedModel?.supportsWebSearch} reason={selectedModel?.supportsWebSearch ? undefined : '선택한 모델은 웹 검색을 지원하지 않습니다.'} onChange={setWebSearchEnabled} />
+            <ReasoningEffortSelector value={reasoningEffort} onChange={setReasoningEffort} />
             <ModelSelector models={models} selectedId={selectedModelId} loading={isModelListLoading} onChange={setSelectedModel} />
           </div>
           <button

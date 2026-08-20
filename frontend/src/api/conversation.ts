@@ -10,6 +10,7 @@ import type {
   RefineResultItem,
   SendMessageResponse,
   VersionItem,
+  ReasoningEffort,
 } from '@/types/api'
 
 export async function sendMessage(
@@ -17,7 +18,7 @@ export async function sendMessage(
   branchId: string,
   userPrompt: string,
   contextBlockIds: string[] = [],
-  options: { selectedModelId: string | null; webSearchEnabled: boolean; attachmentIds: string[] } = { selectedModelId: null, webSearchEnabled: false, attachmentIds: [] },
+  options: { selectedModelId: string | null; webSearchEnabled: boolean; reasoningEffort: ReasoningEffort; attachmentIds: string[] } = { selectedModelId: null, webSearchEnabled: false, reasoningEffort: 'medium', attachmentIds: [] },
 ): Promise<SendMessageResponse> {
   const { data } = await api.post<SendMessageResponse>(
     `/api/chats/${chatId}/branches/${branchId}/messages`,

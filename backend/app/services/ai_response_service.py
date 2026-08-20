@@ -22,13 +22,13 @@ class NotAssistantBlockError(AppError):
 @dataclass(frozen=True)
 class SendResult:
     user_block: MessageBlock; assistant_block: MessageBlock; context_items: list[context_service.ContextItem]
-    title_generated: bool; selected_model: str; web_search_enabled: bool; attachments: list; search_sources: list; job: AiResponseJob
+    title_generated: bool; selected_model: str; web_search_enabled: bool; reasoning_effort: str; attachments: list; search_sources: list; job: AiResponseJob
 
 @dataclass(frozen=True)
 class RegenerateResult:
     block: MessageBlock; search_sources: list; job: AiResponseJob
 
-def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_prompt: str, context_block_ids: list[uuid.UUID] | None = None, selected_model_id: str | None = None, web_search_enabled: bool = False, attachment_ids: list[uuid.UUID] | None = None, answerer=None, titler=None) -> SendResult:
+def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_prompt: str, context_block_ids: list[uuid.UUID] | None = None, selected_model_id: str | None = None, web_search_enabled: bool = False, attachment_ids: list[uuid.UUID] | None = None, reasoning_effort: str = "medium", answerer=None, titler=None) -> SendResult:
     prompt = (user_prompt or "").strip()
     if not prompt: raise ValidationError("질문을 입력해주세요.")
     attachments = input_assist_service.get_attachments_for_message(db, user, chat, attachment_ids or [])
@@ -40,7 +40,7 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     user_block = message_service.create_block(db, chat, branch, MessageRole.USER, prompt, commit=False)
     context_service.save_log(db, chat, branch, user_block.id, context_items)
     input_assist_service.attach_to_message(db, user_block, attachments)
-    snapshot = _make_snapshot(prompt, flow, context_items, model.model_id, web_search_enabled, attachments)
+    snapshot = _make_snapshot(prompt, flow, context_items, model.model_id, web_search_enabled, attachments, reasoning_effort)
     job = _new_job(user, chat, branch, user_block.id, AiResponseJobType.GENERATE, snapshot); db.add(job); db.commit(); db.refresh(user_block); db.refresh(job)
     try: answer, sources = _generate_snapshot(db, user, chat, snapshot, api_key, answerer)
     except Exception as exc:
@@ -49,7 +49,7 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     job.assistant_message_block_id, job.result_version_id, job.status = assistant.id, assistant.current_version_id, AiResponseJobStatus.COMPLETED
     db.commit(); db.refresh(assistant); db.refresh(job)
     titled = is_first and chat.title == chat_service.DEFAULT_TITLE and _try_generate_title(db, chat, prompt, api_key, titler)
-    return SendResult(user_block, assistant, context_items, bool(titled), model.model_id, web_search_enabled, attachments, sources, job)
+    return SendResult(user_block, assistant, context_items, bool(titled), model.model_id, web_search_enabled, reasoning_effort, attachments, sources, job)
 
 def regenerate(db: Session, user: User, chat: Chat, branch: Branch, block_id: uuid.UUID, answerer=None) -> RegenerateResult:
     api_key = user_setting_service.require_api_key(db, user)
@@ -89,10 +89,10 @@ def retry_failed_job(db: Session, user: User, chat: Chat, branch: Branch, job_id
             titler,
         )
     )
-    return SendResult(user_block, assistant, _context_from_snapshot(snapshot), bool(titled), snapshot["selectedModelId"], snapshot["webSearchEnabled"], input_assist_service.get_attached_for_snapshot(db, user, chat, snapshot["attachmentIds"]), sources, job)
+    return SendResult(user_block, assistant, _context_from_snapshot(snapshot), bool(titled), snapshot["selectedModelId"], snapshot["webSearchEnabled"], snapshot.get("reasoningEffort", "medium"), input_assist_service.get_attached_for_snapshot(db, user, chat, snapshot["attachmentIds"]), sources, job)
 
-def _make_snapshot(prompt, flow, context_items, model_id, web, attachments) -> dict:
-    return {"schemaVersion": 1, "userPrompt": prompt, "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow], "appliedContext": [{"blockId": str(x.block_id), "versionId": str(x.version_id), "content": x.content, "orderIndex": x.order_index} for x in context_items], "selectedModelId": model_id, "webSearchEnabled": web, "attachmentIds": [str(x.id) for x in attachments]}
+def _make_snapshot(prompt, flow, context_items, model_id, web, attachments, reasoning_effort="medium") -> dict:
+    return {"schemaVersion": 1, "userPrompt": prompt, "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow], "appliedContext": [{"blockId": str(x.block_id), "versionId": str(x.version_id), "content": x.content, "orderIndex": x.order_index} for x in context_items], "selectedModelId": model_id, "webSearchEnabled": web, "reasoningEffort": reasoning_effort, "attachmentIds": [str(x.id) for x in attachments]}
 
 def _generate_snapshot(db, user, chat, snapshot, api_key, answerer=None):
     required = {"userPrompt", "messageFlow", "appliedContext", "selectedModelId", "webSearchEnabled", "attachmentIds"}
@@ -101,7 +101,7 @@ def _generate_snapshot(db, user, chat, snapshot, api_key, answerer=None):
         attached = input_assist_service.get_attached_for_snapshot(db, user, chat, snapshot["attachmentIds"])
         from modeling import generate_answer
         from modeling.types import AnswerRequest, ChatTurn
-        req = AnswerRequest(snapshot["userPrompt"], [ChatTurn(role=x["role"], content=x["content"]) for x in snapshot["messageFlow"]], [x["content"] for x in snapshot["appliedContext"]], input_assist_service.to_modeling_attachments(attached), snapshot["webSearchEnabled"], snapshot["selectedModelId"])
+        req = AnswerRequest(snapshot["userPrompt"], [ChatTurn(role=x["role"], content=x["content"]) for x in snapshot["messageFlow"]], [x["content"] for x in snapshot["appliedContext"]], input_assist_service.to_modeling_attachments(attached), snapshot["webSearchEnabled"], snapshot["selectedModelId"], snapshot.get("reasoningEffort", "medium"))
     except (KeyError, TypeError, ValueError) as exc: raise AiInputSnapshotIncompleteError() from exc
     result = (answerer or generate_answer)(req, api_key=api_key); text = (getattr(result, "text", result) or "").strip()
     if not text: raise ValueError("empty")

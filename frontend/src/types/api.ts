@@ -197,6 +197,7 @@ export interface SendMessageResponse {
   titleGenerated: boolean
   selectedModel: string
   webSearchEnabled: boolean
+  reasoningEffort: ReasoningEffort
   attachments: AttachmentResponse[]
   searchSources: SearchSource[]
   aiResponseJobId: string
@@ -212,6 +213,7 @@ export interface SearchSource { title: string; url: string }
 export interface DraftAttachment { localId: string; attachmentId: string | null; file: File; fileName: string; mimeType: string; localUrl: string | null; status: 'uploading' | 'uploaded' | 'failed'; error: string | null }
 
 export type AiResponseRating = 'like' | 'dislike'
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface FeedbackResponse {
   aiMessageBlockId: string

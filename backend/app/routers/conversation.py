@@ -48,6 +48,7 @@ def send_message(
     result = ai_response_service.send_message(
         db, user, chat, branch, payload.user_prompt, payload.context_block_ids,
         payload.selected_model_id, payload.web_search_enabled, payload.attachment_ids,
+        payload.reasoning_effort,
     )
     return SendMessageResponse(
         user_block=BlockResponse.of(result.user_block),
@@ -62,6 +63,7 @@ def send_message(
         title_generated=result.title_generated,
         selected_model=result.selected_model,
         web_search_enabled=result.web_search_enabled,
+        reasoning_effort=result.reasoning_effort,
         attachments=[_attachment_out(item) for item in result.attachments],
         search_sources=[SearchSourceOut(title=item.title, url=item.url) for item in result.search_sources],
         ai_response_job_id=result.job.id,
@@ -115,6 +117,7 @@ def retry_ai_response_job(chat_id: uuid.UUID, branch_id: uuid.UUID, job_id: uuid
         applied_context=[AppliedContextOut(block_id=i.block_id, version_id=i.version_id, order_index=i.order_index) for i in result.context_items],
         chat_title=chat.title, title_generated=result.title_generated, selected_model=result.selected_model,
         web_search_enabled=result.web_search_enabled, attachments=[_attachment_out(i) for i in result.attachments],
+        reasoning_effort=result.reasoning_effort,
         search_sources=[SearchSourceOut(title=i.title, url=i.url) for i in result.search_sources],
         ai_response_job_id=result.job.id, job_status=result.job.status.value,
         action_meta=ActionMeta(

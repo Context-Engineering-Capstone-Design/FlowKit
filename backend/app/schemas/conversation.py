@@ -20,6 +20,7 @@ class SendMessageRequest(BaseModel):
     selected_model_id: str | None = Field(None, alias="selectedModelId")
     web_search_enabled: bool = Field(False, alias="webSearchEnabled")
     attachment_ids: list[uuid.UUID] = Field(default_factory=list, alias="attachmentIds")
+    reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field("medium", alias="reasoningEffort")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -42,6 +43,7 @@ class SendMessageResponse(BaseModel):
     title_generated: bool = Field(..., serialization_alias="titleGenerated")
     selected_model: str = Field(..., serialization_alias="selectedModel")
     web_search_enabled: bool = Field(..., serialization_alias="webSearchEnabled")
+    reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field(..., serialization_alias="reasoningEffort")
     attachments: list[AttachmentOut]
     search_sources: list[SearchSourceOut] = Field(..., serialization_alias="searchSources")
     ai_response_job_id: uuid.UUID = Field(..., serialization_alias="aiResponseJobId")
