@@ -68,11 +68,15 @@ def msg_url(chat: dict) -> str:
     )
 
 
-def send(client, auth, chat, prompt: str, context_ids=None) -> dict:
+def send(client, auth, chat, prompt: str, context_ids=None, context_ranges=None) -> dict:
     """즉시 응답만 확인한다. assistantBlock 은 비어 있고 generating 상태다."""
     res = client.post(
         msg_url(chat),
-        json={"userPrompt": prompt, "contextBlockIds": context_ids or []},
+        json={
+            "userPrompt": prompt,
+            "contextBlockIds": context_ids or [],
+            "contextRanges": context_ranges or [],
+        },
         headers=auth,
     )
     assert res.status_code == 201, res.text
@@ -384,6 +388,88 @@ def test_context_block_outside_branch_is_rejected(client, auth, chat, captured):
     )
     assert res.status_code == 400
     assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+# ── 0820_13: 드래그로 고른 부분 범위 Context ─────────────────────────────
+
+
+def test_range_context_snippet_is_passed_to_ai_instead_of_full_block(client, auth, chat, captured):
+    first = send_and_wait(client, auth, chat, "구조적 해저드 설명해줘")
+    block_id = first["assistantBlock"]["blockId"]
+    version_id = first["assistantBlock"]["currentVersionId"]
+
+    body = send(
+        client, auth, chat, "이 부분만 표로 정리해줘",
+        context_ranges=[{"blockId": block_id, "versionId": version_id, "snippetText": "답변(1)"}],
+    )
+
+    assert [c["blockId"] for c in body["appliedContext"]] == [block_id]
+    assert captured[1].applied_context == ["답변(1)"]
+
+
+def test_range_context_replaces_prior_conversation_like_block_context(client, auth, chat, captured):
+    first = send_and_wait(client, auth, chat, "질문")
+    version_id = first["assistantBlock"]["currentVersionId"]
+    block_id = first["assistantBlock"]["blockId"]
+
+    send(
+        client, auth, chat, "이어서",
+        context_ranges=[{"blockId": block_id, "versionId": version_id, "snippetText": "답변(1)"}],
+    )
+
+    assert captured[-1].message_flow == []
+
+
+def test_range_context_rejects_snippet_not_in_version_content(client, auth, chat, captured):
+    first = send_and_wait(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    version_id = first["assistantBlock"]["currentVersionId"]
+
+    res = client.post(
+        msg_url(chat),
+        json={
+            "userPrompt": "이어서",
+            "contextRanges": [{"blockId": block_id, "versionId": version_id, "snippetText": "원문에 없는 내용"}],
+        },
+        headers=auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+def test_range_context_rejects_block_outside_branch(client, auth, chat, captured):
+    res = client.post(
+        msg_url(chat),
+        json={
+            "userPrompt": "질문",
+            "contextRanges": [{
+                "blockId": "00000000-0000-0000-0000-000000000000",
+                "versionId": "00000000-0000-0000-0000-000000000000",
+                "snippetText": "아무거나",
+            }],
+        },
+        headers=auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+def test_range_context_can_combine_with_multiple_snippets_from_same_block(client, auth, chat, captured):
+    """겹치거나 같은 블록에서 고른 여러 범위도 각각 별도 Context 항목으로 유지된다."""
+    first = send_and_wait(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    version_id = first["assistantBlock"]["currentVersionId"]
+
+    body = send(
+        client, auth, chat, "정리해줘",
+        context_ranges=[
+            {"blockId": block_id, "versionId": version_id, "snippetText": "답변"},
+            {"blockId": block_id, "versionId": version_id, "snippetText": "(1)"},
+        ],
+    )
+
+    assert len(body["appliedContext"]) == 2
+    assert captured[-1].applied_context == ["답변", "(1)"]
 
 
 def test_generating_block_cannot_be_used_as_context(client, auth, chat, captured, db_session):

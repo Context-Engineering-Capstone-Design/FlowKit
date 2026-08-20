@@ -63,13 +63,14 @@ def _pin_current_version(block: MessageBlock) -> MessageBlock:
     return block
 
 
-def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_prompt: str, context_block_ids: list[uuid.UUID] | None = None, selected_model_id: str | None = None, web_search_mode: str = "off", attachment_ids: list[uuid.UUID] | None = None, reasoning_effort: str = "medium", library_resource_ids: list[uuid.UUID] | None = None, titler=None, answerer=None) -> SendResult:
+def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_prompt: str, context_block_ids: list[uuid.UUID] | None = None, selected_model_id: str | None = None, web_search_mode: str = "off", attachment_ids: list[uuid.UUID] | None = None, reasoning_effort: str = "medium", library_resource_ids: list[uuid.UUID] | None = None, context_ranges: list[context_service.ContextRangeSpec] | None = None, titler=None, answerer=None) -> SendResult:
     prompt = (user_prompt or "").strip()
     if not prompt: raise ValidationError("질문을 입력해주세요.")
     attachments = input_assist_service.get_attachments_for_message(db, user, chat, attachment_ids or [])
     model = input_assist_service.validate_options(selected_model_id, web_search_mode, bool(attachments))
     api_key = user_setting_service.require_api_key(db, user)
     context_items = context_service.build_snapshot(db, branch, context_block_ids or [], chat)
+    context_items = context_items + context_service.build_range_snapshot(db, branch, context_ranges or [], chat)
     project = db.get(Project, chat.project_id) if chat.project_id else None
     memories = list(db.scalars(select(ProjectMemory).where(ProjectMemory.project_id == project.id).order_by(ProjectMemory.order_index, ProjectMemory.created_at)).all()) if project else []
     library_resources = project_service.selected_library_context(db, project, library_resource_ids or [])

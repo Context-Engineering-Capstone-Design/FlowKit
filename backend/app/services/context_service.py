@@ -100,6 +100,60 @@ def build_snapshot(
     return items
 
 
+def build_range_snapshot(
+    db: Session,
+    branch: Branch,
+    ranges: list[ContextRangeSpec],
+    chat: Chat | None = None,
+) -> list[ContextItem]:
+    """드래그로 고른 부분 범위를 Context 로 확정한다 (0820_13).
+
+    블록 전체가 아니라 화면이 보낸 스니펫만 AI 입력에 들어간다. 화면이 보낸
+    텍스트를 그대로 믿지 않고, 실제로 그 버전의 본문 안에 있는 부분인지
+    확인해 다른 내용을 스니펫으로 위장해 보내는 것을 막는다. 개수·글자 수
+    제한은 두지 않는다(0820_13 계획).
+    """
+    if not ranges:
+        return []
+
+    visible = {b.id: b for b in branch_service.resolve_blocks(db, branch)}
+    missing_ids = [r.block_id for r in ranges if r.block_id not in visible]
+    if missing_ids and chat is not None:
+        from app.services import chat_service
+
+        visible.update(chat_service.family_block_map(db, chat, missing_ids))
+
+    items: list[ContextItem] = []
+    for r in ranges:
+        block = visible.get(r.block_id)
+        if block is None:
+            raise ValidationError(
+                "선택한 범위의 원본 블록을 찾을 수 없습니다.",
+                detail={"blockId": str(r.block_id)},
+            )
+        version = next((v for v in block.versions if v.id == r.version_id), None)
+        if version is None:
+            raise ValidationError(
+                "선택한 범위의 원본 버전을 찾을 수 없습니다.",
+                detail={"blockId": str(r.block_id), "versionId": str(r.version_id)},
+            )
+        snippet = r.snippet_text.strip()
+        if not snippet or snippet not in version.content:
+            raise ValidationError(
+                "선택한 범위가 원본 내용과 일치하지 않습니다.",
+                detail={"blockId": str(r.block_id)},
+            )
+        items.append(
+            ContextItem(
+                block_id=block.id,
+                version_id=version.id,
+                content=snippet,
+                order_index=block.order_index,
+            )
+        )
+    return items
+
+
 def save_log(
     db: Session,
     chat: Chat,

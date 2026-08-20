@@ -5,6 +5,7 @@ import type {
   BlockResponse,
   RegenerateResponse,
   BulkRefineResult,
+  ContextRangeIn,
   FeedbackResponse,
   RefineJob,
   RefineResultItem,
@@ -21,10 +22,11 @@ export async function sendMessage(
   userPrompt: string,
   contextBlockIds: string[] = [],
   options: { selectedModelId: string | null; webSearchMode: WebSearchMode; reasoningEffort: ReasoningEffort; attachmentIds: string[] } = { selectedModelId: null, webSearchMode: 'auto', reasoningEffort: 'medium', attachmentIds: [] },
+  contextRanges: ContextRangeIn[] = [],
 ): Promise<SendMessageResponse> {
   const { data } = await api.post<SendMessageResponse>(
     `/api/chats/${chatId}/branches/${branchId}/messages`,
-    { userPrompt, contextBlockIds, ...options },
+    { userPrompt, contextBlockIds, contextRanges, ...options },
     { timeout: AI_REQUEST_TIMEOUT_MS },
   )
   return data

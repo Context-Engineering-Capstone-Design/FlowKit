@@ -214,6 +214,13 @@ export interface AppliedContextOut {
   orderIndex: number
 }
 
+/** 드래그로 고른 메시지 안 부분 범위 하나 (0820_13). 전체 블록이 아니라 이 스니펫만 Context 로 쓴다. */
+export interface ContextRangeIn {
+  blockId: string
+  versionId: string
+  snippetText: string
+}
+
 export interface SendMessageResponse {
   userBlock: BlockResponse
   assistantBlock: BlockResponse

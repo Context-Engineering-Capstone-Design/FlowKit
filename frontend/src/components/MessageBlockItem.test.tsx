@@ -12,7 +12,8 @@ afterEach(cleanup)
 
 beforeEach(() => {
   useNotificationStore.getState().clearToast()
-  useChatStore.setState({ branchId: 'branch-1', selectedBlockIds: [], appliedBlockIds: [], inlineView: {}, ratings: {}, versionsByBlock: {}, pendingByBlockId: {}, failedJobsByBlockId: {}, editingBlockId: null, sideChatsByBlockId: {} })
+  useChatStore.setState({ branchId: 'branch-1', selectedBlockIds: [], appliedBlockIds: [], inlineView: {}, ratings: {}, versionsByBlock: {}, pendingByBlockId: {}, failedJobsByBlockId: {}, editingBlockId: null, sideChatsByBlockId: {}, contextRangeTags: [] })
+  window.getSelection()?.removeAllRanges()
 })
 
 it('활성 메시지 본문 복사 성공을 알린다', async () => {
@@ -181,6 +182,99 @@ it('이 지점에서 만든 사이드 채팅이 있으면 칩으로 보여주고
   fireEvent.click(chip)
 
   expect(openChat).toHaveBeenCalledWith('side-1')
+})
+
+// 0820_13: 메시지 안 드래그 범위 선택
+
+function firstTextNode(root: Node): Text {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  return walker.nextNode() as Text
+}
+
+function selectWithinContent(container: HTMLElement, startOffset: number, endOffset: number) {
+  const root = container.querySelector('[data-selectable-root]')!
+  const textNode = firstTextNode(root)
+  const selection = window.getSelection()!
+  selection.removeAllRanges()
+  const range = document.createRange()
+  range.setStart(textNode, startOffset)
+  range.setEnd(textNode, endOffset)
+  selection.addRange(range)
+  fireEvent.mouseUp(root)
+}
+
+it('메시지 안 텍스트를 드래그하면 채팅에 추가·사이드 채팅에 질문 토글이 뜬다 (A1, A3)', () => {
+  const content = { ...block, role: 'assistant' as const, content: '안녕하세요' }
+  const { container } = render(<MessageBlockItem block={content} />)
+
+  selectWithinContent(container, 0, 2)
+
+  expect(screen.getByText('채팅에 추가')).toBeTruthy()
+  expect(screen.getByText('사이드 채팅에 질문')).toBeTruthy()
+})
+
+it('채팅에 추가를 누르면 선택 범위를 태그로 추가한다 (A5)', () => {
+  const addContextRangeTag = vi.fn()
+  useChatStore.setState({ addContextRangeTag })
+  const content = { ...block, role: 'assistant' as const, content: '안녕하세요', currentVersionId: 'v9' }
+  const { container } = render(<MessageBlockItem block={content} />)
+
+  selectWithinContent(container, 0, 2)
+  fireEvent.click(screen.getByText('채팅에 추가'))
+
+  expect(addContextRangeTag).toHaveBeenCalledWith(
+    expect.objectContaining({ messageBlockId: 'block-1', messageVersionId: 'v9', selectedText: '안녕', role: 'assistant' }),
+  )
+  expect(screen.queryByText('채팅에 추가')).toBeNull()
+})
+
+it('사이드 채팅에 질문을 누르면 선택 범위 태그를 담아 빈 사이드 채팅 패널을 연다 (A3)', () => {
+  const openDraftSideChatWithRange = vi.fn()
+  useChatStore.setState({ openDraftSideChatWithRange })
+  const content = { ...block, role: 'assistant' as const, content: '안녕하세요' }
+  const { container } = render(<MessageBlockItem block={content} />)
+
+  selectWithinContent(container, 0, 2)
+  fireEvent.click(screen.getByText('사이드 채팅에 질문'))
+
+  expect(openDraftSideChatWithRange).toHaveBeenCalledWith(expect.objectContaining({ selectedText: '안녕' }))
+})
+
+it('빈 영역을 클릭하면 뜬 작업 토글을 닫는다', () => {
+  const content = { ...block, role: 'assistant' as const, content: '안녕하세요' }
+  const { container } = render(<MessageBlockItem block={content} />)
+  selectWithinContent(container, 0, 2)
+  expect(screen.getByText('채팅에 추가')).toBeTruthy()
+
+  fireEvent.mouseDown(document.body)
+
+  expect(screen.queryByText('채팅에 추가')).toBeNull()
+})
+
+it('이미 태그가 붙어 강조된 범위를 다시 누르면 그 태그를 제거한다', () => {
+  const removeContextRangeTag = vi.fn()
+  const content = { ...block, role: 'assistant' as const, content: '안녕하세요', currentVersionId: 'v9' }
+  useChatStore.setState({
+    removeContextRangeTag,
+    contextRangeTags: [{
+      id: 'tag-1', messageBlockId: 'block-1', messageVersionId: 'v9', role: 'assistant' as const,
+      snapshotText: '안녕하세요', selectedText: '안녕', startOffset: 0, endOffset: 2,
+    }],
+  })
+  const { container } = render(<MessageBlockItem block={content} />)
+
+  const mark = container.querySelector('.ctx-range-mark')
+  expect(mark).not.toBeNull()
+  fireEvent.click(mark!)
+
+  expect(removeContextRangeTag).toHaveBeenCalledWith('tag-1')
+})
+
+it('생성 중인 답변은 드래그로 범위를 선택할 수 없다', () => {
+  const generating = { ...block, role: 'assistant' as const, content: '안녕하세요', generationStatus: 'generating' as const }
+  const { container } = render(<MessageBlockItem block={generating} />)
+
+  expect(container.querySelector('[data-selectable-root]')).toBeNull()
 })
 
 it('사용자 메시지는 오른쪽에, AI 답변은 왼쪽에 둔다', () => {

@@ -205,6 +205,7 @@ describe('chatStore 화면 상태', () => {
     expect(convApi.sendMessage).toHaveBeenCalledWith(
       'chat-1', 'branch-1', '질문', [],
       expect.objectContaining({ webSearchMode: 'auto' }),
+      [],
     )
 
     useChatStore.getState().setWebSearchMode('always')
@@ -213,6 +214,7 @@ describe('chatStore 화면 상태', () => {
     expect(convApi.sendMessage).toHaveBeenLastCalledWith(
       'chat-1', 'branch-1', '질문', [],
       expect.objectContaining({ webSearchMode: 'always' }),
+      [],
     )
   })
 
@@ -304,7 +306,7 @@ describe('chatStore 화면 상태', () => {
     await useChatStore.getState().sendMessage('질문')
 
     expect(chatApi.createChat).toHaveBeenCalledOnce()
-    expect(convApi.sendMessage).toHaveBeenCalledWith('chat-new', 'branch-new', '질문', [], expect.anything())
+    expect(convApi.sendMessage).toHaveBeenCalledWith('chat-new', 'branch-new', '질문', [], expect.anything(), [])
     expect(useChatStore.getState().chatId).toBe('chat-new')
     expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
   })
@@ -675,5 +677,124 @@ describe('chatStore 부모 반영', () => {
     expect(chatApi.fetchChat).not.toHaveBeenCalled()
     expect(sideChatApi.importBlocksAsMessages).not.toHaveBeenCalled()
     expect(chatApi.createBranch).not.toHaveBeenCalled()
+  })
+})
+
+// 0820_13: 드래그 범위 Context 선택과 지연 생성 사이드 채팅
+describe('chatStore 드래그 범위 Context', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sideChatApi.fetchSideChatTree.mockResolvedValue({ rootChatId: null, chats: [] })
+    useChatStore.setState({
+      chatId: 'chat-1', branchId: 'branch-1', blocks: [], branches: [],
+      chatKind: 'MAIN', parentChatId: null, parentBranchId: null, parentMessageBlockId: null,
+      draftText: '', draftAttachments: [], contextRangeTags: [],
+      editingBlockId: null, editingDraft: '', editingOriginal: '',
+      tabs: [{ id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '대화', kind: 'MAIN', parentChatId: null }],
+      activeTabId: 'chat-1',
+      sideChatsByBlockId: {}, sideChatTree: [], sideChatTreeRootId: null,
+    })
+  })
+
+  const rangeTag = {
+    messageBlockId: 'block-1',
+    messageVersionId: 'v1',
+    role: 'assistant' as const,
+    snapshotText: '전체 답변 내용입니다',
+    selectedText: '답변 내용',
+    startOffset: 2,
+    endOffset: 6,
+  }
+
+  it('사이드 채팅에 질문을 누르면 태그가 붙은 빈 패널만 로컬로 열고, 서버에는 아무 것도 만들지 않는다 (C1)', async () => {
+    await useChatStore.getState().openDraftSideChatWithRange(rangeTag)
+
+    expect(sideChatApi.createSideChat).not.toHaveBeenCalled()
+    const state = useChatStore.getState()
+    expect(state.chatId).toBeNull()
+    expect(state.chatKind).toBe('SIDE')
+    expect(state.parentChatId).toBe('chat-1')
+    const draftTab = state.tabs.find((t) => t.id === state.activeTabId)!
+    expect(draftTab.kind).toBe('SIDE')
+    expect(draftTab.chatId).toBeNull()
+    expect(draftTab.draftSideChatAnchor).toEqual({
+      parentChatId: 'chat-1', parentBranchId: 'branch-1', anchorMessageBlockId: 'block-1',
+    })
+    expect(state.contextRangeTags).toHaveLength(1)
+    expect(state.contextRangeTags[0]).toMatchObject({ selectedText: '답변 내용' })
+  })
+
+  it('첫 전송 전에 패널을 닫으면 서버 기록 없이 탭만 사라진다 (C3)', async () => {
+    await useChatStore.getState().openDraftSideChatWithRange(rangeTag)
+    const draftId = useChatStore.getState().activeTabId!
+
+    await useChatStore.getState().closeTab(draftId)
+
+    expect(sideChatApi.createSideChat).not.toHaveBeenCalled()
+    expect(chatApi.deleteChat).not.toHaveBeenCalled()
+    expect(useChatStore.getState().tabs.some((t) => t.id === draftId)).toBe(false)
+  })
+
+  it('빈 사이드 채팅 패널에서 첫 메시지를 보낼 때만 서버에 사이드 채팅을 만들고, 태그를 Context로 함께 보낸다 (C2)', async () => {
+    await useChatStore.getState().openDraftSideChatWithRange(rangeTag)
+
+    sideChatApi.createSideChat.mockResolvedValue({
+      chatMeta: {
+        chatId: 'side-1', title: '새 사이드 채팅', kind: 'SIDE', parentChatId: 'chat-1',
+        parentBranchId: 'branch-1', parentMessageBlockId: 'block-1', rootChatId: 'chat-1', rootBranchId: 'branch-1',
+      },
+      branchMeta: { branchId: 'side-branch-1' },
+      messageBlocks: [],
+      branchList: [],
+    })
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'u1', branchId: 'side-branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'a1', branchId: 'side-branch-1', role: 'assistant', content: '답변', currentVersionId: 'v2', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      chatTitle: '새 사이드 채팅',
+      titleGenerated: false,
+    })
+
+    await useChatStore.getState().sendMessage('이 내용 관련해서 더 알려줘')
+
+    expect(sideChatApi.createSideChat).toHaveBeenCalledWith('chat-1', 'branch-1', { anchorMessageBlockId: 'block-1' })
+    expect(convApi.sendMessage).toHaveBeenCalledWith(
+      'side-1', 'side-branch-1', '이 내용 관련해서 더 알려줘', [],
+      expect.anything(),
+      [{ blockId: 'block-1', versionId: 'v1', snippetText: '답변 내용' }],
+    )
+    const state = useChatStore.getState()
+    expect(state.chatId).toBe('side-1')
+    expect(state.branchId).toBe('side-branch-1')
+    // 한 번 쓴 태그는 다음 요청에 재사용되지 않도록 비운다
+    expect(state.contextRangeTags).toEqual([])
+  })
+
+  it('태그를 추가·제거할 수 있다', () => {
+    useChatStore.getState().addContextRangeTag(rangeTag)
+    const id = useChatStore.getState().contextRangeTags[0].id
+    expect(useChatStore.getState().contextRangeTags).toHaveLength(1)
+
+    useChatStore.getState().removeContextRangeTag(id)
+    expect(useChatStore.getState().contextRangeTags).toEqual([])
+  })
+
+  it('이미 열린 채팅에서 태그를 붙여 보내면 Context로 전달되고, 전송 뒤 태그를 비운다 (B3)', async () => {
+    useChatStore.getState().addContextRangeTag(rangeTag)
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답변', currentVersionId: 'v2', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      chatTitle: '대화',
+      titleGenerated: false,
+    })
+
+    await useChatStore.getState().sendMessage('이 부분 더 설명해줘')
+
+    expect(sideChatApi.createSideChat).not.toHaveBeenCalled()
+    expect(convApi.sendMessage).toHaveBeenCalledWith(
+      'chat-1', 'branch-1', '이 부분 더 설명해줘', [],
+      expect.anything(),
+      [{ blockId: 'block-1', versionId: 'v1', snippetText: '답변 내용' }],
+    )
+    expect(useChatStore.getState().contextRangeTags).toEqual([])
   })
 })

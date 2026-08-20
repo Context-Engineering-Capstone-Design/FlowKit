@@ -16,7 +16,9 @@ import type {
   ChatKind,
   ChatMeta,
   ChatSummary,
+  ContextRangeIn,
   MessageBlock,
+  MessageRole,
   RefineJob,
   SideChatSummary,
   SourceContextItem,
@@ -40,6 +42,24 @@ export interface ChatTab {
   kind: ChatKind
   parentChatId: string | null
   isTemporary?: boolean
+  /** 아직 서버에 만들지 않은 사이드 채팅 탭이 어디서 시작됐는지 (0820_13 C1).
+   *  이 값이 있으면 첫 전송 때 채팅이 아니라 사이드 채팅으로 만든다. */
+  draftSideChatAnchor?: { parentChatId: string; parentBranchId: string; anchorMessageBlockId?: string } | null
+}
+
+/** 한 메시지 안에서 드래그로 고른 부분 범위 태그 (0820_13). 하단 채팅 패널에 표시하고
+ *  전송 시 Context로 보낸다. 원문이 나중에 바뀌어도 이 스냅샷 기준을 유지한다. */
+export interface ContextRangeTag {
+  id: string
+  messageBlockId: string
+  messageVersionId: string
+  role: MessageRole
+  /** 선택 당시 메시지 전체의 평면 텍스트 스냅샷. 태그 호버 강조의 기준이 된다. */
+  snapshotText: string
+  /** 실제로 고른 부분 (snapshotText.slice(startOffset, endOffset)과 같다). */
+  selectedText: string
+  startOffset: number
+  endOffset: number
 }
 
 function newDraftId() {
@@ -174,6 +194,11 @@ interface ChatState {
   appliedBlockIds: string[]
   appliedContextLabel: string | null
 
+  /** 드래그로 고른 부분 범위 태그 (0820_13). 전송하면 비워진다. */
+  contextRangeTags: ContextRangeTag[]
+  /** 하단 채팅 패널의 "채팅에 추가"를 눌러 선택을 안내하는 배너를 보이는 중인지. */
+  isSelectionHintOpen: boolean
+
   refineJob: RefineJob | null
   /** 블록별로 원본을 보는 중인지 정제본을 보는 중인지 (REQ-031) */
   inlineView: Record<string, 'original' | 'refined'>
@@ -301,6 +326,16 @@ interface ChatState {
   importSelectedToParentAsMessages: () => Promise<boolean>
   /** 사이드 채팅과 같은 지점에서 부모 아래 형제 브랜치를 만든다 (0820_08 C3). */
   createSiblingBranchFromSideChat: (branchName: string, editedBaseContent: string) => Promise<boolean>
+
+  /** 드래그로 고른 범위를 하단 채팅 패널의 태그로 추가한다 (0820_13 A5, B1). */
+  addContextRangeTag: (tag: Omit<ContextRangeTag, 'id'>) => void
+  /** 태그를 제거한다 — 태그의 X 버튼, 또는 메시지 안 강조 표시를 다시 눌렀을 때 쓴다. */
+  removeContextRangeTag: (id: string) => void
+  /** 하단 채팅 패널의 "채팅에 추가" UI로 선택 안내 배너를 켜고 끈다 (0820_13 A2). */
+  toggleSelectionHint: () => void
+  /** 선택 범위 태그를 포함한 빈 사이드 채팅 패널을 로컬로 연다. 첫 메시지를 보낼 때까지는
+   *  서버에 아무 것도 만들지 않는다 (0820_13 C1, C2). */
+  openDraftSideChatWithRange: (tag: Omit<ContextRangeTag, 'id'>) => Promise<void>
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -332,6 +367,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   selectedBlockIds: [],
   appliedBlockIds: [],
   appliedContextLabel: null,
+  contextRangeTags: [],
+  isSelectionHintOpen: false,
   refineJob: null,
   inlineView: {},
   ratings: {},
@@ -463,6 +500,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       selectedBlockIds: [],
       appliedBlockIds: [],
       appliedContextLabel: null,
+      contextRangeTags: [],
+      isSelectionHintOpen: false,
       refineJob: null,
       inlineView: {},
       ratings: {},
@@ -713,6 +752,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         selectedBlockIds: [],
         failedJobsByBlockId: {},
         appliedBlockIds: [],
+        contextRangeTags: [],
         refineJob: null,
         inlineView: {},
         ratings: {},
@@ -767,29 +807,96 @@ export const useChatStore = create<ChatState>((set, get) => ({
     useNotificationStore.getState().show('Context 적용을 해제했습니다.', 'info')
   },
 
+  addContextRangeTag(tag) {
+    set((s) => ({
+      contextRangeTags: [...s.contextRangeTags, { ...tag, id: crypto.randomUUID() }],
+      isSelectionHintOpen: false,
+    }))
+  },
+
+  removeContextRangeTag(id) {
+    set((s) => ({ contextRangeTags: s.contextRangeTags.filter((t) => t.id !== id) }))
+  },
+
+  toggleSelectionHint() {
+    set((s) => ({ isSelectionHintOpen: !s.isSelectionHintOpen }))
+  },
+
+  async openDraftSideChatWithRange(tag) {
+    const { chatId, branchId } = get()
+    if (!chatId || !branchId) return
+    if (!(await confirmPendingDiscard(get()))) return
+    captureActiveTabSnapshot(set, get)
+    const draftId = newDraftId()
+    resetToDraftFields(set, get)
+    set({
+      tabs: [
+        ...get().tabs,
+        {
+          id: draftId,
+          chatId: null,
+          branchId: null,
+          title: '새 사이드 채팅',
+          kind: 'SIDE',
+          parentChatId: chatId,
+          draftSideChatAnchor: { parentChatId: chatId, parentBranchId: branchId, anchorMessageBlockId: tag.messageBlockId },
+        },
+      ],
+      activeTabId: draftId,
+      chatKind: 'SIDE',
+      parentChatId: chatId,
+      parentBranchId: branchId,
+      parentMessageBlockId: tag.messageBlockId,
+      contextRangeTags: [{ ...tag, id: crypto.randomUUID() }],
+      isSelectionHintOpen: false,
+    })
+  },
+
   async sendMessage(prompt) {
     if (!prompt.trim()) return
     const clickedAt = Date.now() // 0820_06 C1: 전송 클릭 시각(네트워크 요청 전에 잰다)
     let { chatId, branchId } = get()
     if (!chatId || !branchId) {
       // 대화는 화면을 열 때가 아니라 사용자가 첫 메시지를 보낼 때 만든다 (새로고침마다 빈 대화가 쌓이는 문제 방지)
+      const draftId = get().activeTabId
+      const draftAnchor = get().tabs.find((t) => t.id === draftId)?.draftSideChatAnchor
       try {
-        const created = await chatApi.createChat()
-        chatId = created.chatMeta.chatId
-        branchId = created.branchMeta.branchId
-        const draftId = get().activeTabId
-        set((s) => ({
-          chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
-          tabs: promoteDraftTab(s.tabs, draftId, created.chatMeta, created.branchMeta.branchId),
-          activeTabId: chatId,
-        }))
-        void get().loadChats()
+        if (draftAnchor) {
+          // 사이드 채팅에 질문(0820_13 C1, C2): 패널을 여는 시점이 아니라 첫 전송에서만 서버에 만든다
+          const created = await sideChatApi.createSideChat(draftAnchor.parentChatId, draftAnchor.parentBranchId, {
+            anchorMessageBlockId: draftAnchor.anchorMessageBlockId,
+          })
+          chatId = created.chatMeta.chatId
+          branchId = created.branchMeta.branchId
+          set((s) => ({
+            chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
+            chatKind: created.chatMeta.kind,
+            parentChatId: created.chatMeta.parentChatId,
+            parentBranchId: created.chatMeta.parentBranchId,
+            parentMessageBlockId: created.chatMeta.parentMessageBlockId,
+            rootChatId: created.chatMeta.rootChatId,
+            rootBranchId: created.chatMeta.rootBranchId,
+            tabs: promoteDraftTab(s.tabs, draftId, created.chatMeta, created.branchMeta.branchId),
+            activeTabId: chatId,
+          }))
+          void get().loadSideChatContext()
+        } else {
+          const created = await chatApi.createChat()
+          chatId = created.chatMeta.chatId
+          branchId = created.branchMeta.branchId
+          set((s) => ({
+            chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
+            tabs: promoteDraftTab(s.tabs, draftId, created.chatMeta, created.branchMeta.branchId),
+            activeTabId: chatId,
+          }))
+          void get().loadChats()
+        }
       } catch (e) {
         set({ error: toErrorMessage(e) })
         return
       }
     }
-    const { appliedBlockIds, selectedModelId, webSearchMode, reasoningEffort, draftAttachments } = get()
+    const { appliedBlockIds, contextRangeTags, selectedModelId, webSearchMode, reasoningEffort, draftAttachments } = get()
     if (draftAttachments.some((item) => item.status === 'uploading')) {
       set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.' })
       return
@@ -831,6 +938,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         prompt,
         appliedBlockIds,
         { selectedModelId, webSearchMode, reasoningEffort, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []) },
+        contextRangeTags.map((tag): ContextRangeIn => ({
+          blockId: tag.messageBlockId, versionId: tag.messageVersionId, snippetText: tag.selectedText,
+        })),
       )
       set((s) => ({
         blocks: [...dropTempBlock(s), res.userBlock, res.assistantBlock],
@@ -841,6 +951,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         appliedBlockIds: [],
         appliedContextLabel: null,
         selectedBlockIds: [],
+        contextRangeTags: [],
         failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([id]) => id !== res.userBlock.blockId)),
       }))
       get().clearDraft()
@@ -1454,6 +1565,8 @@ function resetToDraftFields(
     selectedBlockIds: [],
     appliedBlockIds: [],
     appliedContextLabel: null,
+    contextRangeTags: [],
+    isSelectionHintOpen: false,
     refineJob: null,
     lastRefineInstruction: null,
     refineFailed: false,
@@ -1513,6 +1626,8 @@ function applyDetail(
     selectedBlockIds: [],
     appliedBlockIds: [],
     appliedContextLabel: null,
+    contextRangeTags: [],
+    isSelectionHintOpen: false,
     refineJob: null,
     lastRefineInstruction: null,
     refineFailed: false,

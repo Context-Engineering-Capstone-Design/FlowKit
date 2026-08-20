@@ -22,7 +22,7 @@ from app.schemas.message import BlockMutationResponse, BlockResponse
 from app.schemas.notification import ActionMeta
 from app.schemas.input_assist import AttachmentOut, SearchSourceOut
 from app.schemas.ai_response import RegenerateResponse
-from app.services import ai_response_service, branch_service, chat_service, streaming_service
+from app.services import ai_response_service, branch_service, chat_service, context_service, streaming_service
 
 router = APIRouter(
     prefix="/api/chats/{chat_id}/branches/{branch_id}", tags=["Conversation"]
@@ -52,6 +52,12 @@ def send_message(
         db, user, chat, branch, payload.user_prompt, payload.context_block_ids,
         payload.selected_model_id, payload.web_search_mode, payload.attachment_ids,
         payload.reasoning_effort, payload.library_resource_ids,
+        context_ranges=[
+            context_service.ContextRangeSpec(
+                block_id=r.block_id, version_id=r.version_id, snippet_text=r.snippet_text
+            )
+            for r in payload.context_ranges
+        ],
     )
     return SendMessageResponse(
         user_block=BlockResponse.of(result.user_block),

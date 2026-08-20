@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, GitBranch, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, GitBranch, MessageSquarePlus, PanelLeft, PanelRight, Square, SquarePen, Upload, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
@@ -9,7 +9,7 @@ import { ConversationOutline } from '@/components/ConversationOutline'
 import { SourceContextBanner } from '@/components/SourceContextBanner'
 import { WebSearchToggle } from '@/components/WebSearchToggle'
 import { ReasoningEffortSelector } from '@/components/ReasoningEffortSelector'
-import { useChatStore } from '@/store/chatStore'
+import { useChatStore, type ContextRangeTag } from '@/store/chatStore'
 import { buildConversationOutline } from '@/lib/conversationOutline'
 
 interface Props {
@@ -232,6 +232,7 @@ export function ChatArea({ sidebarOpen, onToggleSidebar, panelOpen, onTogglePane
       </header>
 
       <SourceContextBanner />
+      <SelectionHintBanner />
 
       <div className="relative flex-1 overflow-hidden">
         <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto pb-4">
@@ -276,6 +277,22 @@ function EmptyState() {
   )
 }
 
+// 하단 채팅 패널의 "채팅에 추가"를 눌렀을 때 뜨는 선택 안내 (0820_13 A2)
+function SelectionHintBanner() {
+  const isOpen = useChatStore((s) => s.isSelectionHintOpen)
+  const toggleSelectionHint = useChatStore((s) => s.toggleSelectionHint)
+  if (!isOpen) return null
+
+  return (
+    <div className="mx-5 mb-2 flex items-center justify-between rounded-lg bg-blue-dim px-3 py-2 text-[12px] text-blue">
+      <span>메시지에서 원하는 부분을 드래그해 선택하세요.</span>
+      <button type="button" onClick={toggleSelectionHint} title="안내 닫기" aria-label="선택 안내 닫기" className="text-blue">
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
 // 입력창 — 적용 중인 Context 표시와 질문 전송
 function Composer() {
   const text = useChatStore((s) => s.draftText)
@@ -305,6 +322,8 @@ function Composer() {
   const isModelListLoading = useChatStore((s) => s.isModelListLoading)
   const loadInputAssist = useChatStore((s) => s.loadInputAssist)
   const focusSignal = useChatStore((s) => s.focusSignal)
+  const isSelectionHintOpen = useChatStore((s) => s.isSelectionHintOpen)
+  const toggleSelectionHint = useChatStore((s) => s.toggleSelectionHint)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -336,6 +355,7 @@ function Composer() {
       )}
 
       <div className="rounded-2xl bg-bg-2 p-3">
+        <ContextRangeTagList />
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {attachments.map((attachment) => <AttachmentItem key={attachment.localId} attachment={attachment} onRemove={() => void removeAttachment(attachment.localId)} onRetry={() => void retryAttachment(attachment.localId)} />)}
@@ -372,6 +392,18 @@ function Composer() {
         />
         <div className="mt-2 flex items-center justify-between">
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={toggleSelectionHint}
+              disabled={!chatId}
+              title="채팅에 추가"
+              aria-pressed={isSelectionHintOpen}
+              className={`flex items-center gap-1 rounded-md p-1.5 transition disabled:opacity-30 ${
+                isSelectionHintOpen ? 'bg-blue-dim text-blue' : 'text-txt-2 hover:bg-bg-3 hover:text-txt-0'
+              }`}
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+            </button>
             <AttachmentMenu disabled={!chatId || isSending || selectedModel?.supportsAttachment === false} onSelect={(files) => void addFiles(files)} />
             <WebSearchToggle mode={webSearchMode} disabled={!selectedModel?.supportsWebSearch} reason={selectedModel?.supportsWebSearch ? undefined : '선택한 모델은 웹 검색을 지원하지 않습니다.'} onChange={setWebSearchMode} />
             <ReasoningEffortSelector value={reasoningEffort} onChange={setReasoningEffort} />
@@ -399,6 +431,59 @@ function Composer() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** 태그 미리보기에 보일 짧은 문구 (0820_13 B1: 앞 5~10자 이하) */
+function toTagPreview(text: string): string {
+  const trimmed = text.trim().replace(/\s+/g, ' ')
+  return trimmed.length > 10 ? `${trimmed.slice(0, 10)}…` : trimmed
+}
+
+// 드래그로 고른 부분 범위 태그 목록 — 다음 전송의 Context로 쓰인다 (0820_13 B1~B3)
+function ContextRangeTagList() {
+  const tags = useChatStore((s) => s.contextRangeTags)
+  const removeContextRangeTag = useChatStore((s) => s.removeContextRangeTag)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+
+  if (tags.length === 0) return null
+
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {tags.map((tag) => (
+        <span
+          key={tag.id}
+          onMouseEnter={() => setHoveredId(tag.id)}
+          onMouseLeave={() => setHoveredId((id) => (id === tag.id ? null : id))}
+          className="relative flex items-center gap-1 rounded-full bg-blue-dim px-2.5 py-1 text-[11px] text-blue"
+        >
+          “{toTagPreview(tag.selectedText)}”
+          <button
+            type="button"
+            onClick={() => removeContextRangeTag(tag.id)}
+            title="태그 제거"
+            aria-label="선택 범위 태그 제거"
+          >
+            <X className="h-3 w-3" />
+          </button>
+          {hoveredId === tag.id && <ContextRangeTagPreview tag={tag} />}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+// 태그에 호버하면 선택 당시 스냅샷 기준으로 고른 범위를 강조해 보여준다 (0820_13 B2)
+function ContextRangeTagPreview({ tag }: { tag: ContextRangeTag }) {
+  return (
+    <div
+      role="tooltip"
+      className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 max-h-52 w-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-bg-2 p-2.5 text-left text-[11.5px] leading-relaxed text-txt-2 shadow-lg"
+    >
+      <span>{tag.snapshotText.slice(0, tag.startOffset)}</span>
+      <mark className="ctx-range-mark">{tag.snapshotText.slice(tag.startOffset, tag.endOffset)}</mark>
+      <span>{tag.snapshotText.slice(tag.endOffset)}</span>
     </div>
   )
 }
