@@ -138,20 +138,13 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState().chatId).toBe('chat-1')
   })
 
-  it('지금 열린 대화를 삭제하면 새 빈 대화를 연다', async () => {
+  it('지금 열린 대화를 삭제하면 빈 새 대화 화면으로 돌아간다', async () => {
     const request = vi.fn().mockResolvedValue(true)
     useConfirmStore.setState({ request })
     chatApi.deleteChat.mockResolvedValue({
       deleteSuccess: true,
       actionMeta: { actionType: 'chat_delete', successCode: 'CHAT_DELETED', message: '대화를 삭제했습니다.', affectedResourceId: 'chat-1' },
     })
-    chatApi.createChat.mockResolvedValue({
-      chatMeta: { chatId: 'chat-new', title: '새 대화' },
-      branchMeta: { branchId: 'branch-new' },
-      messageBlocks: [],
-      branchList: [],
-    })
-    chatApi.fetchChats.mockResolvedValue({ chats: [{ chatId: 'chat-new', title: '새 대화' }], nextCursor: null })
     useChatStore.setState({
       chatId: 'chat-1',
       chats: [{ chatId: 'chat-1', title: '새 대화' }],
@@ -160,8 +153,9 @@ describe('chatStore 화면 상태', () => {
     await useChatStore.getState().deleteChat('chat-1')
 
     expect(chatApi.deleteChat).toHaveBeenCalledWith('chat-1')
-    expect(chatApi.createChat).toHaveBeenCalledOnce()
-    expect(useChatStore.getState().chatId).toBe('chat-new')
+    // 실제 대화는 사용자가 첫 메시지를 보낼 때 만든다. 삭제 직후 API로 새로 만들지 않는다.
+    expect(chatApi.createChat).not.toHaveBeenCalled()
+    expect(useChatStore.getState().chatId).toBeNull()
   })
 
   it('전송에 성공하면 임시 질문 블록을 실제 블록으로 바꾼다 (FE-AIRESP-001)', async () => {
@@ -238,5 +232,39 @@ describe('chatStore 화면 상태', () => {
 
     expect(convApi.fetchRefineJob).toHaveBeenCalledWith('chat-1', 'branch-1', 'job-1')
     expect(useChatStore.getState().refineJob).toEqual(job)
+  })
+
+  it('화면을 열거나 새 채팅 버튼을 눌러도 대화를 만들지 않는다', async () => {
+    useChatStore.setState({ chatId: 'chat-1', branchId: 'branch-1' })
+
+    await useChatStore.getState().newChat()
+
+    expect(chatApi.createChat).not.toHaveBeenCalled()
+    expect(useChatStore.getState().chatId).toBeNull()
+    expect(useChatStore.getState().branchId).toBeNull()
+  })
+
+  it('빈 화면에서 첫 메시지를 보내면 그때 대화를 만든 뒤 전송한다', async () => {
+    chatApi.createChat.mockResolvedValue({
+      chatMeta: { chatId: 'chat-new', title: '새 대화' },
+      branchMeta: { branchId: 'branch-new' },
+      messageBlocks: [],
+      branchList: [],
+    })
+    chatApi.fetchChats.mockResolvedValue({ chats: [], nextCursor: null })
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'u1', branchId: 'branch-new', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'a1', branchId: 'branch-new', role: 'assistant', content: '답변', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      chatTitle: '새 대화',
+      titleGenerated: false,
+    })
+    useChatStore.setState({ chatId: null, branchId: null, blocks: [] })
+
+    await useChatStore.getState().sendMessage('질문')
+
+    expect(chatApi.createChat).toHaveBeenCalledOnce()
+    expect(convApi.sendMessage).toHaveBeenCalledWith('chat-new', 'branch-new', '질문', [], expect.anything())
+    expect(useChatStore.getState().chatId).toBe('chat-new')
+    expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
   })
 })

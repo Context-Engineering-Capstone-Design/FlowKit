@@ -72,8 +72,6 @@ interface ChatState {
   lastRefineInstruction: string | null
   refineFailed: boolean
   isCreatingBranch: boolean
-  /** 로그인 직후 기본 대화를 여는 중인지. 빈 화면이 잠깐 보이지 않게 한다. */
-  isOpeningDefaultChat: boolean
   deletingChatId: string | null
   error: string | null
   /** 값이 바뀔 때마다 입력창에 포커스를 옮긴다 (REQ-004) */
@@ -190,7 +188,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   lastRefineInstruction: null,
   refineFailed: false,
   isCreatingBranch: false,
-  isOpeningDefaultChat: false,
   deletingChatId: null,
   highlightedBlockId: null,
   error: null,
@@ -274,17 +271,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   async newChat() {
     if (!(await confirmPendingDiscard(get()))) return
-    await createFreshChat(set, get)
+    resetToDraft(set, get)
   },
 
   async openDefaultChat() {
-    if (get().chatId || get().isOpeningDefaultChat) return
-    set({ isOpeningDefaultChat: true, error: null })
-    try {
-      await createFreshChat(set, get)
-    } finally {
-      set({ isOpeningDefaultChat: false })
-    }
+    if (get().chatId) return
+    resetToDraft(set, get)
   },
 
   resetSession() {
@@ -310,7 +302,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       lastRefineInstruction: null,
       refineFailed: false,
       isCreatingBranch: false,
-      isOpeningDefaultChat: false,
       deletingChatId: null,
       highlightedBlockId: null,
       error: null,
@@ -485,11 +476,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const result = await chatApi.deleteChat(chatId)
       set((s) => ({ chats: s.chats.filter((item) => item.chatId !== chatId) }))
       useNotificationStore.getState().showAction(result.actionMeta)
-      if (wasCurrent) await createFreshChat(set, get)
+      if (wasCurrent) resetToDraft(set, get)
     } catch (e) {
       if (errorCode(e) === 'CHAT_ACCESS_DENIED' || errorCode(e) === 'CHAT_NOT_FOUND') {
         set((s) => ({ chats: s.chats.filter((item) => item.chatId !== chatId) }))
-        if (wasCurrent) await createFreshChat(set, get)
+        if (wasCurrent) resetToDraft(set, get)
       } else {
         set({ error: toErrorMessage(e) })
         showChatError(e, 'chat-delete', () => void get().deleteChat(chatId))
@@ -584,8 +575,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   async sendMessage(prompt) {
-    const { chatId, branchId, appliedBlockIds, selectedModelId, webSearchEnabled, draftAttachments } = get()
-    if (!chatId || !branchId || !prompt.trim()) return
+    if (!prompt.trim()) return
+    let { chatId, branchId } = get()
+    if (!chatId || !branchId) {
+      // 대화는 화면을 열 때가 아니라 사용자가 첫 메시지를 보낼 때 만든다 (새로고침마다 빈 대화가 쌓이는 문제 방지)
+      try {
+        const created = await chatApi.createChat()
+        chatId = created.chatMeta.chatId
+        branchId = created.branchMeta.branchId
+        set({ chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks })
+        void get().loadChats()
+      } catch (e) {
+        set({ error: toErrorMessage(e) })
+        return
+      }
+    }
+    const { appliedBlockIds, selectedModelId, webSearchEnabled, draftAttachments } = get()
     if (draftAttachments.some((item) => item.status === 'uploading')) {
       set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.' })
       return
@@ -975,18 +980,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
   clearSourceNavigationError() { set({ sourceNavigationError: null }) },
 }))
 
-async function createFreshChat(
+/** 빈 새 대화 화면으로 되돌린다. 실제 대화는 사용자가 첫 메시지를 보낼 때(sendMessage) 만든다. */
+function resetToDraft(
   set: (partial: Partial<ChatState>) => void,
   get: () => ChatState,
 ) {
-  try {
-    get().clearDraft()
-    applyDetail(set, await chatApi.createChat())
-    set({ focusSignal: get().focusSignal + 1 })
-    await get().loadChats()
-  } catch (e) {
-    set({ error: toErrorMessage(e) })
-  }
+  get().clearDraft()
+  set({
+    chatId: null,
+    chatTitle: '',
+    branchId: null,
+    branches: [],
+    blocks: [],
+    sourceContext: [],
+    selectedBlockIds: [],
+    appliedBlockIds: [],
+    appliedContextLabel: null,
+    refineJob: null,
+    lastRefineInstruction: null,
+    refineFailed: false,
+    inlineView: {},
+    ratings: {},
+    versionsByBlock: {},
+    contextInstruction: '',
+    error: null,
+    pendingByBlockId: {},
+    failedJobsByBlockId: {},
+    editingBlockId: null,
+    editingDraft: '',
+    editingOriginal: '',
+    isSavingEdit: false,
+    sourceNavigationError: null,
+    branchError: null,
+    focusSignal: get().focusSignal + 1,
+  })
 }
 
 function applyDetail(

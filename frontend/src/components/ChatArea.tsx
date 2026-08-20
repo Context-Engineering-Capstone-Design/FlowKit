@@ -18,7 +18,6 @@ interface Props {
 export function ChatArea({ panelOpen, onTogglePanel, onCreateBranch }: Props) {
   const chatTitle = useChatStore((s) => s.chatTitle)
   const chatId = useChatStore((s) => s.chatId)
-  const isOpeningDefaultChat = useChatStore((s) => s.isOpeningDefaultChat)
   const blocks = useChatStore((s) => s.blocks)
   const refineJob = useChatStore((s) => s.refineJob)
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
@@ -118,9 +117,7 @@ export function ChatArea({ panelOpen, onTogglePanel, onCreateBranch }: Props) {
       <SourceContextBanner />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto pb-4">
-        {!chatId && (
-          <EmptyState isOpening={isOpeningDefaultChat} />
-        )}
+        {!chatId && <EmptyState />}
         {blocks.map((b) => (
           <MessageBlockItem
             key={b.blockId}
@@ -139,17 +136,11 @@ export function ChatArea({ panelOpen, onTogglePanel, onCreateBranch }: Props) {
   )
 }
 
-function EmptyState({ isOpening }: { isOpening: boolean }) {
+function EmptyState() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-      <p className="text-[15px] font-semibold text-txt-1">
-        {isOpening ? '대화를 여는 중…' : '새 채팅을 시작해보세요'}
-      </p>
-      <p className="text-[12.5px] text-txt-3">
-        {isOpening
-          ? '잠시만 기다려 주세요'
-          : '왼쪽 위 버튼으로 새 대화를 만들 수 있습니다'}
-      </p>
+      <p className="text-[15px] font-semibold text-txt-1">새 채팅을 시작해보세요</p>
+      <p className="text-[12.5px] text-txt-3">아래 입력창에 메시지를 보내면 새 대화가 시작됩니다</p>
     </div>
   )
 }
@@ -186,7 +177,7 @@ function Composer() {
 
   const selectedModel = models.find((model) => model.modelId === selectedModelId)
   const uploading = attachments.some((item) => item.status === 'uploading')
-  const disabled = !chatId || isSending || !text.trim() || uploading
+  const disabled = isSending || !text.trim() || uploading
 
   async function submit() {
     if (disabled) return
@@ -238,8 +229,7 @@ function Composer() {
             }
           }}
           rows={1}
-          placeholder={chatId ? '무엇이든 물어보세요' : '새 채팅을 먼저 만들어주세요'}
-          disabled={!chatId}
+          placeholder="무엇이든 물어보세요"
           className="max-h-40 w-full resize-none bg-transparent text-[13.5px] text-txt-0 outline-none placeholder:text-txt-3"
         />
         <div className="mt-2 flex items-center justify-between">
