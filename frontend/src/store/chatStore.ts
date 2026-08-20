@@ -607,7 +607,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   async deleteChat(chatId) {
     if (get().deletingChatId) return
-    const title = get().chats.find((item) => item.chatId === chatId)?.title ?? '이 대화'
+    const title =
+      get().chats.find((item) => item.chatId === chatId)?.title ??
+      get().sideChatTree.find((item) => item.chatId === chatId)?.title ??
+      get().tabs.find((item) => item.chatId === chatId)?.title ??
+      '이 대화'
     const confirmed = await useConfirmStore.getState().request(
       `"${title}" 대화를 삭제할까요? 삭제한 뒤에는 되돌릴 수 없습니다.`,
       { confirmLabel: '삭제' },

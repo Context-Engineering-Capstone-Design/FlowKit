@@ -214,6 +214,8 @@ function SideChatTreeSection() {
   const sideChatTreeRootId = useChatStore((s) => s.sideChatTreeRootId)
   const activeTabId = useChatStore((s) => s.activeTabId)
   const openChat = useChatStore((s) => s.openChat)
+  const deleteChat = useChatStore((s) => s.deleteChat)
+  const deletingChatId = useChatStore((s) => s.deletingChatId)
 
   const nodes = buildSideChatTreeOrder(sideChatTree, sideChatTreeRootId)
   if (nodes.length < 2) return null
@@ -222,22 +224,38 @@ function SideChatTreeSection() {
     <>
       <SectionLabel>사이드 채팅</SectionLabel>
       {nodes.map(({ chat, depth }) => (
-        <button
+        <div
           key={chat.chatId}
-          type="button"
-          onClick={() => void openChat(chat.chatId)}
-          style={{ paddingLeft: `${8 + depth * 14}px` }}
-          className={`flex w-full items-center gap-2 rounded-md py-[7px] pr-2 text-left text-[12.5px] transition ${
+          className={`group flex items-center rounded-md ${
             chat.chatId === activeTabId ? 'bg-bg-3 text-txt-0' : 'text-txt-1 hover:bg-bg-2'
           }`}
         >
-          {chat.kind === 'MAIN' ? (
-            <MessageSquare className="h-3.5 w-3.5 shrink-0 text-blue" />
-          ) : (
-            <Split className="h-3.5 w-3.5 shrink-0 text-green" />
+          <button
+            type="button"
+            onClick={() => void openChat(chat.chatId)}
+            style={{ paddingLeft: `${8 + depth * 14}px` }}
+            className="flex min-w-0 flex-1 items-center gap-2 py-[7px] pr-1 text-left text-[12.5px] transition"
+          >
+            {chat.kind === 'MAIN' ? (
+              <MessageSquare className="h-3.5 w-3.5 shrink-0 text-blue" />
+            ) : (
+              <Split className="h-3.5 w-3.5 shrink-0 text-green" />
+            )}
+            <span className="truncate">{chat.title}</span>
+          </button>
+          {chat.kind === 'SIDE' && (
+            <button
+              type="button"
+              title="사이드 채팅 삭제"
+              aria-label={`${chat.title} 삭제`}
+              disabled={deletingChatId === chat.chatId}
+              onClick={() => void deleteChat(chat.chatId)}
+              className="mr-1 shrink-0 rounded-md p-1 text-txt-3 opacity-0 transition hover:bg-bg-3 hover:text-red disabled:opacity-40 group-hover:opacity-100"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           )}
-          <span className="truncate">{chat.title}</span>
-        </button>
+        </div>
       ))}
     </>
   )
