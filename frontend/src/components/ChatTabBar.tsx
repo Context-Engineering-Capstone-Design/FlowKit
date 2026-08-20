@@ -1,4 +1,4 @@
-import { MessageSquare, Split, X } from 'lucide-react'
+import { Clock3, MessageSquare, Split, X } from 'lucide-react'
 import { useChatStore } from '@/store/chatStore'
 
 // 열린 메인·사이드 채팅 탭 목록 — 클릭해 전환, X로 닫기 (0820_08 B1)
@@ -38,6 +38,7 @@ export function ChatTabBar() {
                 <MessageSquare className="h-3 w-3 shrink-0 text-blue" />
               )}
               <span className="truncate">{tab.title}</span>
+              {tab.isTemporary && <Clock3 aria-label="Temporary Chat" className="h-3 w-3 shrink-0 text-amber" />}
             </button>
             <button
               type="button"

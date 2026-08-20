@@ -39,6 +39,7 @@ export interface ChatTab {
   title: string
   kind: ChatKind
   parentChatId: string | null
+  isTemporary?: boolean
 }
 
 function newDraftId() {
@@ -51,6 +52,19 @@ let latestChatMoreRequestId: string | null = null
 // 답변 블록별로 지금 붙어 있는 스트리밍 연결. AbortController는 직렬화할 수
 // 없는 값이라 Zustand 상태 밖(모듈 스코프)에 둔다 (BE-AIRESP-007, FE-AIRESP-005).
 const activeStreams = new Map<string, AbortController>()
+const TEMPORARY_CHAT_STORAGE_KEY = 'flowkit:temporary-chat-ids'
+
+function temporaryChatIds(): string[] {
+  try { return JSON.parse(sessionStorage.getItem(TEMPORARY_CHAT_STORAGE_KEY) ?? '[]') } catch { return [] }
+}
+
+function rememberTemporaryChat(chatId: string) {
+  try { sessionStorage.setItem(TEMPORARY_CHAT_STORAGE_KEY, JSON.stringify([...new Set([...temporaryChatIds(), chatId])])) } catch {}
+}
+
+function forgetTemporaryChat(chatId: string) {
+  try { sessionStorage.setItem(TEMPORARY_CHAT_STORAGE_KEY, JSON.stringify(temporaryChatIds().filter((id) => id !== chatId))) } catch {}
+}
 
 function stopStream(blockId: string) {
   activeStreams.get(blockId)?.abort()
@@ -131,6 +145,7 @@ interface ChatState {
   parentMessageBlockId: string | null
   rootChatId: string | null
   rootBranchId: string | null
+  isTemporary: boolean
 
   /** 열려 있는 메인·사이드 채팅 탭 (0820_08 B1). 메인·사이드는 동등한 탭이다. */
   tabs: ChatTab[]
@@ -265,7 +280,7 @@ interface ChatState {
   /** 주어진 탭(없으면 새 임시 탭)으로 화면을 옮긴다. 이미 확인이 끝난 뒤에만 부른다. */
   switchToTabOrDraft: (tab: ChatTab | null) => Promise<void>
   /** 현재 탭의 지점(anchor)에서 자식 사이드 채팅을 만들고 새 탭으로 연다 (B2). */
-  createSideChatTab: (anchorMessageBlockId?: string, title?: string) => Promise<void>
+  createSideChatTab: (anchorMessageBlockId?: string, title?: string, isTemporary?: boolean) => Promise<void>
   /** 지금 보이는 채팅·브랜치 기준으로 사이드 채팅 북마크·트리를 다시 불러온다. */
   loadSideChatContext: () => Promise<void>
 
@@ -296,6 +311,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   parentMessageBlockId: null,
   rootChatId: null,
   rootBranchId: null,
+  isTemporary: false,
   tabs: [],
   activeTabId: null,
   sideChatsByBlockId: {},
@@ -405,6 +421,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async openDefaultChat() {
     // 새로고침 뒤에도 열려 있던 탭 목록은 세션 상태라 유지하지 않는다 — 탭이 하나도
     // 없을 때만 빈 대화 탭 하나를 만든다.
+    const staleTemporaryIds = temporaryChatIds()
+    if (staleTemporaryIds.length) {
+      await Promise.all(staleTemporaryIds.map((chatId) => chatApi.deleteChat(chatId).catch(() => undefined)))
+      try { sessionStorage.removeItem(TEMPORARY_CHAT_STORAGE_KEY) } catch {}
+    }
     if (get().tabs.length > 0) return
     resetToDraft(set, get, newDraftId())
   },
@@ -1255,8 +1276,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const index = tabs.findIndex((t) => t.id === id)
     if (index === -1) return
 
+    const closing = tabs[index]
     if (id !== activeTabId) {
       set((s) => ({ tabs: s.tabs.filter((t) => t.id !== id) }))
+      if (closing.isTemporary && closing.chatId) {
+        forgetTemporaryChat(closing.chatId)
+        void chatApi.deleteChat(closing.chatId).catch(() => undefined)
+      }
       return
     }
 
@@ -1268,6 +1294,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       editingOriginal: '',
       tabs: s.tabs.filter((t) => t.id !== id),
     }))
+    if (closing.isTemporary && closing.chatId) {
+      forgetTemporaryChat(closing.chatId)
+      void chatApi.deleteChat(closing.chatId).catch(() => undefined)
+    }
     const remaining = get().tabs
     const next = remaining[index] ?? remaining[index - 1] ?? null
     await get().switchToTabOrDraft(next)
@@ -1286,7 +1316,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     resetToDraft(set, get, newDraftId())
   },
 
-  async createSideChatTab(anchorMessageBlockId, title) {
+  async createSideChatTab(anchorMessageBlockId, title, isTemporary = false) {
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
     if (!(await confirmPendingDiscard(get()))) return
@@ -1294,11 +1324,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().clearDraft()
     set({ editingBlockId: null, editingDraft: '', editingOriginal: '', isCreatingSideChat: true })
     try {
-      const created = await sideChatApi.createSideChat(chatId, branchId, { anchorMessageBlockId, title })
+      const created = await sideChatApi.createSideChat(
+        chatId,
+        branchId,
+        isTemporary ? { anchorMessageBlockId, title, isTemporary: true } : { anchorMessageBlockId, title },
+      )
       applyDetail(set, created)
       upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
+      if (created.chatMeta.isTemporary) rememberTemporaryChat(created.chatMeta.chatId)
       void get().loadSideChatContext()
-      useNotificationStore.getState().show('사이드 채팅을 만들었습니다.', 'success')
+      useNotificationStore.getState().show(created.chatMeta.isTemporary ? 'Temporary Chat을 만들었습니다. 탭을 닫으면 삭제됩니다.' : '사이드 채팅을 만들었습니다.', 'success')
     } catch (e) {
       set({ error: toErrorMessage(e) })
     } finally {
@@ -1457,6 +1492,7 @@ function applyDetail(
     parentMessageBlockId: detail.chatMeta.parentMessageBlockId,
     rootChatId: detail.chatMeta.rootChatId,
     rootBranchId: detail.chatMeta.rootBranchId,
+    isTemporary: detail.chatMeta.isTemporary ?? false,
     sideChatsByBlockId: {},
     sideChatTree: [],
     sideChatTreeRootId: null,
@@ -1500,6 +1536,7 @@ function upsertTab(
     title: meta.title,
     kind: meta.kind,
     parentChatId: meta.parentChatId,
+    isTemporary: meta.isTemporary ?? false,
   }
   set({
     tabs: index === -1 ? [...tabs, tab] : tabs.map((t, i) => (i === index ? tab : t)),
@@ -1521,6 +1558,7 @@ function promoteDraftTab(
     title: meta.title,
     kind: meta.kind,
     parentChatId: meta.parentChatId,
+    isTemporary: meta.isTemporary ?? false,
   }
   const index = draftId ? tabs.findIndex((t) => t.id === draftId) : -1
   return index === -1 ? [...tabs, tab] : tabs.map((t, i) => (i === index ? tab : t))

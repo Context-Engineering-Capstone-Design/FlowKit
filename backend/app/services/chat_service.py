@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
@@ -36,6 +36,7 @@ from app.models import (
 
 DEFAULT_TITLE = "새 대화"
 DEFAULT_SIDE_TITLE = "새 사이드 채팅"
+TEMPORARY_CHAT_TTL = timedelta(hours=1)
 MAX_TITLE_LENGTH = 200
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
@@ -67,6 +68,7 @@ def create_side_chat(
     parent_branch: Branch,
     anchor_message_block_id: uuid.UUID | None,
     title: str | None,
+    requested_temporary: bool = False,
 ) -> tuple[Chat, Branch]:
     """부모 대화 흐름의 한 지점에서 사이드 채팅을 만든다 (0820_08 A1, A3).
 
@@ -95,6 +97,9 @@ def create_side_chat(
     if len(name) > MAX_TITLE_LENGTH:
         raise ValidationError(f"제목은 {MAX_TITLE_LENGTH}자를 넘을 수 없습니다.")
 
+    # 메인에서 만든 첫 자식만 사용자가 일반/Temporary를 고를 수 있다. 그 아래
+    # 모든 자식은 반드시 Temporary다.
+    is_temporary = requested_temporary or parent_chat.kind is ChatKind.SIDE
     chat = Chat(
         owner_id=user.id,
         title=name or DEFAULT_SIDE_TITLE,
@@ -104,6 +109,8 @@ def create_side_chat(
         parent_message_block_id=anchor.id if anchor else None,
         root_chat_id=root_chat_id,
         root_branch_id=root_branch_id,
+        is_temporary=is_temporary,
+        temporary_expires_at=(datetime.now(UTC) + TEMPORARY_CHAT_TTL) if is_temporary else None,
     )
     db.add(chat)
     db.flush()
@@ -121,7 +128,7 @@ def list_side_chat_children(db: Session, chat: Chat) -> list[Chat]:
     return list(
         db.scalars(
             select(Chat)
-            .where(Chat.parent_chat_id == chat.id)
+            .where(Chat.parent_chat_id == chat.id, Chat.is_temporary.is_(False))
             .order_by(Chat.created_at)
         ).all()
     )
@@ -148,7 +155,7 @@ def list_side_chat_tree(db: Session, root_chat: Chat) -> list[Chat]:
     return list(
         db.scalars(
             select(Chat)
-            .where(Chat.root_chat_id == root_chat.id)
+            .where(Chat.root_chat_id == root_chat.id, Chat.is_temporary.is_(False))
             .order_by(Chat.created_at)
         ).all()
     )
@@ -181,7 +188,7 @@ def family_block_map(
     """
     if not block_ids:
         return {}
-    family_ids = {c.id for c in list_chat_family(db, chat)}
+    family_ids = {c.id for c in list_chat_family(db, chat) if not c.is_temporary}
     found: dict[uuid.UUID, MessageBlock] = {}
     for block_id in block_ids:
         block = db.get(MessageBlock, block_id)
@@ -200,7 +207,22 @@ def get_owned_chat(db: Session, user: User, chat_id: uuid.UUID) -> Chat:
         raise ChatNotFoundError()
     if chat.owner_id != user.id:
         raise ChatAccessDeniedError()
+    if chat.is_temporary and chat.temporary_expires_at and chat.temporary_expires_at <= datetime.now(UTC):
+        delete_chat(db, chat)
+        raise ChatNotFoundError()
     return chat
+
+
+def cleanup_expired_temporary_chats(db: Session) -> int:
+    """만료된 Temporary Chat과 그 첨부·작업을 함께 제거한다."""
+    expired = list(db.scalars(select(Chat).where(
+        Chat.is_temporary.is_(True),
+        Chat.temporary_expires_at.is_not(None),
+        Chat.temporary_expires_at <= datetime.now(UTC),
+    )))
+    for chat in expired:
+        delete_chat(db, chat)
+    return len(expired)
 
 
 def list_chats(

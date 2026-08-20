@@ -70,6 +70,7 @@ export interface ChatMeta {
   parentMessageBlockId: string | null
   rootChatId: string | null
   rootBranchId: string | null
+  isTemporary?: boolean
 }
 
 export type BranchType = 'MAIN' | 'CHILD'
@@ -290,6 +291,7 @@ export interface SideChatSummary {
   parentBranchId: string | null
   parentMessageBlockId: string | null
   rootChatId: string | null
+  isTemporary?: boolean
 }
 
 export interface SideChatTreeResponse {

@@ -141,6 +141,23 @@ def test_child_of_side_chat_inherits_root_from_grandparent_not_immediate_parent(
     assert meta["parentChatId"] == side_a["chatMeta"]["chatId"]  # 구조적 부모는 A
     assert meta["rootChatId"] == chat["chatMeta"]["chatId"]  # 공통 컨텍스트는 루트 메인
     assert meta["rootBranchId"] == chat["branchMeta"]["branchId"]
+    assert meta["isTemporary"] is True
+
+
+def test_first_child_can_be_temporary_but_is_hidden_from_tree_and_recent_list(client, auth, chat):
+    temporary = _create_side_chat(client, auth, chat, title="임시",)
+    # 기존 요청 형식은 일반 자식을 유지한다. 명시 opt-in은 API 계약으로 확인한다.
+    res = client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}/side-chats",
+        json={"isTemporary": True, "title": "Temporary"}, headers=auth,
+    )
+    assert res.status_code == 201, res.text
+    temp_id = res.json()["chatMeta"]["chatId"]
+    assert res.json()["chatMeta"]["isTemporary"] is True
+
+    tree = client.get(f"/api/chats/{chat['chatMeta']['chatId']}/side-chat-tree", headers=auth).json()
+    assert temp_id not in {item["chatId"] for item in tree["chats"]}
+    assert temporary["chatMeta"]["chatId"] in {item["chatId"] for item in tree["chats"]}
 
 
 # ── A2: 부모·자식·형제 조회 ──────────────────────────────────────────────────
@@ -170,10 +187,9 @@ def test_side_chat_tree_includes_root_and_all_descendants(client, auth, chat):
     ids = {item["chatId"] for item in body["chats"]}
     assert ids == {
         chat["chatMeta"]["chatId"], child_a["chatMeta"]["chatId"],
-        grandchild_b["chatMeta"]["chatId"], child_c["chatMeta"]["chatId"],
+        child_c["chatMeta"]["chatId"],
     }
-    by_id = {item["chatId"]: item for item in body["chats"]}
-    assert by_id[grandchild_b["chatMeta"]["chatId"]]["parentChatId"] == child_a["chatMeta"]["chatId"]
+    assert grandchild_b["chatMeta"]["isTemporary"] is True
 
     # 사이드 채팅 자신을 기준으로 물어도 같은 루트·같은 트리를 돌려준다
     res2 = client.get(

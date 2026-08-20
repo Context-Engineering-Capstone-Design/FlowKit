@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -30,6 +30,10 @@ class Chat(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     title: Mapped[str] = mapped_column(String(200), default="새 대화")
+    # NULL이면 Project 밖의 대화다. 사이드 채팅은 부모의 값을 서비스에서 강제한다.
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     # 최근 대화 목록 정렬 전용. API 응답에는 노출하지 않는다 (BE-CHAT-003)
     #
     # 커서 페이지네이션이 이 값의 동률을 id 로 가르는데, DB 기본값(now())에 맡기면
@@ -85,6 +89,11 @@ class Chat(Base, TimestampMixin):
             name="fk_chats_root_branch",
         ),
         nullable=True,
+    )
+    # Temporary 사이드 채팅은 활성 탭에서만 쓰고 목록·검색·재사용 대상으로 남기지 않는다.
+    is_temporary: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    temporary_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
     )
 
     branches: Mapped[list[Branch]] = relationship(

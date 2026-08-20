@@ -48,6 +48,7 @@ def create_side_chat(
         parent_branch,
         payload.anchor_message_block_id,
         payload.title,
+        payload.is_temporary,
     )
     return CreateSideChatResponse(
         chat_meta=ChatMeta.of(chat),

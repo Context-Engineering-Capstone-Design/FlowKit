@@ -72,12 +72,12 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     context_items = context_service.build_snapshot(db, branch, context_block_ids or [], chat)
     own_flow = message_service.active_message_flow(db, branch); is_first = not own_flow
     if context_items: own_flow = []
-    parent_flow = _root_context_flow(db, chat) if chat.kind is ChatKind.SIDE else []
+    parent_flow, parent_snapshot = _ancestor_context_flow(db, chat) if chat.kind is ChatKind.SIDE else ([], [])
     flow = parent_flow + own_flow
     user_block = message_service.create_block(db, chat, branch, MessageRole.USER, prompt, commit=False)
     context_service.save_log(db, chat, branch, user_block.id, context_items)
     input_assist_service.attach_to_message(db, user_block, attachments)
-    snapshot = _make_snapshot(prompt, flow, context_items, model.model_id, web_search_mode, attachments, reasoning_effort)
+    snapshot = _make_snapshot(prompt, flow, context_items, model.model_id, web_search_mode, attachments, reasoning_effort, parent_snapshot)
     assistant_block = message_service.create_block(
         db, chat, branch, MessageRole.ASSISTANT, "", commit=False,
         allow_empty=True, generation_status=BlockGenerationStatus.GENERATING,
@@ -96,18 +96,33 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     return SendResult(user_block, assistant_block, context_items, bool(titled), model.model_id, web_search_mode, reasoning_effort, attachments, [], job)
 
 
-def _root_context_flow(db: Session, chat: Chat) -> list:
-    """사이드 채팅이 자동 참고하는 루트 메인 채팅의 최신 흐름 (0820_08 A4).
+def _ancestor_context_flow(db: Session, chat: Chat) -> tuple[list, list[dict]]:
+    """직계 부모부터 루트까지의 흐름만 답변 생성 순간에 고정한다.
 
-    스냅샷을 저장해두지 않고 전송 시점마다 다시 읽어, 그 사이 부모에 쌓인
-    새 메시지까지 자연히 포함되게 한다.
+    자식 메시지는 부모 대화에 기록하거나 다음 부모 입력으로 되돌려 쓰지 않는다.
+    snapshot에는 출처와 시각만 함께 남겨 실행 중 어떤 맥락을 썼는지 확인할 수 있다.
     """
-    if chat.root_branch_id is None:
-        return []
-    root_branch = db.get(Branch, chat.root_branch_id)
-    if root_branch is None:
-        return []
-    return message_service.active_message_flow(db, root_branch)
+    ancestors: list[Chat] = []
+    current = chat
+    while current.parent_chat_id is not None:
+        parent = db.get(Chat, current.parent_chat_id)
+        if parent is None:
+            break
+        ancestors.append(parent)
+        current = parent
+    flow: list = []
+    sources: list[dict] = []
+    for ancestor in reversed(ancestors):
+        branch_id = chat.parent_branch_id if ancestor.id == chat.parent_chat_id else ancestor.root_branch_id
+        if branch_id is None:
+            branch_id = next((b.id for b in ancestor.branches if b.branch_type.value == "MAIN"), None)
+        branch = db.get(Branch, branch_id) if branch_id else None
+        if branch is None:
+            continue
+        blocks = message_service.active_message_flow(db, branch)
+        flow.extend(blocks)
+        sources.append({"chatId": str(ancestor.id), "branchId": str(branch.id), "capturedAt": datetime.now(UTC).isoformat(), "messageCount": len(blocks)})
+    return flow, sources
 
 
 def regenerate(db: Session, user: User, chat: Chat, branch: Branch, block_id: uuid.UUID, answerer=None) -> RegenerateResult:
@@ -333,8 +348,8 @@ def _request_from_snapshot(db, user, chat, snapshot):
     return AnswerRequest(snapshot["userPrompt"], [ChatTurn(role=x["role"], content=x["content"]) for x in snapshot["messageFlow"]], [x["content"] for x in snapshot["appliedContext"]], input_assist_service.to_modeling_attachments(attached), snapshot["webSearchMode"], snapshot["selectedModelId"], snapshot.get("reasoningEffort", "medium"))
 
 
-def _make_snapshot(prompt, flow, context_items, model_id, web_search_mode, attachments, reasoning_effort="medium") -> dict:
-    return {"schemaVersion": 1, "userPrompt": prompt, "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow], "appliedContext": [{"blockId": str(x.block_id), "versionId": str(x.version_id), "content": x.content, "orderIndex": x.order_index} for x in context_items], "selectedModelId": model_id, "webSearchMode": web_search_mode, "reasoningEffort": reasoning_effort, "attachmentIds": [str(x.id) for x in attachments]}
+def _make_snapshot(prompt, flow, context_items, model_id, web_search_mode, attachments, reasoning_effort="medium", parent_context_sources=None) -> dict:
+    return {"schemaVersion": 1, "userPrompt": prompt, "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow], "appliedContext": [{"blockId": str(x.block_id), "versionId": str(x.version_id), "content": x.content, "orderIndex": x.order_index} for x in context_items], "selectedModelId": model_id, "webSearchMode": web_search_mode, "reasoningEffort": reasoning_effort, "attachmentIds": [str(x.id) for x in attachments], "parentContextSources": parent_context_sources or []}
 
 
 def _provider_for(model_id: str | None) -> str:

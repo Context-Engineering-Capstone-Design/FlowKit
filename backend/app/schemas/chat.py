@@ -44,6 +44,7 @@ class ChatMeta(BaseModel):
     )
     root_chat_id: uuid.UUID | None = Field(None, serialization_alias="rootChatId")
     root_branch_id: uuid.UUID | None = Field(None, serialization_alias="rootBranchId")
+    is_temporary: bool = Field(False, serialization_alias="isTemporary")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -59,6 +60,7 @@ class ChatMeta(BaseModel):
             parent_message_block_id=chat.parent_message_block_id,
             root_chat_id=chat.root_chat_id,
             root_branch_id=chat.root_branch_id,
+            is_temporary=chat.is_temporary,
         )
 
 
@@ -230,6 +232,7 @@ class CreateSideChatRequest(BaseModel):
         None, alias="anchorMessageBlockId"
     )
     title: str | None = None
+    is_temporary: bool = Field(False, alias="isTemporary")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -250,6 +253,7 @@ class SideChatSummary(BaseModel):
         None, serialization_alias="parentMessageBlockId"
     )
     root_chat_id: uuid.UUID | None = Field(None, serialization_alias="rootChatId")
+    is_temporary: bool = Field(False, serialization_alias="isTemporary")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -263,6 +267,7 @@ class SideChatSummary(BaseModel):
             parent_branch_id=chat.parent_branch_id,
             parent_message_block_id=chat.parent_message_block_id,
             root_chat_id=chat.root_chat_id,
+            is_temporary=chat.is_temporary,
         )
 
 

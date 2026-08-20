@@ -100,6 +100,7 @@ export function ContextPanel({ open = true, onClose, width, onResizeStart }: Pro
 // 사이드 채팅 만들기·전환 — 지금 대화 흐름을 그대로 참고하는 별도 대화 (0820_08 B2)
 function SideChatSection() {
   const chatId = useChatStore((s) => s.chatId)
+  const chatKind = useChatStore((s) => s.chatKind)
   const tabs = useChatStore((s) => s.tabs)
   const sideChatTree = useChatStore((s) => s.sideChatTree)
   const isCreating = useChatStore((s) => s.isCreatingSideChat)
@@ -113,17 +114,25 @@ function SideChatSection() {
     <section className="border-b border-line px-4 pb-4 pt-3.5">
       <SectionLabel>사이드 채팅</SectionLabel>
       <p className="mt-1.5 text-[11px] leading-relaxed text-txt-3">
-        지금 대화의 최신 흐름을 그대로 참고하는 별도 대화를 엽니다. 이 대화에는 자동으로 반영되지 않습니다.
+        상위 대화만 참고하며, 이 대화에는 자동으로 반영되지 않습니다.
       </p>
-      <button
-        type="button"
-        onClick={() => void createSideChatTab()}
-        disabled={isCreating}
-        className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50"
-      >
-        <Split className="h-3.5 w-3.5" />
-        {isCreating ? '만드는 중…' : '새 사이드 채팅 만들기'}
-      </button>
+      {chatKind === 'MAIN' ? (
+        <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+          <button type="button" onClick={() => void createSideChatTab()} disabled={isCreating} className="rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50">
+            <Split className="mr-1 inline h-3.5 w-3.5" />새 사이드 채팅 만들기
+          </button>
+          <button type="button" onClick={() => void createSideChatTab(undefined, undefined, true)} disabled={isCreating} className="rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50">
+            Temporary
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="mt-2.5 text-[11px] text-amber">하위 채팅은 Temporary로만 만들 수 있으며 탭 종료 뒤 보존되지 않습니다.</p>
+          <button type="button" onClick={() => void createSideChatTab()} disabled={isCreating} className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50">
+            <Split className="h-3.5 w-3.5" />{isCreating ? '만드는 중…' : 'Temporary Chat 만들기'}
+          </button>
+        </>
+      )}
 
       {children.length > 0 && (
         <div className="mt-2 space-y-1">
@@ -502,6 +511,7 @@ function PanelFooter() {
 // 사이드 채팅에서 고른 블록을 부모(메인) 채팅에 선택적으로 반영 (0820_08 C1~C3)
 function ReflectToParentSection() {
   const parentChatId = useChatStore((s) => s.parentChatId)
+  const isTemporary = useChatStore((s) => s.isTemporary)
   const selectedIds = useChatStore((s) => s.selectedBlockIds)
   const blocks = useChatStore((s) => s.blocks)
   const sendSelectedToParentAsContext = useChatStore((s) => s.sendSelectedToParentAsContext)
@@ -513,6 +523,12 @@ function ReflectToParentSection() {
   const [showBranchForm, setShowBranchForm] = useState(false)
 
   if (!parentChatId) return null
+
+  if (isTemporary) return (
+    <div className="border-t border-line px-4 py-3 text-[11px] leading-relaxed text-txt-3">
+      Temporary Chat의 내용은 검색·재사용·부모 반영에 사용할 수 없습니다.
+    </div>
+  )
 
   const selectedContent = blocks.filter((b) => selectedIds.includes(b.blockId)).at(-1)?.content ?? ''
 

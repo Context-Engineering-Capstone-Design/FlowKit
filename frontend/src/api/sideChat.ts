@@ -9,7 +9,7 @@ import type {
 export async function createSideChat(
   chatId: string,
   branchId: string,
-  payload: { anchorMessageBlockId?: string; title?: string } = {},
+  payload: { anchorMessageBlockId?: string; title?: string; isTemporary?: boolean } = {},
 ): Promise<CreateSideChatResponse> {
   const { data } = await api.post<CreateSideChatResponse>(
     `/api/chats/${chatId}/branches/${branchId}/side-chats`,

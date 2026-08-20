@@ -44,10 +44,15 @@ async def lifespan(_app: FastAPI):
     # 그대로 쓰고 닫지 않는다 — 세션의 수명은 그 오버라이드를 등록한 쪽 몫이다.
     override = _app.dependency_overrides.get(get_db)
     if override is not None:
-        ai_response_service.cleanup_stuck_jobs(override())
+        db = override()
+        ai_response_service.cleanup_stuck_jobs(db)
+        from app.services import chat_service
+        chat_service.cleanup_expired_temporary_chats(db)
     else:
         with SessionLocal() as db:
             ai_response_service.cleanup_stuck_jobs(db)
+            from app.services import chat_service
+            chat_service.cleanup_expired_temporary_chats(db)
     yield
 
 
