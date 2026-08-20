@@ -60,10 +60,10 @@
 
 ### 마일스톤 D · 검증
 
-- [ ] D1. 부모에서 자식·손자로의 컨텍스트 참고와 역방향 차단을 백엔드 테스트로 검증한다. (테스트 환경 의존성 없음)
-- [ ] D2. 목록·검색·과거 채팅 참고에서 Temporary Chat이 제외되는지 검증한다. (테스트 환경 의존성 없음)
-- [ ] D3. 새로고침·종료·만료 뒤 임시 대화와 첨부가 복원되지 않는지 검증한다. (테스트 환경 의존성 없음)
-- [ ] D4. 첫 자식 선택과 하위 노드 Temporary 강제 UI를 프론트엔드·브라우저에서 확인한다. (프론트 단위 테스트만 통과)
+- [x] D1. 부모에서 자식·손자로의 컨텍스트 참고와 역방향 차단을 백엔드 테스트로 검증한다.
+- [x] D2. 목록·검색에서 Temporary Chat이 제외되는지 검증한다. ("과거 채팅 참고" 기능은 [`0820_09`](../01_plan/0820_09_과거_채팅_참고와_출처_이동.md)가 아직 미구현이라 해당 항목은 검증 대상이 없다)
+- [ ] D3. 새로고침·종료·만료 뒤 임시 대화와 첨부가 복원되지 않는지 검증한다. (자동 백엔드 테스트 없음 — 브라우저 수동 확인만)
+- [ ] D4. 첫 자식 선택과 하위 노드 Temporary 강제 UI를 프론트엔드·브라우저에서 확인한다. (프론트 단위 테스트만 통과, 브라우저 클릭 검증 안 함)
 
 ## 완료 기준
 
@@ -78,25 +78,26 @@
 ### 기준 커밋
 
 - 코드: `c73bbb7` (`feat(chat): Temporary Chat 수명과 컨텍스트를 추가한다`)
+- 컨텍스트 규칙 보완: `e9569c4` (`fix(chat): Temporary Chat 컨텍스트가 직계 조상 사이드 채팅까지 참고하게 고친다`). `_ancestor_context_flow`가 한때 "루트만 참고"로 되돌아가 있던 것을 확인하고, 계획대로 "루트 메인 + 직계 조상 사이드 채팅 전체"를 참고하도록 다시 고쳤다. 관련 백엔드 검증(D1, D2)도 이때 마쳤다.
 
 ### 구현 항목
 
 - `Chat`에 `is_temporary`, `temporary_expires_at`을 추가했다. 첫 자식은 일반 또는 Temporary를 선택하며, 사이드 채팅에서 만드는 모든 하위 채팅은 서버에서 Temporary로 강제한다.
 - Temporary Chat은 일반 대화 목록·검색·사이드 트리·같은 계열 Context/메시지 가져오기 후보에서 제외했다. 탭에서는 시계 아이콘과 제한 안내만 표시한다.
 - Temporary 탭을 닫으면 즉시 삭제하고, 새로고침 뒤에는 `sessionStorage`에 남은 Temporary id를 정리한다. 서버는 한 시간 만료와 서버 시작 시 정리도 적용한다. 채팅 삭제 경로가 첨부 파일도 함께 삭제한다.
-- 답변 생성 시 직계 부모부터 루트까지의 흐름만 부모→자식 방향으로 조립한다. 이 입력은 작업 스냅샷에 고정되고, 부모 맥락의 대화·브랜치 출처와 시각도 함께 기록한다.
+- 답변 생성 시 루트 메인부터 직계 조상 사이드 채팅까지의 흐름을 부모→자식 방향으로 순서대로 조립한다(형제 사이드 채팅의 흐름은 섞이지 않는다). 각 사이드 채팅이 갈라져 나온 지점(`parent_branch_id`)을 그대로 따라 올라가는 방식이라 몇 단계 깊이든 올바르게 동작한다. 이 입력은 작업 스냅샷에 고정되고, 조상별 대화·브랜치 출처와 시각도 함께 기록한다.
 - Temporary Chat은 부모 Context 추가, 메시지 가져오기, 형제 브랜치 생성 화면을 숨기고 제한 이유를 표시한다.
 
 ### 변경 경로
 
-- 백엔드: `backend/app/models/chat.py`, `backend/app/services/chat_service.py`, `backend/app/services/ai_response_service.py`, `backend/app/routers/side_chat.py`, `backend/app/schemas/chat.py`, `backend/app/main.py`, `backend/alembic/versions/a82010temp_add_temporary_chat.py`
+- 백엔드: `backend/app/models/chat.py`, `backend/app/services/chat_service.py`, `backend/app/services/ai_response_service.py`, `backend/app/routers/side_chat.py`, `backend/app/schemas/chat.py`, `backend/app/main.py`, `backend/alembic/versions/a82010temp_add_temporary_chat.py`, `backend/tests/test_side_chat.py`
 - 프론트엔드: `frontend/src/store/chatStore.ts`, `frontend/src/components/ContextPanel.tsx`, `frontend/src/components/ChatTabBar.tsx`, `frontend/src/api/sideChat.ts`, `frontend/src/types/api.ts`
 
 ### 검증 결과
 
 - `frontend`: `pnpm test` — 22개 파일, 111개 테스트 통과
 - `frontend`: `pnpm build` — TypeScript 검사와 Vite 프로덕션 빌드 통과
-- `backend`: 수정 파일 `py_compile` 통과. 이 작업 환경에는 `pytest`와 백엔드 의존성이 설치되어 있지 않아 실행 테스트는 하지 못했다.
+- `backend`: `.venv/bin/pytest` — 236 passed, 1 failed. 실패 1건(`test_list_chats_excludes_internal_sort_field`)은 이 작업과 무관한 다른 마일스톤(사이드바 생성 상태 표시, `0820_12`)이 `ChatSummary`에 필드를 추가하며 생긴 것으로, Temporary Chat 관련 테스트(`test_side_chat.py` 23건 포함)는 모두 통과했다.
 - 브라우저: Vite 로컬 화면 접속은 확인했다. 백엔드가 실행되지 않아 로그인 뒤 첫 자식 선택·하위 Temporary 생성의 실제 클릭 검증은 하지 못했다.
 
 ### 남은 제한 사항
