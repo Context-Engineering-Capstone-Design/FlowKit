@@ -25,7 +25,7 @@ def build_messages(request: AnswerRequest) -> list[BaseMessage]:
     적용된 Context 가 있으면 시스템 메시지에 함께 실어, 이전 대화보다 그쪽을
     우선 보게 한다.
     """
-    system = prompt.SYSTEM.format(today=datetime.now(UTC).strftime("%Y-%m-%d"))
+    system = prompt.SYSTEM.format(today=datetime.now().strftime("%Y-%m-%d"))
     if request.applied_context:
         joined = "\n\n---\n\n".join(c.strip() for c in request.applied_context if c.strip())
         if joined:
@@ -96,6 +96,57 @@ def generate_answer(
     if not text:
         raise EmptyAnswerError("모델이 빈 응답을 돌려줬습니다.")
     return AnswerResult(text=text, search_sources=extract_sources(response))
+
+
+def generate_answer_stream(
+    request: AnswerRequest,
+    model: BaseChatModel | None = None,
+    api_key: str | None = None,
+) -> Iterator[AnswerChunk]:
+    """답변을 조각으로 흘려보낸다 (AI-ANSWER-005).
+
+    입력·모델 선택은 generate_answer와 같다. 다른 점은 본문을 한 번에
+    돌려주지 않고, 모델이 만들어내는 대로 text 조각을 하나씩 내보낸다는
+    것이다. 다 나오면 sources(있는 경우)와 done(최종 본문)을 순서대로
+    내보낸다. 도중 실패하면 error 하나만 내보내고 끝낸다.
+
+    받는 쪽이 순회를 멈추면(break, 제너레이터 close) 그 뒤로는 모델 스트림에서
+    다음 조각을 더 당겨오지 않는다 — 파이썬 제너레이터가 원래 그렇게
+    동작한다. finally에서 스트림을 명시적으로 닫아, 남은 연결도 정리한다.
+    """
+    if not request.user_prompt.strip():
+        raise ValueError("질문이 비어 있습니다.")
+
+    if model is None:
+        model = _resolve_model(request, api_key)
+
+    parts: list[str] = []
+    accumulated = None
+    stream = model.stream(build_messages(request))
+    try:
+        for chunk in stream:
+            delta = _text_of(chunk)
+            if delta:
+                parts.append(delta)
+                yield AnswerChunk(type="text", delta=delta)
+            accumulated = chunk if accumulated is None else accumulated + chunk
+    except Exception as exc:
+        yield AnswerChunk(type="error", error=str(exc))
+        return
+    finally:
+        close = getattr(stream, "close", None)
+        if close is not None:
+            close()
+
+    text = "".join(parts).strip()
+    if not text:
+        yield AnswerChunk(type="error", error="모델이 빈 응답을 돌려줬습니다.")
+        return
+
+    sources = extract_sources(accumulated) if accumulated is not None else []
+    if sources:
+        yield AnswerChunk(type="sources", sources=sources)
+    yield AnswerChunk(type="done", result=AnswerResult(text=text, search_sources=sources))
 
 
 def _text_of(response) -> str:

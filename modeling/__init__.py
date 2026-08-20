@@ -7,7 +7,7 @@ from modeling.attachments import (
     AttachmentNotReadableError,
     AttachmentNotSupportedError,
 )
-from modeling.chains.answer import EmptyAnswerError, generate_answer
+from modeling.chains.answer import EmptyAnswerError, generate_answer, generate_answer_stream
 from modeling.chains.refine import EmptyRefineResultError, refine_blocks
 from modeling.chains.title import generate_title
 from modeling.llm import (
@@ -18,6 +18,7 @@ from modeling.llm import (
 )
 from modeling.models import UnsupportedModelError, available_models, resolve_model
 from modeling.types import (
+    AnswerChunk,
     AnswerRequest,
     AnswerResult,
     Attachment,
@@ -32,6 +33,7 @@ from modeling.types import (
 
 __all__ = [
     "generate_answer",
+    "generate_answer_stream",
     "refine_blocks",
     "generate_title",
     "available_models",
@@ -45,6 +47,7 @@ __all__ = [
     "AttachmentNotSupportedError",
     "EmptyAnswerError",
     "EmptyRefineResultError",
+    "AnswerChunk",
     "AnswerRequest",
     "AnswerResult",
     "Attachment",

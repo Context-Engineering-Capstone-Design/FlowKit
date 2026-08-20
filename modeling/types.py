@@ -108,6 +108,22 @@ class AnswerResult:
 
 
 @dataclass(frozen=True)
+class AnswerChunk:
+    """스트리밍 답변 조각 (AI-ANSWER-005).
+
+    type 마다 쓰는 필드가 다르다. text는 delta에 이번에 새로 생긴 글자만
+    담는다(누적본이 아니다). sources는 찾은 근거, done은 최종 결과
+    (AnswerResult와 동일한 모양), error는 오류 메시지만 채운다.
+    """
+
+    type: Literal["text", "sources", "done", "error"]
+    delta: str = ""
+    sources: list[SearchSource] = field(default_factory=list)
+    result: AnswerResult | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class ConnectionResult:
     """API 키 연결 확인 결과 (AI-CORE-006).
 

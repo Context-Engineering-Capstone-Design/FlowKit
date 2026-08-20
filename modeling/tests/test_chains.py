@@ -200,3 +200,61 @@ def test_generate_answer_rejects_empty_response():
     request = AnswerRequest("질문", [], [])
     with pytest.raises(EmptyAnswerError):
         generate_answer(request, model=fake_model("   "))
+
+
+# ── 스트리밍 답변 (AI-ANSWER-005) ────────────────────────────────────────────
+
+
+class SlowModel(BaseChatModel):
+    """토큰을 하나씩만 만들어내는 모델. 얼마나 당겨졌는지 pulled에 기록한다."""
+
+    pulled: list[str] = []
+
+    @property
+    def _llm_type(self) -> str:
+        return "slow"
+
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+        for token in ("안", "녕", "하세요"):
+            self.pulled.append(token)
+            yield ChatGenerationChunk(message=AIMessageChunk(content=token))
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        raise NotImplementedError
+
+
+def test_generate_answer_stream_emits_text_then_done():
+    request = AnswerRequest("질문", [], [])
+    chunks = list(generate_answer_stream(request, model=fake_model("안녕 하세요")))
+
+    text_chunks = [c for c in chunks if c.type == "text"]
+    assert "".join(c.delta for c in text_chunks) == "안녕 하세요"
+    assert chunks[-1].type == "done"
+    assert chunks[-1].result.text == "안녕 하세요"
+    assert not any(c.type == "sources" for c in chunks)
+
+
+def test_generate_answer_stream_requires_prompt():
+    with pytest.raises(ValueError):
+        list(generate_answer_stream(AnswerRequest("  ", [], []), model=fake_model("답변")))
+
+
+def test_generate_answer_stream_emits_error_on_empty_response():
+    request = AnswerRequest("질문", [], [])
+    chunks = list(generate_answer_stream(request, model=fake_model("   ")))
+    assert chunks[-1].type == "error"
+
+
+def test_generate_answer_stream_stops_pulling_when_consumer_stops():
+    """받는 쪽이 멈추면 그 뒤 토큰은 모델에서 당겨오지 않아야 한다 (A3)."""
+    model = SlowModel(pulled=[])
+    gen = generate_answer_stream(AnswerRequest("질문", [], []), model=model)
+
+    assert next(gen).delta == "안"
+    assert model.pulled == ["안"]
+
+    assert next(gen).delta == "녕"
+    assert model.pulled == ["안", "녕"]
+
+    gen.close()
+    assert model.pulled == ["안", "녕"]
