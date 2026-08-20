@@ -15,6 +15,7 @@ type ActionResult = void | Promise<unknown>
 interface Props {
   block: MessageBlock
   isUser: boolean
+  isOwnBranch: boolean
   pendingAi?: boolean
   editing: boolean
   rating?: AiResponseRating
@@ -32,6 +33,7 @@ interface Props {
 export function MessageBlockActions({
   block,
   isUser,
+  isOwnBranch,
   pendingAi,
   editing,
   rating,
@@ -128,16 +130,18 @@ export function MessageBlockActions({
           >
             <ThumbsDown className="h-3.5 w-3.5" />
           </button>
-          <button
-            type="button"
-            onClick={() => void onRegenerate()}
-            disabled={pendingAi}
-            title="답변 다시 시도"
-            aria-label="답변 다시 시도"
-            className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1 disabled:opacity-40"
-          >
-            <RotateCw className="h-3.5 w-3.5" />
-          </button>
+          {isOwnBranch && (
+            <button
+              type="button"
+              onClick={() => void onRegenerate()}
+              disabled={pendingAi}
+              title="답변 다시 시도"
+              aria-label="답변 다시 시도"
+              className="rounded p-1 text-txt-3 transition hover:bg-bg-3 hover:text-txt-1 disabled:opacity-40"
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+            </button>
+          )}
         </>
       )}
 

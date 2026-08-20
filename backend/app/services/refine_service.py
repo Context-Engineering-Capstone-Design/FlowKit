@@ -102,6 +102,15 @@ def run_refine(
         )
 
     blocks = {b.id: b for b in branch_service.resolve_blocks(db, branch)}
+
+    # 조상 브랜치에서 이어받은 블록을 정제·승인하면 원본 대화가 조용히 바뀌므로 막는다(NFR-007, REQ-019)
+    inherited_ids = [bid for bid in valid_ids if blocks[bid].branch_id != branch.id]
+    if inherited_ids:
+        raise ValidationError(
+            "다른 브랜치에서 이어받은 메시지는 이 브랜치에서 정제할 수 없습니다.",
+            detail={"inheritedBlockIds": [str(i) for i in inherited_ids]},
+        )
+
     ordered = sorted((blocks[bid] for bid in valid_ids), key=lambda b: b.order_index)
 
     job = BlockRefineJob(

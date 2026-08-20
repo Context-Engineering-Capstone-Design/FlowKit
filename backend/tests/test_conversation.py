@@ -181,6 +181,35 @@ def test_feedback_rejects_user_block_and_invalid_rating(client, auth, chat, capt
     assert bad_rating.status_code == 422
 
 
+def test_feedback_allowed_on_inherited_block(client, auth, chat, captured):
+    """A1: 평가는 내용을 바꾸지 않으므로 하위 브랜치가 이어받은 답변도 허용한다 (BE-AIRESP-004, 006)."""
+    sent = send(client, auth, chat, "질문")
+    assistant_id = sent["assistantBlock"]["blockId"]
+    chat_id = chat["chatMeta"]["chatId"]
+
+    branch_res = client.post(
+        f"/api/chats/{chat_id}/branches",
+        json={
+            "branchName": "하위 브랜치",
+            "baseBranchId": chat["branchMeta"]["branchId"],
+            "baseMessageBlockId": assistant_id,
+            "contextBlockIds": [],
+        },
+        headers=auth,
+    )
+    assert branch_res.status_code == 201, branch_res.text
+    new_branch_id = branch_res.json()["branchId"]
+
+    url = (
+        f"/api/chats/{chat_id}/branches/{new_branch_id}"
+        f"/blocks/{assistant_id}/feedback"
+    )
+    liked = client.put(url, json={"rating": "like"}, headers=auth)
+    assert liked.status_code == 200, liked.text
+    assert liked.json()["rating"] == "like"
+    assert client.get(url, headers=auth).json()["rating"] == "like"
+
+
 # ── BE-CTXAPPLY-001~003: Context 적용 ─────────────────────────────────────
 
 
@@ -521,6 +550,33 @@ def test_regenerate_rejects_user_block(client, auth, chat, captured):
     )
     assert res.status_code == 400
     assert res.json()["errorCode"] == "NOT_ASSISTANT_BLOCK"
+
+
+def test_regenerate_rejects_inherited_block(client, auth, chat, captured):
+    """A2: 재생성은 내용을 바꾸므로 하위 브랜치가 이어받은 답변은 그대로 막는다 (NFR-007)."""
+    sent = send(client, auth, chat, "질문")
+    assistant_id = sent["assistantBlock"]["blockId"]
+    chat_id = chat["chatMeta"]["chatId"]
+
+    branch_res = client.post(
+        f"/api/chats/{chat_id}/branches",
+        json={
+            "branchName": "하위 브랜치",
+            "baseBranchId": chat["branchMeta"]["branchId"],
+            "baseMessageBlockId": assistant_id,
+            "contextBlockIds": [],
+        },
+        headers=auth,
+    )
+    assert branch_res.status_code == 201, branch_res.text
+    new_branch_id = branch_res.json()["branchId"]
+
+    res = client.post(
+        f"/api/chats/{chat_id}/branches/{new_branch_id}/blocks/{assistant_id}/regenerate",
+        headers=auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
 
 
 def test_regenerated_answer_can_be_rolled_back(client, auth, chat, captured):

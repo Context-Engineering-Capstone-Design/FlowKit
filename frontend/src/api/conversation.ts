@@ -110,6 +110,17 @@ export async function editBlock(
   return data
 }
 
+export async function fetchRefineJob(
+  chatId: string,
+  branchId: string,
+  jobId: string,
+): Promise<RefineJob> {
+  const { data } = await api.get<RefineJob>(
+    `/api/chats/${chatId}/branches/${branchId}/refine-jobs/${jobId}`,
+  )
+  return data
+}
+
 export async function runRefine(
   chatId: string,
   branchId: string,

@@ -12,8 +12,16 @@ const chatApi = vi.hoisted(() => ({
   deleteChat: vi.fn(),
 }))
 
+const convApi = vi.hoisted(() => ({
+  fetchFeedback: vi.fn(),
+  sendMessage: vi.fn(),
+  fetchRefineJob: vi.fn(),
+  approveResult: vi.fn(),
+  rejectResult: vi.fn(),
+}))
+
 vi.mock('@/api/chat', () => chatApi)
-vi.mock('@/api/conversation', () => ({ fetchFeedback: vi.fn() }))
+vi.mock('@/api/conversation', () => convApi)
 vi.mock('@/api/inputAssist', () => ({}))
 
 import { useChatStore } from '@/store/chatStore'
@@ -154,5 +162,81 @@ describe('chatStore 화면 상태', () => {
     expect(chatApi.deleteChat).toHaveBeenCalledWith('chat-1')
     expect(chatApi.createChat).toHaveBeenCalledOnce()
     expect(useChatStore.getState().chatId).toBe('chat-new')
+  })
+
+  it('전송에 성공하면 임시 질문 블록을 실제 블록으로 바꾼다 (FE-AIRESP-001)', async () => {
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답변', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      chatTitle: '대화',
+      titleGenerated: false,
+    })
+
+    const promise = useChatStore.getState().sendMessage('질문')
+    expect(useChatStore.getState().blocks).toHaveLength(1)
+    expect(useChatStore.getState().blocks[0].content).toBe('질문')
+
+    await promise
+
+    expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
+  })
+
+  it('질문이 저장되기 전에 실패하면 입력 내용을 그대로 남긴다 (FE-INPUT-006)', async () => {
+    convApi.sendMessage.mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { errorCode: 'MODEL_NOT_SUPPORTED', message: '지원하지 않는 모델입니다.' } },
+    })
+    useChatStore.setState({ draftText: '질문 내용', blocks: [] })
+
+    await useChatStore.getState().sendMessage('질문 내용')
+
+    const state = useChatStore.getState()
+    expect(state.blocks).toEqual([])
+    expect(state.draftText).toBe('질문 내용')
+    expect(state.error).toBeTruthy()
+    expect(chatApi.fetchChat).not.toHaveBeenCalled()
+  })
+
+  it('질문이 저장된 뒤 실패하면 화면을 다시 불러와 입력을 비운다', async () => {
+    convApi.sendMessage.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: {
+          errorCode: 'AI_RESPONSE_FAILED',
+          message: '답변 생성 실패',
+          detail: { aiResponseJobId: 'job-1', userMessageBlockId: 'user-1', retryable: true },
+        },
+      },
+    })
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: { chatId: 'chat-1', title: '대화' },
+      branchMeta: { branchId: 'branch-1' },
+      messageBlocks: [],
+      branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'x', rating: null })
+    useChatStore.setState({ draftText: '질문' })
+
+    await useChatStore.getState().sendMessage('질문')
+
+    expect(chatApi.fetchChat).toHaveBeenCalledWith('chat-1', 'branch-1')
+    const state = useChatStore.getState()
+    expect(state.draftText).toBe('')
+    expect(state.failedJobsByBlockId).toEqual({ 'user-1': 'job-1' })
+  })
+
+  it('이미 처리된 정제 결과를 승인·거절하면 최신 상태로 다시 맞춘다 (FE-REFINE-005)', async () => {
+    const job = { refineJobId: 'job-1', status: 'completed', instructionText: '요약', results: [] }
+    convApi.approveResult.mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { errorCode: 'REFINE_RESULT_NOT_PENDING', message: '이미 처리된 결과입니다.' } },
+    })
+    convApi.fetchRefineJob.mockResolvedValue(job)
+    useChatStore.setState({ refineJob: { refineJobId: 'job-1', status: 'completed', instructionText: '요약', results: [{ resultId: 'r1', blockId: 'b1', baseVersionId: 'v1', baseContent: '원본', refinedContent: '정제', status: 'pending', approvedVersionId: null, orderIndex: 0, updatedAt: 't' }] } })
+
+    await useChatStore.getState().approveResult('r1')
+
+    expect(convApi.fetchRefineJob).toHaveBeenCalledWith('chat-1', 'branch-1', 'job-1')
+    expect(useChatStore.getState().refineJob).toEqual(job)
   })
 })

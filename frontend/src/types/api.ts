@@ -82,6 +82,7 @@ export type MessageRole = 'user' | 'assistant'
 
 export interface MessageBlock {
   blockId: string
+  branchId: string
   role: MessageRole
   content: string
   currentVersionId: string | null
@@ -171,6 +172,7 @@ export interface ClientErrorResponse {
 
 export interface BlockResponse {
   blockId: string
+  branchId: string
   role: MessageRole
   content: string
   currentVersionId: string | null

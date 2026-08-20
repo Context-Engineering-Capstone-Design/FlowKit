@@ -6,13 +6,13 @@ import { MessageBlockItem } from '@/components/MessageBlockItem'
 import { useChatStore } from '@/store/chatStore'
 import { useNotificationStore } from '@/store/notificationStore'
 
-const block = { blockId: 'block-1', role: 'user' as const, content: '복사할 내용', currentVersionId: 'v1', versionNo: 1, orderIndex: 0, createdAt: new Date().toISOString(), attachments: [], searchSources: [] }
+const block = { blockId: 'block-1', branchId: 'branch-1', role: 'user' as const, content: '복사할 내용', currentVersionId: 'v1', versionNo: 1, orderIndex: 0, createdAt: new Date().toISOString(), attachments: [], searchSources: [] }
 
 afterEach(cleanup)
 
 beforeEach(() => {
   useNotificationStore.getState().clearToast()
-  useChatStore.setState({ selectedBlockIds: [], appliedBlockIds: [], inlineView: {}, ratings: {}, versionsByBlock: {}, pendingByBlockId: {}, failedJobsByBlockId: {}, editingBlockId: null })
+  useChatStore.setState({ branchId: 'branch-1', selectedBlockIds: [], appliedBlockIds: [], inlineView: {}, ratings: {}, versionsByBlock: {}, pendingByBlockId: {}, failedJobsByBlockId: {}, editingBlockId: null })
 })
 
 it('활성 메시지 본문 복사 성공을 알린다', async () => {
@@ -57,6 +57,20 @@ it('첨부 파일 이름을 보여준다', () => {
   render(<MessageBlockItem block={withAttachment} />)
 
   expect(screen.getByText('notes.md')).toBeTruthy()
+})
+
+it('다른 브랜치에서 이어받은 답변은 재생성 버튼을 숨긴다', () => {
+  const inherited = { ...block, role: 'assistant' as const, branchId: 'other-branch' }
+  render(<MessageBlockItem block={inherited} />)
+
+  expect(screen.queryByTitle('답변 다시 시도')).toBeNull()
+})
+
+it('이 브랜치가 직접 만든 답변은 재생성 버튼을 보여준다', () => {
+  const own = { ...block, role: 'assistant' as const }
+  render(<MessageBlockItem block={own} />)
+
+  expect(screen.getByTitle('답변 다시 시도')).toBeTruthy()
 })
 
 it('웹 검색 근거를 답변 아래에 보여준다', () => {

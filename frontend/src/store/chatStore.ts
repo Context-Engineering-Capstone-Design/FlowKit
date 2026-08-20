@@ -595,7 +595,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return
     }
 
-    set({ isSending: true, error: null })
+    // 응답을 기다리는 동안에도 방금 보낸 질문이 바로 보이게 임시 블록을 먼저 넣는다 (FE-AIRESP-001)
+    const tempBlockId = `temp-${crypto.randomUUID()}`
+    const tempBlock: MessageBlock = {
+      blockId: tempBlockId,
+      branchId,
+      role: 'user',
+      content: prompt,
+      currentVersionId: null,
+      orderIndex: get().blocks.length,
+      createdAt: new Date().toISOString(),
+      attachments: draftAttachments.map((item) => ({
+        attachmentId: item.attachmentId ?? item.localId,
+        fileName: item.fileName,
+        mimeType: item.mimeType,
+        fileSize: item.file.size,
+        status: 'attached' as const,
+        expiresAt: null,
+      })),
+      searchSources: [],
+    }
+    const dropTempBlock = (s: ChatState) => s.blocks.filter((b) => b.blockId !== tempBlockId)
+
+    set((s) => ({ isSending: true, error: null, blocks: [...s.blocks, tempBlock] }))
     try {
       const res = await convApi.sendMessage(
         chatId,
@@ -605,7 +627,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         { selectedModelId, webSearchEnabled, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []) },
       )
       set((s) => ({
-        blocks: [...s.blocks, res.userBlock, res.assistantBlock],
+        blocks: [...dropTempBlock(s), res.userBlock, res.assistantBlock],
         chatTitle: res.chatTitle,
         // 한 번 쓴 Context 는 자동으로 해제한다. 남겨두면 다음 질문까지
         // 같은 맥락에 묶여, 사용자가 의도하지 않은 답이 나온다.
@@ -620,15 +642,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (res.titleGenerated) await get().loadChats()
     } catch (e) {
       if (openApiKeyWhenMissing(e)) {
-        set({ error: null })
+        set((s) => ({ error: null, blocks: dropTempBlock(s) }))
       } else if (errorCode(e) === 'WEB_SEARCH_NOT_SUPPORTED') {
         // 선택한 모델이 검색을 지원하지 않으면 다시 눌러도 같은 오류가 반복되므로 토글을 꺼둔다
-        set({ webSearchEnabled: false, error: toErrorMessage(e) })
+        set((s) => ({ webSearchEnabled: false, error: toErrorMessage(e), blocks: dropTempBlock(s) }))
       } else {
-        // 모델 호출 중 실패했다면 질문은 서버에 남아 있으므로 화면을 다시 맞춘다
         const detail = errorDetail<AiResponseFailureDetail>(e)
-        await get().openChat(chatId, branchId)
-        set((s) => ({ error: toErrorMessage(e), failedJobsByBlockId: detail?.retryable ? { ...s.failedJobsByBlockId, [detail.userMessageBlockId]: detail.aiResponseJobId } : s.failedJobsByBlockId }))
+        if (detail) {
+          // 질문은 이미 서버에 저장됐으므로 화면을 다시 맞춘다(임시 블록은 이 조회 결과로 자연히 교체된다)
+          await get().openChat(chatId, branchId)
+          set((s) => ({ error: toErrorMessage(e), failedJobsByBlockId: detail.retryable ? { ...s.failedJobsByBlockId, [detail.userMessageBlockId]: detail.aiResponseJobId } : s.failedJobsByBlockId }))
+        } else {
+          // 질문이 저장되기 전 실패이므로 입력 내용과 첨부를 그대로 남겨 다시 보낼 수 있게 한다 (FE-INPUT-006)
+          set((s) => ({ error: toErrorMessage(e), blocks: dropTempBlock(s) }))
+        }
       }
     } finally {
       set({ isSending: false })
@@ -800,6 +827,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       useNotificationStore.getState().show('정제 결과를 반영했습니다.', 'success')
     } catch (e) {
       set({ error: toErrorMessage(e) })
+      // 이미 처리된 결과 등 서버와 어긋난 상태일 수 있으므로 최신 상태로 다시 맞춘다 (FE-REFINE-005)
+      await refreshRefineJob(set, chatId, branchId, refineJob.refineJobId)
     }
   },
 
@@ -818,6 +847,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       useNotificationStore.getState().show('정제 결과를 거절했습니다.', 'info')
     } catch (e) {
       set({ error: toErrorMessage(e) })
+      await refreshRefineJob(set, chatId, branchId, refineJob.refineJobId)
     }
   },
 
@@ -1013,6 +1043,21 @@ async function refreshFeedbacks(
       ),
     ),
   })
+}
+
+// 승인·거절이 실패하면(이미 처리된 결과 등) 서버 상태로 다시 맞춘다 (FE-REFINE-005)
+async function refreshRefineJob(
+  set: (partial: Partial<ChatState>) => void,
+  chatId: string,
+  branchId: string,
+  jobId: string,
+) {
+  try {
+    const job = await convApi.fetchRefineJob(chatId, branchId, jobId)
+    set({ refineJob: job })
+  } catch {
+    // 재조회마저 실패하면 기존 오류 안내만 남기고 화면 상태는 그대로 둔다
+  }
 }
 
 function openApiKeyWhenMissing(error: unknown): boolean {

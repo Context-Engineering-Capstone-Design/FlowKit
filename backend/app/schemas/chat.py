@@ -69,6 +69,7 @@ class BranchListItem(BranchMeta):
 
 class MessageBlockOut(BaseModel):
     block_id: uuid.UUID = Field(..., serialization_alias="blockId")
+    branch_id: uuid.UUID = Field(..., serialization_alias="branchId")
     role: Literal["user", "assistant"]
     content: str
     current_version_id: uuid.UUID | None = Field(
@@ -89,6 +90,7 @@ class MessageBlockOut(BaseModel):
         version = block.current_version
         return cls(
             block_id=block.id,
+            branch_id=block.branch_id,
             role=block.role.value,
             content=version.content if version else "",
             current_version_id=block.current_version_id,

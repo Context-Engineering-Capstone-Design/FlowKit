@@ -133,7 +133,9 @@ function RefineForm() {
   const instruction = useChatStore((s) => s.contextInstruction)
   const setInstruction = useChatStore((s) => s.setContextInstruction)
   const focusSignal = useChatStore((s) => s.contextInstructionFocusSignal)
-  const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
+  const blocks = useChatStore((s) => s.blocks)
+  const selectedIds = useChatStore((s) => s.selectedBlockIds)
+  const branchId = useChatStore((s) => s.branchId)
   const isRefining = useChatStore((s) => s.isRefining)
   const runRefine = useChatStore((s) => s.runRefine)
   const retryRefine = useChatStore((s) => s.retryRefine)
@@ -146,7 +148,13 @@ function RefineForm() {
     textareaRef.current?.focus()
   }, [focusSignal])
 
+  const selectedCount = selectedIds.length
   if (selectedCount === 0 || refineJob) return null
+
+  // 다른(조상) 브랜치에서 이어받은 블록은 정제하면 원본 대화가 바뀌므로 대상에서 뺀다
+  const hasInheritedBlock = blocks.some(
+    (b) => selectedIds.includes(b.blockId) && b.branchId !== branchId,
+  )
 
   return (
     <>
@@ -183,15 +191,21 @@ function RefineForm() {
         <button
           type="button"
           onClick={() => void runRefine(instruction)}
-          disabled={isRefining || !instruction.trim()}
+          disabled={isRefining || !instruction.trim() || hasInheritedBlock}
           className="mt-2 w-full rounded-lg bg-blue py-2.5 text-[12.5px] font-semibold text-white transition disabled:opacity-40"
         >
           {isRefining ? '정제 중…' : '블록별로 정제하기'}
         </button>
-        {!instruction.trim() && !isRefining && (
+        {hasInheritedBlock ? (
           <p className="mt-1.5 text-[11px] text-txt-3">
-            편집 지시를 입력해야 정제할 수 있습니다.
+            다른 브랜치에서 이어받은 블록은 정제할 수 없습니다. 선택에서 제외해주세요.
           </p>
+        ) : (
+          !instruction.trim() && !isRefining && (
+            <p className="mt-1.5 text-[11px] text-txt-3">
+              편집 지시를 입력해야 정제할 수 있습니다.
+            </p>
+          )
         )}
         {refineFailed && !isRefining && (
           <>
@@ -378,6 +392,8 @@ function RefinePreview() {
 function PanelFooter() {
   const applyContext = useChatStore((s) => s.applyContext)
   const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
+  const blocks = useChatStore((s) => s.blocks)
+  const openBranchModal = useChatStore((s) => s.openBranchModal)
 
   return (
     <div className="space-y-1.5 px-4 py-3">
@@ -387,6 +403,13 @@ function PanelFooter() {
         className="w-full rounded-lg bg-blue py-2.5 text-[12.5px] font-semibold text-white"
       >
         이 Context로 질문하기 ({selectedCount})
+      </button>
+      <button
+        type="button"
+        onClick={() => openBranchModal(blocks.at(-1)?.blockId ?? '', undefined, 'block')}
+        className="w-full rounded-lg bg-bg-3 py-2.5 text-[12.5px] font-semibold text-txt-1 transition hover:text-txt-0"
+      >
+        이 Context로 브랜치 생성
       </button>
     </div>
   )

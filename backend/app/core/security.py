@@ -17,13 +17,14 @@ from app.exceptions import TokenExpiredError, UnauthorizedError
 from app.settings import get_settings
 
 
-def create_access_token(user_id: uuid.UUID) -> tuple[str, datetime]:
+def create_access_token(user_id: uuid.UUID, session_id: uuid.UUID) -> tuple[str, datetime]:
     settings = get_settings()
     expires_at = datetime.now(UTC) + timedelta(
         minutes=settings.access_token_expire_minutes
     )
     payload = {
         "sub": str(user_id),
+        "sid": str(session_id),
         "exp": expires_at,
         "iat": datetime.now(UTC),
         "type": "access",
@@ -32,7 +33,8 @@ def create_access_token(user_id: uuid.UUID) -> tuple[str, datetime]:
     return token, expires_at
 
 
-def decode_access_token(token: str) -> uuid.UUID:
+def decode_access_token(token: str) -> tuple[uuid.UUID, uuid.UUID]:
+    """(userId, sessionId) 를 반환한다. 세션 유효성은 호출부가 AuthSession으로 확인한다(BE-AUTH-001, 009)."""
     settings = get_settings()
     try:
         payload = jwt.decode(
@@ -47,7 +49,7 @@ def decode_access_token(token: str) -> uuid.UUID:
         raise UnauthorizedError("유효하지 않은 토큰입니다.")
 
     try:
-        return uuid.UUID(payload["sub"])
+        return uuid.UUID(payload["sub"]), uuid.UUID(payload["sid"])
     except (KeyError, ValueError) as exc:
         raise UnauthorizedError("유효하지 않은 토큰입니다.") from exc
 

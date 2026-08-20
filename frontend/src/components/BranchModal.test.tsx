@@ -6,8 +6,8 @@ import { BranchModal } from '@/components/BranchModal'
 import { useChatStore } from '@/store/chatStore'
 
 const blocks = [
-  { blockId: 'block-1', role: 'user' as const, content: '첫 블록', currentVersionId: 'v1', versionNo: 1, orderIndex: 0, createdAt: new Date().toISOString(), attachments: [], searchSources: [] },
-  { blockId: 'block-2', role: 'assistant' as const, content: '둘째 블록', currentVersionId: 'v2', versionNo: 1, orderIndex: 1, createdAt: new Date().toISOString(), attachments: [], searchSources: [] },
+  { blockId: 'block-1', branchId: 'branch-1', role: 'user' as const, content: '첫 블록', currentVersionId: 'v1', versionNo: 1, orderIndex: 0, createdAt: new Date().toISOString(), attachments: [], searchSources: [] },
+  { blockId: 'block-2', branchId: 'branch-1', role: 'assistant' as const, content: '둘째 블록', currentVersionId: 'v2', versionNo: 1, orderIndex: 1, createdAt: new Date().toISOString(), attachments: [], searchSources: [] },
 ]
 
 afterEach(cleanup)

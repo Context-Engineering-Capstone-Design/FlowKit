@@ -167,6 +167,36 @@ def test_refine_rejects_block_outside_branch(client, auth, chat, blocks, fake_ai
     assert res.json()["errorCode"] == "VALIDATION_ERROR"
 
 
+def test_refine_rejects_inherited_block(client, auth, chat, blocks, fake_ai):
+    """A3: 하위 브랜치가 이어받은(조상 브랜치 소유) 블록은 정제 대상에서 뺀다 (BE-REFINE-005, BE-MSG-004)."""
+    chat_id = chat["chatMeta"]["chatId"]
+    branch_res = client.post(
+        f"/api/chats/{chat_id}/branches",
+        json={
+            "branchName": "하위 브랜치",
+            "baseBranchId": chat["branchMeta"]["branchId"],
+            "baseMessageBlockId": blocks[-1]["blockId"],
+            "contextBlockIds": [],
+        },
+        headers=auth,
+    )
+    assert branch_res.status_code == 201, branch_res.text
+    new_branch_id = branch_res.json()["branchId"]
+
+    url = f"/api/chats/{chat_id}/branches/{new_branch_id}/refine-jobs"
+    res = client.post(
+        url,
+        json={"selectedBlockIds": [blocks[0]["blockId"]], "instructionText": "요약"},
+        headers=auth,
+    )
+    assert res.status_code == 400, res.text
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+    # 원본(Main) 브랜치의 내용은 그대로 남아 있어야 한다
+    detail = client.get(f"/api/chats/{chat_id}", headers=auth)
+    assert detail.json()["messageBlocks"][0]["content"] == "원본0"
+
+
 def test_ai_failure_marks_job_failed(client, auth, chat, blocks, monkeypatch):
     import modeling
 

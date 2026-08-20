@@ -55,18 +55,22 @@ def find_or_create_user(db: Session, google_user: GoogleUser) -> tuple[User, boo
 def issue_tokens(
     db: Session, user: User, device_info: str | None = None
 ) -> tuple[str, str, datetime]:
-    """accessToken/refreshToken 을 발급하고 세션을 저장한다 (BE-AUTH-005)."""
-    access_token, expires_at = create_access_token(user.id)
-    raw_refresh, refresh_hash = generate_refresh_token()
+    """accessToken/refreshToken 을 발급하고 세션을 저장한다 (BE-AUTH-005).
 
-    db.add(
-        AuthSession(
-            user_id=user.id,
-            refresh_token_hash=refresh_hash,
-            expires_at=refresh_token_expires_at(),
-            device_info=device_info,
-        )
+    accessToken에 세션 id(sid)를 담아, 로그아웃으로 세션이 폐기되면 만료 전에도
+    즉시 무효화되게 한다(BE-AUTH-001, 009).
+    """
+    raw_refresh, refresh_hash = generate_refresh_token()
+    session = AuthSession(
+        user_id=user.id,
+        refresh_token_hash=refresh_hash,
+        expires_at=refresh_token_expires_at(),
+        device_info=device_info,
     )
+    db.add(session)
+    db.flush()
+
+    access_token, expires_at = create_access_token(user.id, session.id)
     db.commit()
     return access_token, raw_refresh, expires_at
 

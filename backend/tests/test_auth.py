@@ -316,6 +316,40 @@ def test_logout_invalidates_refresh_tokens(client, stub_google):
     assert res.status_code == 401
 
 
+def test_logout_invalidates_current_access_token(client, stub_google):
+    """BE-AUTH-001, 009: 로그아웃하면 만료 전에도 그 자리에서 쓰던 accessToken이 즉시 통하지 않아야 한다."""
+    body = login(client, stub_google)
+    headers = {"Authorization": f"Bearer {body['accessToken']}"}
+
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+
+    logout = client.post("/api/auth/logout", headers=headers)
+    assert logout.status_code == 200
+
+    res = client.get("/api/auth/me", headers=headers)
+    assert res.status_code == 401
+
+    status = client.get("/api/auth/status", headers=headers)
+    assert status.json()["isAuthenticated"] is False
+
+
+def test_refresh_revokes_old_access_token_session(client, stub_google):
+    """토큰 회전 시 이전 세션도 폐기되어, 회전 전 accessToken은 더 이상 통하지 않는다."""
+    body = login(client, stub_google)
+    old_headers = {"Authorization": f"Bearer {body['accessToken']}"}
+
+    rotated = client.post(
+        "/api/auth/refresh", json={"refreshToken": body["refreshToken"]}
+    )
+    assert rotated.status_code == 200
+
+    assert client.get("/api/auth/me", headers=old_headers).status_code == 401
+    new_headers = {
+        "Authorization": f"Bearer {rotated.json()['accessToken']}"
+    }
+    assert client.get("/api/auth/me", headers=new_headers).status_code == 200
+
+
 # ── BE-AUTH-010: 표준 오류 형식 ────────────────────────────────────────────
 
 

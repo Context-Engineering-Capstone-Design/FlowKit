@@ -149,7 +149,8 @@ def set_feedback(db, user, branch, block_id, rating):
     else: item.rating = rating
     db.commit(); db.refresh(item); return item
 def _require_assistant_block(db, branch, block_id):
-    block = message_service.get_editable_block(db, branch, block_id)
+    # 평가는 내용을 바꾸지 않으므로, 이 브랜치가 이어받은(조상 브랜치 소유) 답변도 허용한다
+    block = message_service.get_visible_block(db, branch, block_id)
     if block.role is not MessageRole.ASSISTANT: raise NotAssistantBlockError()
     return block
 def _try_generate_title(db, chat, prompt, api_key, titler=None):

@@ -15,6 +15,7 @@ interface Props {
 
 // 메시지 블록 하나 — 체크박스로 Context 선택, 정제 결과가 있으면 인라인으로 비교
 export function MessageBlockItem({ block, refine }: Props) {
+  const currentBranchId = useChatStore((s) => s.branchId)
   const selected = useChatStore((s) => s.selectedBlockIds.includes(block.blockId))
   const applied = useChatStore((s) => s.appliedBlockIds.includes(block.blockId))
   const toggleBlock = useChatStore((s) => s.toggleBlock)
@@ -42,6 +43,8 @@ export function MessageBlockItem({ block, refine }: Props) {
   )
 
   const isUser = block.role === 'user'
+  // 다른(조상) 브랜치에서 이어받은 블록은 재생성하면 원본 대화가 바뀌므로 버튼을 숨긴다(NFR-007)
+  const isOwnBranch = block.branchId === currentBranchId
   const pending = refine?.status === 'pending'
   const rejected = refine?.status === 'rejected'
   const shown = pending && view === 'refined' ? refine.refinedContent : block.content
@@ -149,6 +152,7 @@ export function MessageBlockItem({ block, refine }: Props) {
         <MessageBlockActions
           block={block}
           isUser={isUser}
+          isOwnBranch={isOwnBranch}
           pendingAi={pendingAi}
           editing={editing}
           rating={rating}
