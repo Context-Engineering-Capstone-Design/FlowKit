@@ -45,6 +45,7 @@ class ChatMeta(BaseModel):
     root_chat_id: uuid.UUID | None = Field(None, serialization_alias="rootChatId")
     root_branch_id: uuid.UUID | None = Field(None, serialization_alias="rootBranchId")
     is_temporary: bool = Field(False, serialization_alias="isTemporary")
+    project_id: uuid.UUID | None = Field(None, serialization_alias="projectId")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -61,6 +62,7 @@ class ChatMeta(BaseModel):
             root_chat_id=chat.root_chat_id,
             root_branch_id=chat.root_branch_id,
             is_temporary=chat.is_temporary,
+            project_id=chat.project_id,
         )
 
 

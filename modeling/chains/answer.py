@@ -26,6 +26,12 @@ def build_messages(request: AnswerRequest) -> list[BaseMessage]:
     우선 보게 한다.
     """
     system = prompt.SYSTEM.format(today=datetime.now().strftime("%Y-%m-%d"))
+    if request.project_instructions or request.project_memories:
+        memories = "\n\n---\n\n".join(x.strip() for x in request.project_memories if x.strip()) or "(없음)"
+        system = f"{system}\n\n{prompt.PROJECT_BLOCK.format(instructions=request.project_instructions.strip() or '(없음)', memories=memories)}"
+    if request.selected_library_resources:
+        resources = "\n\n---\n\n".join(x.strip() for x in request.selected_library_resources if x.strip())
+        system = f"{system}\n\n{prompt.LIBRARY_BLOCK.format(resources=resources)}"
     if request.applied_context:
         joined = "\n\n---\n\n".join(c.strip() for c in request.applied_context if c.strip())
         if joined:

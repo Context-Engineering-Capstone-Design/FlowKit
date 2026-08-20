@@ -22,3 +22,16 @@ CONTEXT_BLOCK = """아래는 사용자가 이전 대화에서 직접 골라 넘�
 
 [적용된 Context]
 {context}"""
+
+PROJECT_BLOCK = """아래는 이 Project에 적용되는 지침과 메모리다. 대화 Context보다 먼저 따른다. 다만 현재 사용자의 명시적 요청과 충돌하면 현재 요청을 우선한다.
+
+[Project 지침]
+{instructions}
+
+[Project 메모리]
+{memories}"""
+
+LIBRARY_BLOCK = """아래는 이번 질문에 사용자가 직접 고른 Project Library 자료다. 선택된 자료만 참고한다.
+
+[선택된 Library 자료]
+{resources}"""

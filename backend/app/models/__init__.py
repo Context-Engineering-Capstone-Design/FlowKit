@@ -16,6 +16,7 @@ from app.models.chat import (
     ChatKind,
 )
 from app.models.context import AppliedContextItem, AppliedContextLog
+from app.models.project import Project, ProjectLibraryResource, ProjectLibrarySelection, ProjectMemory
 from app.models.feedback import AiResponseFeedback, AiResponseRating
 from app.models.service_feedback import FeedbackType, ServiceFeedback
 from app.models.observability import ClientErrorLog, ErrorLog
@@ -64,6 +65,10 @@ __all__ = [
     "RefineResultStatus",
     "AppliedContextLog",
     "AppliedContextItem",
+    "Project",
+    "ProjectMemory",
+    "ProjectLibraryResource",
+    "ProjectLibrarySelection",
     "AiResponseFeedback",
     "AiResponseRating",
     "ServiceFeedback",

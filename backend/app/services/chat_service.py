@@ -109,6 +109,7 @@ def create_side_chat(
         parent_message_block_id=anchor.id if anchor else None,
         root_chat_id=root_chat_id,
         root_branch_id=root_branch_id,
+        project_id=parent_chat.project_id,
         is_temporary=is_temporary,
         temporary_expires_at=(datetime.now(UTC) + TEMPORARY_CHAT_TTL) if is_temporary else None,
     )
@@ -207,7 +208,10 @@ def get_owned_chat(db: Session, user: User, chat_id: uuid.UUID) -> Chat:
         raise ChatNotFoundError()
     if chat.owner_id != user.id:
         raise ChatAccessDeniedError()
-    if chat.is_temporary and chat.temporary_expires_at and chat.temporary_expires_at <= datetime.now(UTC):
+    expires_at = chat.temporary_expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if chat.is_temporary and expires_at and expires_at <= datetime.now(UTC):
         delete_chat(db, chat)
         raise ChatNotFoundError()
     return chat

@@ -45,7 +45,13 @@ export interface DeleteApiKeyResponse {
 export interface ChatSummary {
   chatId: string
   title: string
+  projectId?: string | null
 }
+
+export interface ProjectSummary { projectId: string; name: string; chatCount: number }
+export interface ProjectMemory { memoryId: string; content: string; createdAt: string }
+export interface ProjectLibraryResource { resourceId: string; title: string; content: string; sourceUrl: string | null }
+export interface ProjectDetail extends ProjectSummary { instructions: string; memories: ProjectMemory[]; libraryResources: ProjectLibraryResource[] }
 
 export interface ChatListResponse {
   chats: ChatSummary[]

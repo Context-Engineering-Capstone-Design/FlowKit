@@ -106,6 +106,9 @@ class AnswerRequest:
     web_search_mode: WebSearchMode = "off"
     model_id: str | None = None
     reasoning_effort: ReasoningEffort = "medium"
+    project_instructions: str = ""
+    project_memories: list[str] = field(default_factory=list)
+    selected_library_resources: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

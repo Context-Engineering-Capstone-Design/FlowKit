@@ -1,9 +1,10 @@
-import { GitBranch, MessageSquare, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
+import { FolderCog, GitBranch, MessageSquare, PanelLeftClose, Pencil, Search, Split, SquarePen, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { useChatStore } from '@/store/chatStore'
 import { useInfiniteChatList } from '@/hooks/useInfiniteChatList'
 import { buildSideChatTreeOrder } from '@/lib/sideChatTree'
+import { ProjectManager } from '@/components/ProjectManager'
 
 interface Props {
   open?: boolean
@@ -34,6 +35,7 @@ export function Sidebar({ open = true, onClose }: Props) {
 
   const [editingChatId, setEditingChatId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
+  const [projectManagerOpen, setProjectManagerOpen] = useState(false)
   const renameInputRef = useRef<HTMLInputElement>(null)
 
   function startRename(id: string, title: string) {
@@ -78,6 +80,7 @@ export function Sidebar({ open = true, onClose }: Props) {
           >
             <SquarePen className="h-4 w-4" />
           </button>
+          <button type="button" onClick={() => setProjectManagerOpen(true)} title="Project 관리" className="rounded-md p-1.5 text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"><FolderCog className="h-4 w-4" /></button>
           <button
             type="button"
             onClick={onClose}
@@ -203,6 +206,7 @@ export function Sidebar({ open = true, onClose }: Props) {
       </div>
 
       <ProfileMenu />
+      {projectManagerOpen && <ProjectManager chatId={chatId} onClose={() => setProjectManagerOpen(false)} />}
       </div>
     </aside>
   )

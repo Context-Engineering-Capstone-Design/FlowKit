@@ -14,8 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.exceptions import AiInputSnapshotIncompleteError, AiInputSnapshotNotFoundError, AiJobNotFoundError, AiJobNotRetryableError, AppError, ValidationError
-from app.models import AiResponseFeedback, AiResponseJob, AiResponseJobStatus, AiResponseJobType, AiResponseRating, Branch, BlockGenerationStatus, Chat, ChatKind, MessageBlock, MessageRole, User, VersionSourceType
-from app.services import ai_execution_service, chat_service, context_service, input_assist_service, message_service, streaming_service, user_setting_service
+from app.models import AiResponseFeedback, AiResponseJob, AiResponseJobStatus, AiResponseJobType, AiResponseRating, Branch, BlockGenerationStatus, Chat, ChatKind, MessageBlock, MessageRole, Project, ProjectMemory, User, VersionSourceType
+from app.services import ai_execution_service, chat_service, context_service, input_assist_service, message_service, project_service, streaming_service, user_setting_service
 from modeling import EmptyAnswerError
 
 # 백그라운드 스레드가 새 DB 세션을 열 때 쓰는 팩토리. 요청 스레드는 DbSession
@@ -63,13 +63,16 @@ def _pin_current_version(block: MessageBlock) -> MessageBlock:
     return block
 
 
-def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_prompt: str, context_block_ids: list[uuid.UUID] | None = None, selected_model_id: str | None = None, web_search_mode: str = "off", attachment_ids: list[uuid.UUID] | None = None, reasoning_effort: str = "medium", titler=None, answerer=None) -> SendResult:
+def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_prompt: str, context_block_ids: list[uuid.UUID] | None = None, selected_model_id: str | None = None, web_search_mode: str = "off", attachment_ids: list[uuid.UUID] | None = None, reasoning_effort: str = "medium", library_resource_ids: list[uuid.UUID] | None = None, titler=None, answerer=None) -> SendResult:
     prompt = (user_prompt or "").strip()
     if not prompt: raise ValidationError("질문을 입력해주세요.")
     attachments = input_assist_service.get_attachments_for_message(db, user, chat, attachment_ids or [])
     model = input_assist_service.validate_options(selected_model_id, web_search_mode, bool(attachments))
     api_key = user_setting_service.require_api_key(db, user)
     context_items = context_service.build_snapshot(db, branch, context_block_ids or [], chat)
+    project = db.get(Project, chat.project_id) if chat.project_id else None
+    memories = list(db.scalars(select(ProjectMemory).where(ProjectMemory.project_id == project.id).order_by(ProjectMemory.order_index, ProjectMemory.created_at)).all()) if project else []
+    library_resources = project_service.selected_library_context(db, project, library_resource_ids or [])
     own_flow = message_service.active_message_flow(db, branch); is_first = not own_flow
     if context_items: own_flow = []
     parent_flow, parent_snapshot = _ancestor_context_flow(db, chat) if chat.kind is ChatKind.SIDE else ([], [])
@@ -77,7 +80,8 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     user_block = message_service.create_block(db, chat, branch, MessageRole.USER, prompt, commit=False)
     context_service.save_log(db, chat, branch, user_block.id, context_items)
     input_assist_service.attach_to_message(db, user_block, attachments)
-    snapshot = _make_snapshot(prompt, flow, context_items, model.model_id, web_search_mode, attachments, reasoning_effort, parent_snapshot)
+    project_service.save_selected_library_context(db, project, user_block.id, library_resources)
+    snapshot = _make_snapshot(prompt, flow, context_items, model.model_id, web_search_mode, attachments, reasoning_effort, parent_snapshot, project.instructions if project else "", [item.content for item in memories], [{"resourceId": str(item.id), "title": item.title, "content": item.content} for item in library_resources])
     assistant_block = message_service.create_block(
         db, chat, branch, MessageRole.ASSISTANT, "", commit=False,
         allow_empty=True, generation_status=BlockGenerationStatus.GENERATING,
@@ -102,14 +106,11 @@ def _ancestor_context_flow(db: Session, chat: Chat) -> tuple[list, list[dict]]:
     자식 메시지는 부모 대화에 기록하거나 다음 부모 입력으로 되돌려 쓰지 않는다.
     snapshot에는 출처와 시각만 함께 남겨 실행 중 어떤 맥락을 썼는지 확인할 수 있다.
     """
-    ancestors: list[Chat] = []
-    current = chat
-    while current.parent_chat_id is not None:
-        parent = db.get(Chat, current.parent_chat_id)
-        if parent is None:
-            break
-        ancestors.append(parent)
-        current = parent
+    # 사이드 채팅은 최상위 메인 대화의 공통 흐름만 자동 참고한다. 중간 사이드
+    # 채팅의 독립 질문은 손자 대화로 퍼지지 않는다.
+    root_id = chat.root_chat_id
+    root = db.get(Chat, root_id) if root_id else None
+    ancestors: list[Chat] = [root] if root is not None else []
     flow: list = []
     sources: list[dict] = []
     for ancestor in reversed(ancestors):
@@ -345,11 +346,11 @@ def _request_from_snapshot(db, user, chat, snapshot):
     if snapshot.get("schemaVersion") != 1 or not required.issubset(snapshot): raise AiInputSnapshotIncompleteError()
     attached = input_assist_service.get_attached_for_snapshot(db, user, chat, snapshot["attachmentIds"])
     from modeling.types import AnswerRequest, ChatTurn
-    return AnswerRequest(snapshot["userPrompt"], [ChatTurn(role=x["role"], content=x["content"]) for x in snapshot["messageFlow"]], [x["content"] for x in snapshot["appliedContext"]], input_assist_service.to_modeling_attachments(attached), snapshot["webSearchMode"], snapshot["selectedModelId"], snapshot.get("reasoningEffort", "medium"))
+    return AnswerRequest(snapshot["userPrompt"], [ChatTurn(role=x["role"], content=x["content"]) for x in snapshot["messageFlow"]], [x["content"] for x in snapshot["appliedContext"]], input_assist_service.to_modeling_attachments(attached), snapshot["webSearchMode"], snapshot["selectedModelId"], snapshot.get("reasoningEffort", "medium"), snapshot.get("projectInstructions", ""), snapshot.get("projectMemories", []), [x["content"] for x in snapshot.get("selectedLibraryResources", [])])
 
 
-def _make_snapshot(prompt, flow, context_items, model_id, web_search_mode, attachments, reasoning_effort="medium", parent_context_sources=None) -> dict:
-    return {"schemaVersion": 1, "userPrompt": prompt, "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow], "appliedContext": [{"blockId": str(x.block_id), "versionId": str(x.version_id), "content": x.content, "orderIndex": x.order_index} for x in context_items], "selectedModelId": model_id, "webSearchMode": web_search_mode, "reasoningEffort": reasoning_effort, "attachmentIds": [str(x.id) for x in attachments], "parentContextSources": parent_context_sources or []}
+def _make_snapshot(prompt, flow, context_items, model_id, web_search_mode, attachments, reasoning_effort="medium", parent_context_sources=None, project_instructions="", project_memories=None, selected_library_resources=None) -> dict:
+    return {"schemaVersion": 1, "userPrompt": prompt, "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow], "appliedContext": [{"blockId": str(x.block_id), "versionId": str(x.version_id), "content": x.content, "orderIndex": x.order_index} for x in context_items], "selectedModelId": model_id, "webSearchMode": web_search_mode, "reasoningEffort": reasoning_effort, "attachmentIds": [str(x.id) for x in attachments], "parentContextSources": parent_context_sources or [], "projectInstructions": project_instructions, "projectMemories": project_memories or [], "selectedLibraryResources": selected_library_resources or []}
 
 
 def _provider_for(model_id: str | None) -> str:

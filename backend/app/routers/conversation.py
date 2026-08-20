@@ -51,7 +51,7 @@ def send_message(
     result = ai_response_service.send_message(
         db, user, chat, branch, payload.user_prompt, payload.context_block_ids,
         payload.selected_model_id, payload.web_search_mode, payload.attachment_ids,
-        payload.reasoning_effort,
+        payload.reasoning_effort, payload.library_resource_ids,
     )
     return SendMessageResponse(
         user_block=BlockResponse.of(result.user_block),

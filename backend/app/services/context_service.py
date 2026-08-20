@@ -28,6 +28,15 @@ class ContextItem:
     order_index: int
 
 
+@dataclass(frozen=True)
+class ContextRangeSpec:
+    """드래그로 고른 메시지 안 부분 범위 하나 (0820_13)."""
+
+    block_id: uuid.UUID
+    version_id: uuid.UUID
+    snippet_text: str
+
+
 def build_snapshot(
     db: Session,
     branch: Branch,
