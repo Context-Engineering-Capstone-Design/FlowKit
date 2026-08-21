@@ -1,14 +1,14 @@
 import { GitBranch, X } from 'lucide-react'
 import { toPreview } from '@/lib/preview'
-import { useChatStore } from '@/store/chatStore'
+import { useChatPaneStore } from '@/components/ChatPaneContext'
 
 // 브랜치 상단 배너 — 현재 브랜치를 알리고, 출발 Context가 있으면 함께 보여준다 (REQ-011, REQ-012)
 export function SourceContextBanner() {
-  const sourceContext = useChatStore((s) => s.sourceContext)
-  const branches = useChatStore((s) => s.branches)
-  const jumpToSource = useChatStore((s) => s.jumpToSource)
-  const navigationError = useChatStore((s) => s.sourceNavigationError)
-  const clearNavigationError = useChatStore((s) => s.clearSourceNavigationError)
+  const sourceContext = useChatPaneStore((s) => s.sourceContext)
+  const branches = useChatPaneStore((s) => s.branches)
+  const jumpToSource = useChatPaneStore((s) => s.jumpToSource)
+  const navigationError = useChatPaneStore((s) => s.sourceNavigationError)
+  const clearNavigationError = useChatPaneStore((s) => s.clearSourceNavigationError)
 
   const active = branches.find((b) => b.isActive)
   // Context를 고르지 않고도 브랜치를 만들 수 있어, 출발 Context가 없어도

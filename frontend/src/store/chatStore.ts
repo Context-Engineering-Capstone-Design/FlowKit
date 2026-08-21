@@ -85,6 +85,13 @@ function syncChatStatusPolling(get: () => ChatState) {
 const activeStreams = new Map<string, AbortController>()
 const TEMPORARY_CHAT_STORAGE_KEY = 'flowkit:temporary-chat-ids'
 
+/** 어느 패널에서 파생해도 새 사이드 대화는 우측 패널로 보낸다. */
+let openSidePanel: ((chatId: string, branchId?: string) => Promise<void>) | null = null
+export function setSidePanelOpener(opener: typeof openSidePanel) { openSidePanel = opener }
+export async function openChatInSidePanel(chatId: string, branchId?: string) {
+  if (openSidePanel) await openSidePanel(chatId, branchId)
+}
+
 function temporaryChatIds(): string[] {
   try { return JSON.parse(sessionStorage.getItem(TEMPORARY_CHAT_STORAGE_KEY) ?? '[]') } catch { return [] }
 }
@@ -154,7 +161,7 @@ const FALLBACK_MODEL: ModelOption = {
   tags: ['기본', '균형'],
 }
 
-interface ChatState {
+export interface ChatState {
   chats: ChatSummary[]
   nextCursor: string | null
   isLoadingChats: boolean
@@ -341,7 +348,14 @@ interface ChatState {
   openDraftSideChatWithRange: (tag: Omit<ContextRangeTag, 'id'>) => Promise<void>
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
+export interface ChatStoreOptions {
+  /** 마지막 탭을 닫았을 때 패널을 접는 등, 화면 구조만 담당하는 콜백. */
+  onEmptyTabs?: () => void
+}
+
+/** 패널마다 완전히 독립된 대화 상태를 만든다. */
+export function createChatStore(options: ChatStoreOptions = {}) {
+  return create<ChatState>((set, get) => ({
   chats: [],
   nextCursor: null,
   isLoadingChats: false,
@@ -416,7 +430,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const res = await withRequestTimeout(async ({ signal, requestId: id }) => {
         requestId = id
         latestChatListRequestId = id
-        const result = await chatApi.fetchChats({ keyword: normalizedKeyword }, signal)
+        const result = await chatApi.fetchChats(
+          { keyword: normalizedKeyword, limit: 10 },
+          signal,
+        )
         return { result, requestId: id }
       })
       if (latestChatListRequestId !== res.requestId) return
@@ -444,7 +461,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         requestId = id
         latestChatMoreRequestId = id
         const result = await chatApi.fetchChats(
-          { cursor: nextCursor, keyword: chatListKeyword || undefined },
+          { cursor: nextCursor, keyword: chatListKeyword || undefined, limit: 10 },
           signal,
         )
         return { result, requestId: id }
@@ -1338,9 +1355,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isCreatingBranch: true, branchError: null })
     try {
       const created = await chatApi.createConversationNode(chatId, { baseMessageBlockId: baseBlockId })
-      applyDetail(set, created)
-      upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
-      void get().loadSideChatContext()
+      if (openSidePanel) await openSidePanel(created.chatMeta.chatId, created.branchMeta.branchId)
+      else {
+        applyDetail(set, created)
+        upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
+        void get().loadSideChatContext()
+      }
       useNotificationStore.getState().show('분기 대화를 만들었습니다.', 'success')
       return true
     } catch (e) {
@@ -1431,6 +1451,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       void chatApi.deleteChat(closing.chatId).catch(() => undefined)
     }
     const remaining = get().tabs
+    if (remaining.length === 0 && options.onEmptyTabs) {
+      options.onEmptyTabs()
+      return
+    }
     const next = remaining[index] ?? remaining[index - 1] ?? null
     await get().switchToTabOrDraft(next)
   },
@@ -1461,8 +1485,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         branchId,
         isTemporary ? { anchorMessageBlockId, title, isTemporary: true } : { anchorMessageBlockId, title },
       )
-      applyDetail(set, created)
-      upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
+      if (openSidePanel) await openSidePanel(created.chatMeta.chatId, created.branchMeta.branchId)
+      else {
+        applyDetail(set, created)
+        upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
+      }
       if (created.chatMeta.isTemporary) rememberTemporaryChat(created.chatMeta.chatId)
       void get().loadSideChatContext()
       useNotificationStore.getState().show(created.chatMeta.isTemporary ? 'Temporary Chat을 만들었습니다. 탭을 닫으면 삭제됩니다.' : '사이드 채팅을 만들었습니다.', 'success')
@@ -1545,7 +1572,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ isCreatingBranch: false })
     }
   },
-}))
+  }))
+}
+
+/** 좌측 사이드바와 전역 메뉴가 쓰는 기본(메인) 패널 상태. */
+export const useChatStore = createChatStore()
 
 /** 대화 관련 필드만 빈 상태로 되돌린다. 탭 목록 자체는 건드리지 않는다. */
 function resetToDraftFields(

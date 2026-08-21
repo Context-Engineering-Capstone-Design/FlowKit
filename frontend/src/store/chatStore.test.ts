@@ -37,7 +37,7 @@ vi.mock('@/api/conversation', () => convApi)
 vi.mock('@/api/inputAssist', () => ({}))
 vi.mock('@/api/sideChat', () => sideChatApi)
 
-import { useChatStore } from '@/store/chatStore'
+import { createChatStore, useChatStore } from '@/store/chatStore'
 import { useConfirmStore } from '@/store/confirmStore'
 
 describe('chatStore 화면 상태', () => {
@@ -56,6 +56,16 @@ describe('chatStore 화면 상태', () => {
     })
   })
 
+  it('패널 store 인스턴스끼리 입력 상태가 섞이지 않는다', () => {
+    const main = createChatStore()
+    const side = createChatStore()
+    main.getState().setDraftText('메인 입력')
+    side.getState().setDraftText('사이드 입력')
+
+    expect(main.getState().draftText).toBe('메인 입력')
+    expect(side.getState().draftText).toBe('사이드 입력')
+  })
+
   it('검색 cursor 다음 페이지를 중복 없이 이어 붙인다', async () => {
     chatApi.fetchChats
       .mockResolvedValueOnce({ chats: [{ chatId: '1', title: '첫째' }], nextCursor: 'cursor-1' })
@@ -65,7 +75,7 @@ describe('chatStore 화면 상태', () => {
     await useChatStore.getState().loadMoreChats()
 
     expect(chatApi.fetchChats).toHaveBeenLastCalledWith(
-      { cursor: 'cursor-1', keyword: '검색어' },
+      { cursor: 'cursor-1', keyword: '검색어', limit: 10 },
       expect.any(AbortSignal),
     )
     expect(useChatStore.getState().chats.map((item) => item.chatId)).toEqual(['1', '2'])
@@ -76,13 +86,13 @@ describe('chatStore 화면 상태', () => {
 
     await useChatStore.getState().loadChats('  검색어  ')
     expect(chatApi.fetchChats).toHaveBeenLastCalledWith(
-      { keyword: '검색어' },
+      { keyword: '검색어', limit: 10 },
       expect.any(AbortSignal),
     )
 
     await useChatStore.getState().loadChats('   ')
     expect(chatApi.fetchChats).toHaveBeenLastCalledWith(
-      { keyword: undefined },
+      { keyword: undefined, limit: 10 },
       expect.any(AbortSignal),
     )
   })

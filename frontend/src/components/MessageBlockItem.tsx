@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm'
 import { MessageBlockActions } from '@/components/MessageBlockActions'
 import { MessageEditForm } from '@/components/MessageEditForm'
 import { SelectionActionToggle } from '@/components/SelectionActionToggle'
-import { useChatStore } from '@/store/chatStore'
+import { useChatPaneStore } from '@/components/ChatPaneContext'
 import { closeUnterminatedMarkdown } from '@/lib/streamingMarkdown'
 import { rehypeHighlightRanges } from '@/lib/rehypeHighlightRanges'
 import { captureSelection, SELECTABLE_ROOT_ATTR, toTagPreview } from '@/lib/textRangeSelection'
@@ -22,39 +22,39 @@ interface Props {
 
 // 메시지 블록 하나 — 드래그 범위로 Context·정제를 시작하고 정제 결과를 인라인으로 비교
 export function MessageBlockItem({ block, refine }: Props) {
-  const currentBranchId = useChatStore((s) => s.branchId)
-  const regenerate = useChatStore((s) => s.regenerate)
-  const pendingAi = useChatStore((s) => s.pendingByBlockId[block.blockId])
-  const failedJobId = useChatStore((s) => s.failedJobsByBlockId[block.blockId])
-  const retryAiResponseJob = useChatStore((s) => s.retryAiResponseJob)
-  const saveEdit = useChatStore((s) => s.editBlock)
-  const editing = useChatStore((s) => s.editingBlockId === block.blockId)
-  const draft = useChatStore((s) => s.editingDraft)
-  const editBusy = useChatStore((s) => s.isSavingEdit)
-  const startEdit = useChatStore((s) => s.startEdit)
-  const setEditingDraft = useChatStore((s) => s.setEditingDraft)
-  const cancelEdit = useChatStore((s) => s.cancelEdit)
-  const rating = useChatStore((s) => s.ratings[block.blockId])
-  const setFeedback = useChatStore((s) => s.setFeedback)
-  const versions = useChatStore((s) => s.versionsByBlock[block.blockId])
-  const loadVersions = useChatStore((s) => s.loadVersions)
-  const setActiveVersion = useChatStore((s) => s.setActiveVersion)
-  const createBranchAt = useChatStore((s) => s.createBranchAt)
-  const openRefine = useChatStore((s) => s.openRefine)
-  const createSideChatTab = useChatStore((s) => s.createSideChatTab)
-  const openChat = useChatStore((s) => s.openChat)
-  const linkedSideChats = useChatStore((s) => s.sideChatsByBlockId[block.blockId])
-  const view = useChatStore((s) => s.inlineView[block.blockId] ?? 'refined')
-  const highlighted = useChatStore(
+  const currentBranchId = useChatPaneStore((s) => s.branchId)
+  const regenerate = useChatPaneStore((s) => s.regenerate)
+  const pendingAi = useChatPaneStore((s) => s.pendingByBlockId[block.blockId])
+  const failedJobId = useChatPaneStore((s) => s.failedJobsByBlockId[block.blockId])
+  const retryAiResponseJob = useChatPaneStore((s) => s.retryAiResponseJob)
+  const saveEdit = useChatPaneStore((s) => s.editBlock)
+  const editing = useChatPaneStore((s) => s.editingBlockId === block.blockId)
+  const draft = useChatPaneStore((s) => s.editingDraft)
+  const editBusy = useChatPaneStore((s) => s.isSavingEdit)
+  const startEdit = useChatPaneStore((s) => s.startEdit)
+  const setEditingDraft = useChatPaneStore((s) => s.setEditingDraft)
+  const cancelEdit = useChatPaneStore((s) => s.cancelEdit)
+  const rating = useChatPaneStore((s) => s.ratings[block.blockId])
+  const setFeedback = useChatPaneStore((s) => s.setFeedback)
+  const versions = useChatPaneStore((s) => s.versionsByBlock[block.blockId])
+  const loadVersions = useChatPaneStore((s) => s.loadVersions)
+  const setActiveVersion = useChatPaneStore((s) => s.setActiveVersion)
+  const createBranchAt = useChatPaneStore((s) => s.createBranchAt)
+  const openRefine = useChatPaneStore((s) => s.openRefine)
+  const createSideChatTab = useChatPaneStore((s) => s.createSideChatTab)
+  const openChat = useChatPaneStore((s) => s.openChat)
+  const linkedSideChats = useChatPaneStore((s) => s.sideChatsByBlockId[block.blockId])
+  const view = useChatPaneStore((s) => s.inlineView[block.blockId] ?? 'refined')
+  const highlighted = useChatPaneStore(
     (s) => s.highlightedBlockId === block.blockId,
   )
-  const contextRangeTags = useChatStore((s) => s.contextRangeTags)
-  const addContextRangeTag = useChatStore((s) => s.addContextRangeTag)
-  const removeContextRangeTag = useChatStore((s) => s.removeContextRangeTag)
-  const openDraftSideChatWithRange = useChatStore((s) => s.openDraftSideChatWithRange)
+  const contextRangeTags = useChatPaneStore((s) => s.contextRangeTags)
+  const addContextRangeTag = useChatPaneStore((s) => s.addContextRangeTag)
+  const removeContextRangeTag = useChatPaneStore((s) => s.removeContextRangeTag)
+  const openDraftSideChatWithRange = useChatPaneStore((s) => s.openDraftSideChatWithRange)
 
   const isUser = block.role === 'user'
-  const chatId = useChatStore((s) => s.chatId)
+  const chatId = useChatPaneStore((s) => s.chatId)
   const imageAttachments = block.attachments.filter((item) => item.mimeType.startsWith('image/'))
   const fileAttachments = block.attachments.filter((item) => !item.mimeType.startsWith('image/'))
   // 다른(조상) 브랜치에서 이어받은 블록은 재생성하면 원본 대화가 바뀌므로 버튼을 숨긴다(NFR-007)
@@ -336,10 +336,10 @@ export function MessageBlockItem({ block, refine }: Props) {
 
 // 정제 결과 검토 줄 — 원본/정제 전환과 승인·거절 (REQ-031, REQ-036)
 function InlineRefineBar({ result }: { result: RefineResultItem }) {
-  const view = useChatStore((s) => s.inlineView[result.blockId] ?? 'refined')
-  const setInlineView = useChatStore((s) => s.setInlineView)
-  const approve = useChatStore((s) => s.approveResult)
-  const reject = useChatStore((s) => s.rejectResult)
+  const view = useChatPaneStore((s) => s.inlineView[result.blockId] ?? 'refined')
+  const setInlineView = useChatPaneStore((s) => s.setInlineView)
+  const approve = useChatPaneStore((s) => s.approveResult)
+  const reject = useChatPaneStore((s) => s.rejectResult)
 
   return (
     <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-bg-2 px-2.5 py-1.5">

@@ -153,9 +153,47 @@ body {
   box-shadow: inset 0 -1.5px 0 var(--color-range-line);
   border-radius: 2px;
   cursor: pointer;
+  color: inherit;
 }
 .ctx-range-mark:hover {
   background: var(--color-range-line);
+}
+
+.composer-editor {
+  min-height: 1.5em;
+  max-height: 10rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  font-size: 13.5px;
+  color: var(--color-txt-0);
+}
+
+.composer-editor[data-empty='true']::before {
+  content: attr(data-placeholder);
+  color: var(--color-txt-3);
+  pointer-events: none;
+}
+
+.composer-range-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 0.125rem;
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+  background: var(--color-blue-dim);
+  color: var(--color-blue);
+  font-size: 11px;
+  vertical-align: middle;
+  cursor: default;
+  user-select: none;
+}
+
+.composer-range-chip button {
+  display: inline-flex;
+  color: inherit;
 }
 
 /* 정제 결과 승인 직후 블록에 잠깐 주는 적용 완료 효과 (FE-REFINE-005) */

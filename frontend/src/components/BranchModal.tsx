@@ -1,6 +1,6 @@
 import { GitBranch, X } from 'lucide-react'
 import { useState } from 'react'
-import { useChatStore } from '@/store/chatStore'
+import { useChatPaneStore } from '@/components/ChatPaneContext'
 import { toPreview } from '@/lib/preview'
 
 const NAME_SUGGESTIONS = [
@@ -18,10 +18,10 @@ interface Props {
 
 // 브랜치 생성 모달 — 이름, 분기 지점, 포함할 Context 블록을 정한다 (REQ-009, REQ-010)
 export function BranchModal({ onClose, initialBaseBlockId, editedBaseContent }: Props) {
-  const blocks = useChatStore((s) => s.blocks)
-  const createBranch = useChatStore((s) => s.createBranch)
-  const isCreatingBranch = useChatStore((s) => s.isCreatingBranch)
-  const branchError = useChatStore((s) => s.branchError)
+  const blocks = useChatPaneStore((s) => s.blocks)
+  const createBranch = useChatPaneStore((s) => s.createBranch)
+  const isCreatingBranch = useChatPaneStore((s) => s.isCreatingBranch)
+  const branchError = useChatPaneStore((s) => s.branchError)
 
   const [name, setName] = useState('')
   // 분기 지점 기본값은 마지막 블록 — 지금까지의 대화를 모두 이어받는다

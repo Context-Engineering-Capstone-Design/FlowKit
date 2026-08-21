@@ -1,14 +1,14 @@
-import { Clock3, MessageSquare, Split, X } from 'lucide-react'
-import { useChatStore } from '@/store/chatStore'
+import { Clock3, MessageSquare, SlidersHorizontal, Split, X } from 'lucide-react'
+import { useChatPaneStore } from '@/components/ChatPaneContext'
 
 // 열린 메인·사이드 채팅 탭 목록 — 클릭해 전환, X로 닫기 (0820_08 B1)
-export function ChatTabBar() {
-  const tabs = useChatStore((s) => s.tabs)
-  const activeTabId = useChatStore((s) => s.activeTabId)
-  const switchTab = useChatStore((s) => s.switchTab)
-  const closeTab = useChatStore((s) => s.closeTab)
+export function ChatTabBar({ contextOpen = false, onOpenContext = () => {}, onCloseContext = () => {} }: { contextOpen?: boolean; onOpenContext?: () => void; onCloseContext?: () => void }) {
+  const tabs = useChatPaneStore((s) => s.tabs)
+  const activeTabId = useChatPaneStore((s) => s.activeTabId)
+  const switchTab = useChatPaneStore((s) => s.switchTab)
+  const closeTab = useChatPaneStore((s) => s.closeTab)
 
-  if (tabs.length < 2) return null
+  if (tabs.length + (contextOpen ? 1 : 0) < 2) return null
 
   return (
     <div
@@ -52,6 +52,12 @@ export function ChatTabBar() {
           </div>
         )
       })}
+      {contextOpen && (
+        <div role="tab" aria-selected className="group flex shrink-0 items-center gap-1.5 rounded-md bg-bg-3 py-1 pl-2 pr-1 text-[12px] text-txt-0">
+          <button type="button" onClick={onOpenContext} className="flex items-center gap-1.5"><SlidersHorizontal className="h-3 w-3 text-blue" /><span>Context 편집</span></button>
+          <button type="button" onClick={onCloseContext} title="Context 편집 닫기" aria-label="Context 편집 닫기" className="rounded p-0.5 text-txt-3 hover:bg-bg-4 hover:text-txt-0"><X className="h-3 w-3" /></button>
+        </div>
+      )}
     </div>
   )
 }

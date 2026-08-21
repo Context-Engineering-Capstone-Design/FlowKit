@@ -2,37 +2,38 @@ import { ArrowDown, ArrowUp, BookOpen, PanelLeft, PanelRight, Square, Upload, X 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
-import { ChatTabBar } from '@/components/ChatTabBar'
+import { ComposerEditor, type ComposerEditorHandle } from '@/components/ComposerEditor'
 import { ModelSelector } from '@/components/ModelSelector'
 import { MessageBlockItem } from '@/components/MessageBlockItem'
 import { ConversationOutline } from '@/components/ConversationOutline'
 import { SourceContextBanner } from '@/components/SourceContextBanner'
 import { WebSearchToggle } from '@/components/WebSearchToggle'
 import { ReasoningEffortSelector } from '@/components/ReasoningEffortSelector'
-import { useChatStore, type ContextRangeTag } from '@/store/chatStore'
+import { useChatPaneStore } from '@/components/ChatPaneContext'
 import { buildConversationOutline } from '@/lib/conversationOutline'
-import { toTagPreview } from '@/lib/textRangeSelection'
 import * as projectApi from '@/api/project'
 import type { ProjectLibraryResource } from '@/types/api'
 
 interface Props {
-  panelOpen: boolean
-  onTogglePanel: () => void
+  onOpenContextEditor?: () => void
   sidebarOpen: boolean
   onOpenSidebar: () => void
+  /** 이전 호출부 호환용. Context 편집 탭 구조에서는 쓰지 않는다. */
+  panelOpen?: boolean
+  onTogglePanel?: () => void
 }
 
 // 중앙 채팅 영역 — 메시지 블록 목록과 입력창
-export function ChatArea({ panelOpen, onTogglePanel, sidebarOpen, onOpenSidebar }: Props) {
-  const chatTitle = useChatStore((s) => s.chatTitle)
-  const chatId = useChatStore((s) => s.chatId)
-  const blocks = useChatStore((s) => s.blocks)
-  const refineJob = useChatStore((s) => s.refineJob)
-  const selectedCount = useChatStore((s) => s.selectedBlockIds.length)
-  const isSending = useChatStore((s) => s.isSending)
-  const branchId = useChatStore((s) => s.branchId)
-  const addFiles = useChatStore((s) => s.addFiles)
-  const renameChat = useChatStore((s) => s.renameChat)
+export function ChatArea({ onOpenContextEditor = () => {}, sidebarOpen, onOpenSidebar }: Props) {
+  const chatTitle = useChatPaneStore((s) => s.chatTitle)
+  const chatId = useChatPaneStore((s) => s.chatId)
+  const blocks = useChatPaneStore((s) => s.blocks)
+  const refineJob = useChatPaneStore((s) => s.refineJob)
+  const selectedCount = useChatPaneStore((s) => s.selectedBlockIds.length)
+  const isSending = useChatPaneStore((s) => s.isSending)
+  const branchId = useChatPaneStore((s) => s.branchId)
+  const addFiles = useChatPaneStore((s) => s.addFiles)
+  const renameChat = useChatPaneStore((s) => s.renameChat)
 
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -146,7 +147,6 @@ export function ChatArea({ panelOpen, onTogglePanel, sidebarOpen, onOpenSidebar 
           <p className="text-[13px] font-medium text-blue">여기에 파일을 놓으세요</p>
         </div>
       )}
-      <ChatTabBar />
       <header className="flex items-center justify-between px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-1">
           {/* 사이드바가 닫혀 있으면 항상 눌러서 열 수 있는 버튼을 둔다.
@@ -189,14 +189,10 @@ export function ChatArea({ panelOpen, onTogglePanel, sidebarOpen, onOpenSidebar 
         <div className="flex items-center gap-1.5">
         <button
           type="button"
-          onClick={onTogglePanel}
-          title="Context 패널"
-          aria-label="Context 패널"
-          aria-expanded={panelOpen}
-          aria-controls="context-panel"
-          className={`relative rounded-md p-1.5 transition hover:bg-bg-3 ${
-            panelOpen ? 'text-blue' : 'text-txt-2 hover:text-txt-0'
-          }`}
+          onClick={onOpenContextEditor}
+          title="Context 편집"
+          aria-label="Context 편집"
+          className="relative rounded-md p-1.5 text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"
         >
           <PanelRight className="h-4 w-4" />
           {selectedCount > 0 && (
@@ -255,43 +251,41 @@ function EmptyState() {
 
 // 입력창 — 적용 중인 Context 표시와 질문 전송
 function Composer() {
-  const text = useChatStore((s) => s.draftText)
-  const setText = useChatStore((s) => s.setDraftText)
-  const chatId = useChatStore((s) => s.chatId)
-  const projectId = useChatStore((s) => s.projectId)
-  const isSending = useChatStore((s) => s.isSending)
+  const text = useChatPaneStore((s) => s.draftText)
+  const setText = useChatPaneStore((s) => s.setDraftText)
+  const chatId = useChatPaneStore((s) => s.chatId)
+  const projectId = useChatPaneStore((s) => s.projectId)
+  const isSending = useChatPaneStore((s) => s.isSending)
   // 생성 중인 답변이 있으면 전송 버튼 자리를 중단 버튼으로 바꾼다 (문서 C5).
-  const generatingBlockId = useChatStore(
+  const generatingBlockId = useChatPaneStore(
     (s) => s.blocks.find((b) => b.generationStatus === 'generating')?.blockId ?? null,
   )
-  const cancelGeneration = useChatStore((s) => s.cancelGeneration)
-  const appliedCount = useChatStore((s) => s.appliedBlockIds.length)
-  const appliedContextLabel = useChatStore((s) => s.appliedContextLabel)
-  const clearApplied = useChatStore((s) => s.clearAppliedContext)
-  const sendMessage = useChatStore((s) => s.sendMessage)
-  const attachments = useChatStore((s) => s.draftAttachments)
-  const addFiles = useChatStore((s) => s.addFiles)
-  const removeAttachment = useChatStore((s) => s.removeAttachment)
-  const retryAttachment = useChatStore((s) => s.retryAttachment)
-  const models = useChatStore((s) => s.models)
-  const selectedModelId = useChatStore((s) => s.selectedModelId)
-  const setSelectedModel = useChatStore((s) => s.setSelectedModel)
-  const webSearchMode = useChatStore((s) => s.webSearchMode)
-  const setWebSearchMode = useChatStore((s) => s.setWebSearchMode)
-  const reasoningEffort = useChatStore((s) => s.reasoningEffort)
-  const setReasoningEffort = useChatStore((s) => s.setReasoningEffort)
-  const isModelListLoading = useChatStore((s) => s.isModelListLoading)
-  const loadInputAssist = useChatStore((s) => s.loadInputAssist)
-  const selectedLibraryResourceIds = useChatStore((s) => s.selectedLibraryResourceIds)
-  const setSelectedLibraryResourceIds = useChatStore((s) => s.setSelectedLibraryResourceIds)
-  const focusSignal = useChatStore((s) => s.focusSignal)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const cancelGeneration = useChatPaneStore((s) => s.cancelGeneration)
+  const appliedCount = useChatPaneStore((s) => s.appliedBlockIds.length)
+  const appliedContextLabel = useChatPaneStore((s) => s.appliedContextLabel)
+  const clearApplied = useChatPaneStore((s) => s.clearAppliedContext)
+  const sendMessage = useChatPaneStore((s) => s.sendMessage)
+  const attachments = useChatPaneStore((s) => s.draftAttachments)
+  const addFiles = useChatPaneStore((s) => s.addFiles)
+  const removeAttachment = useChatPaneStore((s) => s.removeAttachment)
+  const retryAttachment = useChatPaneStore((s) => s.retryAttachment)
+  const models = useChatPaneStore((s) => s.models)
+  const selectedModelId = useChatPaneStore((s) => s.selectedModelId)
+  const setSelectedModel = useChatPaneStore((s) => s.setSelectedModel)
+  const webSearchMode = useChatPaneStore((s) => s.webSearchMode)
+  const setWebSearchMode = useChatPaneStore((s) => s.setWebSearchMode)
+  const reasoningEffort = useChatPaneStore((s) => s.reasoningEffort)
+  const setReasoningEffort = useChatPaneStore((s) => s.setReasoningEffort)
+  const isModelListLoading = useChatPaneStore((s) => s.isModelListLoading)
+  const loadInputAssist = useChatPaneStore((s) => s.loadInputAssist)
+  const selectedLibraryResourceIds = useChatPaneStore((s) => s.selectedLibraryResourceIds)
+  const setSelectedLibraryResourceIds = useChatPaneStore((s) => s.setSelectedLibraryResourceIds)
+  const focusSignal = useChatPaneStore((s) => s.focusSignal)
+  const tags = useChatPaneStore((s) => s.contextRangeTags)
+  const removeContextRangeTag = useChatPaneStore((s) => s.removeContextRangeTag)
+  const editorRef = useRef<ComposerEditorHandle>(null)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [libraryResources, setLibraryResources] = useState<ProjectLibraryResource[]>([])
-
-  useEffect(() => {
-    textareaRef.current?.focus()
-  }, [focusSignal])
 
   useEffect(() => { void loadInputAssist() }, [loadInputAssist])
   useEffect(() => {
@@ -305,8 +299,8 @@ function Composer() {
 
   async function submit() {
     if (disabled) return
-    const prompt = text
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    const prompt = editorRef.current?.getText() ?? text
+    editorRef.current?.resetHeight()
     await sendMessage(prompt)
   }
 
@@ -322,44 +316,24 @@ function Composer() {
       )}
 
       <div className="rounded-2xl bg-bg-2 p-3">
-        <ContextRangeTagList />
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {attachments.map((attachment) => <AttachmentItem key={attachment.localId} attachment={attachment} onRemove={() => void removeAttachment(attachment.localId)} onRetry={() => void retryAttachment(attachment.localId)} />)}
           </div>
         )}
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value)
-            const ta = e.target
-            ta.style.height = 'auto'
-            ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              void submit()
-            }
-          }}
-          onPaste={(e) => {
-            const files = Array.from(e.clipboardData.items)
-              .filter((item) => item.kind === 'file')
-              .map((item) => item.getAsFile())
-              .filter((file): file is File => file !== null)
-            if (files.length) {
-              e.preventDefault()
-              void addFiles(files)
-            }
-          }}
-          rows={1}
-          placeholder="무엇이든 물어보세요"
-          className="max-h-40 w-full resize-none bg-transparent text-[13.5px] text-txt-0 outline-none placeholder:text-txt-3"
+        <ComposerEditor
+          ref={editorRef}
+          text={text}
+          tags={tags}
+          focusSignal={focusSignal}
+          onChangeText={setText}
+          onRemoveTag={removeContextRangeTag}
+          onSubmit={() => void submit()}
+          onPasteFiles={(files) => void addFiles(files)}
         />
         <div className="mt-2 flex items-center justify-between">
           <div className="flex flex-wrap items-center gap-1">
-            <AttachmentMenu disabled={!chatId || isSending || selectedModel?.supportsAttachment === false} onSelect={(files) => void addFiles(files)} />
+            <AttachmentMenu disabled={isSending || selectedModel?.supportsAttachment === false} onSelect={(files) => void addFiles(files)} />
             <WebSearchToggle mode={webSearchMode} disabled={!selectedModel?.supportsWebSearch} reason={selectedModel?.supportsWebSearch ? undefined : '선택한 모델은 웹 검색을 지원하지 않습니다.'} onChange={setWebSearchMode} />
             <ReasoningEffortSelector value={reasoningEffort} onChange={setReasoningEffort} />
             {projectId && libraryResources.length > 0 && <div className="relative"><button type="button" onClick={() => setLibraryOpen((open) => !open)} title="Project 자료 선택" className={`rounded p-1.5 ${selectedLibraryResourceIds.length ? 'bg-blue-dim text-blue' : 'text-txt-2 hover:bg-bg-3'}`}><BookOpen className="h-3.5 w-3.5" /></button>{libraryOpen && <ProjectLibraryMenu resources={libraryResources} selectedIds={selectedLibraryResourceIds} onChange={setSelectedLibraryResourceIds} />}</div>}
@@ -394,51 +368,4 @@ function Composer() {
 function ProjectLibraryMenu({ resources, selectedIds, onChange }: { resources: ProjectLibraryResource[]; selectedIds: string[]; onChange: (ids: string[]) => void }) {
   function toggle(resourceId: string) { onChange(selectedIds.includes(resourceId) ? selectedIds.filter((id) => id !== resourceId) : [...selectedIds, resourceId]) }
   return <div className="absolute bottom-9 left-0 z-30 w-56 rounded-lg border border-line bg-bg-1 p-2 shadow-xl"><p className="px-1 pb-1 text-[11px] text-txt-3">이번 질문에 참고할 자료</p>{resources.map((resource) => <label key={resource.resourceId} className="flex cursor-pointer items-start gap-2 rounded p-1.5 text-[12px] hover:bg-bg-2"><input type="checkbox" checked={selectedIds.includes(resource.resourceId)} onChange={() => toggle(resource.resourceId)} /><span className="min-w-0"><b className="block truncate font-medium">{resource.title}</b><span className="line-clamp-1 text-txt-3">{resource.content}</span></span></label>)}</div>
-}
-
-// 드래그로 고른 부분 범위 태그 목록 — 다음 전송의 Context로 쓰인다 (0820_13 B1~B3)
-function ContextRangeTagList() {
-  const tags = useChatStore((s) => s.contextRangeTags)
-  const removeContextRangeTag = useChatStore((s) => s.removeContextRangeTag)
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
-
-  if (tags.length === 0) return null
-
-  return (
-    <div className="mb-2 flex flex-wrap gap-1.5">
-      {tags.map((tag) => (
-        <span
-          key={tag.id}
-          onMouseEnter={() => setHoveredId(tag.id)}
-          onMouseLeave={() => setHoveredId((id) => (id === tag.id ? null : id))}
-          className="relative flex items-center gap-1 rounded-full bg-blue-dim px-2.5 py-1 text-[11px] text-blue"
-        >
-          “{toTagPreview(tag.selectedText)}”
-          <button
-            type="button"
-            onClick={() => removeContextRangeTag(tag.id)}
-            title="태그 제거"
-            aria-label="선택 범위 태그 제거"
-          >
-            <X className="h-3 w-3" />
-          </button>
-          {hoveredId === tag.id && <ContextRangeTagPreview tag={tag} />}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-// 태그에 호버하면 선택 당시 스냅샷 기준으로 고른 범위를 강조해 보여준다 (0820_13 B2)
-function ContextRangeTagPreview({ tag }: { tag: ContextRangeTag }) {
-  return (
-    <div
-      role="tooltip"
-      className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 max-h-52 w-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-bg-2 p-2.5 text-left text-[11.5px] leading-relaxed text-txt-2 shadow-lg"
-    >
-      <span>{tag.snapshotText.slice(0, tag.startOffset)}</span>
-      <mark className="ctx-range-mark">{tag.snapshotText.slice(tag.startOffset, tag.endOffset)}</mark>
-      <span>{tag.snapshotText.slice(tag.endOffset)}</span>
-    </div>
-  )
 }

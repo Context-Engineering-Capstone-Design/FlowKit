@@ -1,7 +1,7 @@
-import { Check, Pencil, SlidersHorizontal, Split, X } from 'lucide-react'
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { Check, Pencil, SlidersHorizontal, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { toPreview } from '@/lib/preview'
-import { useChatStore } from '@/store/chatStore'
+import { useChatPaneStore } from '@/components/ChatPaneContext'
 import type { RefineStatus } from '@/types/api'
 import { MessageEditForm } from '@/components/MessageEditForm'
 
@@ -10,59 +10,24 @@ const LEAVE_DURATION = 320
 const LEAVE_STAGGER = 55
 
 interface Props {
-  open?: boolean
   onClose: () => void
-  width: number
-  onResizeStart: () => void
+  /** 이전 좁은 패널 호출부 호환용. */
+  open?: boolean
+  width?: number
+  onResizeStart?: () => void
 }
 
-// 우측 패널 — 드래그 범위에서 연 블록 정제 결과를 검토한다
-export function ContextPanel({ open = true, onClose, width, onResizeStart }: Props) {
-  const blocks = useChatStore((s) => s.blocks)
-  const refineTargetBlockId = useChatStore((s) => s.refineTargetBlockId)
-  const refineJob = useChatStore((s) => s.refineJob)
-  const [resizing, setResizing] = useState(false)
+// 대화 패널 안 Context 편집 탭 — 드래그 범위에서 연 블록 정제 결과를 검토한다
+export function ContextPanel({ onClose }: Props) {
+  const blocks = useChatPaneStore((s) => s.blocks)
+  const refineTargetBlockId = useChatPaneStore((s) => s.refineTargetBlockId)
+  const refineJob = useChatPaneStore((s) => s.refineJob)
 
   const refineTarget = blocks.find((b) => b.blockId === refineTargetBlockId)
 
-  function startResize() {
-    setResizing(true)
-    onResizeStart()
-    function end() {
-      setResizing(false)
-      window.removeEventListener('pointerup', end)
-    }
-    window.addEventListener('pointerup', end)
-  }
-
   return (
-    <>
-      {/* lg 미만에서 패널이 오버레이로 열려 있는 동안 뒤 화면 조작을 막는다 (0821_01 B2) */}
-      {open && (
-        <div
-          aria-hidden
-          onClick={onClose}
-          className="fixed inset-0 z-20 bg-black/50 lg:hidden"
-        />
-      )}
-      <aside
-        id="context-panel"
-        aria-hidden={!open}
-        inert={!open}
-        style={{ '--panel-width': `${width}px` } as CSSProperties}
-        className={`relative shrink-0 overflow-hidden bg-bg-1 max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 ${
-          open ? 'w-[min(90vw,380px)] shadow-2xl lg:w-[var(--panel-width)]' : 'w-0'
-        } ${resizing ? '' : 'transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none'}`}
-      >
-      <div
-        className={`flex h-full w-[min(90vw,380px)] flex-col lg:w-[var(--panel-width)] ${
-          resizing ? '' : 'transition-opacity duration-200 motion-reduce:transition-none'
-        } ${open ? 'opacity-100' : 'opacity-0'}`}
-      >
-      {open && (
-        <div aria-label="Context 패널 너비 조절" onPointerDown={startResize} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize hover:bg-blue lg:block" />
-      )}
-      <header className="flex items-center justify-between px-4 py-3.5">
+    <section className="flex h-full min-h-0 flex-col bg-bg-1">
+      <header className="flex items-center justify-between border-b border-line px-5 py-3.5">
         <span className="flex items-center gap-2 text-[13px] font-semibold">
           <SlidersHorizontal className="h-3.5 w-3.5 text-txt-2" />
           Context 편집 패널
@@ -72,12 +37,11 @@ export function ContextPanel({ open = true, onClose, width, onResizeStart }: Pro
           onClick={onClose}
           className="text-txt-3 transition hover:text-txt-0"
         >
-          <X className="h-4 w-4" />
+          닫기
         </button>
       </header>
 
       <div className="flex flex-1 flex-col overflow-y-auto">
-        <SideChatSection />
         {!refineTarget && !refineJob ? (
           <EmptyGuide />
         ) : (
@@ -88,68 +52,6 @@ export function ContextPanel({ open = true, onClose, width, onResizeStart }: Pro
           </div>
         )}
       </div>
-
-      </div>
-      </aside>
-    </>
-  )
-}
-
-// 사이드 채팅 만들기·전환 — 지금 대화 흐름을 그대로 참고하는 별도 대화 (0820_08 B2)
-function SideChatSection() {
-  const chatId = useChatStore((s) => s.chatId)
-  const chatKind = useChatStore((s) => s.chatKind)
-  const tabs = useChatStore((s) => s.tabs)
-  const sideChatTree = useChatStore((s) => s.sideChatTree)
-  const isCreating = useChatStore((s) => s.isCreatingSideChat)
-  const createSideChatTab = useChatStore((s) => s.createSideChatTab)
-  const openChat = useChatStore((s) => s.openChat)
-
-  if (!chatId) return null
-  const children = sideChatTree.filter((c) => c.parentChatId === chatId)
-
-  return (
-    <section className="border-b border-line px-4 pb-4 pt-3.5">
-      <SectionLabel>사이드 채팅</SectionLabel>
-      <p className="mt-1.5 text-[11px] leading-relaxed text-txt-3">
-        상위 대화만 참고하며, 이 대화에는 자동으로 반영되지 않습니다.
-      </p>
-      {chatKind === 'MAIN' ? (
-        <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-          <button type="button" onClick={() => void createSideChatTab()} disabled={isCreating} className="rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50">
-            <Split className="mr-1 inline h-3.5 w-3.5" />새 사이드 채팅 만들기
-          </button>
-          <button type="button" onClick={() => void createSideChatTab(undefined, undefined, true)} disabled={isCreating} className="rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50">
-            Temporary
-          </button>
-        </div>
-      ) : (
-        <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-          <button type="button" onClick={() => void createSideChatTab()} disabled={isCreating} className="rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50"><Split className="mr-1 inline h-3.5 w-3.5" />새 사이드 채팅 만들기</button>
-          <button type="button" onClick={() => void createSideChatTab(undefined, undefined, true)} disabled={isCreating} className="rounded-lg bg-bg-2 py-2 text-[12px] font-semibold text-txt-1 transition hover:bg-bg-3 disabled:opacity-50">Temporary</button>
-        </div>
-      )}
-
-      {children.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {children.map((child) => {
-            const active = tabs.some((t) => t.chatId === child.chatId)
-            return (
-              <button
-                key={child.chatId}
-                type="button"
-                onClick={() => void openChat(child.chatId)}
-                className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11.5px] transition ${
-                  active ? 'bg-bg-2 text-txt-0' : 'text-txt-2 hover:bg-bg-2 hover:text-txt-1'
-                }`}
-              >
-                <Split className="h-3 w-3 shrink-0 text-green" />
-                <span className="truncate">{child.title}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
     </section>
   )
 }
@@ -173,18 +75,18 @@ function EmptyGuide() {
 
 // 드래그 범위에서 연 단일 정제 대상 — 연필 아이콘으로 바로 고칠 수 있다
 function SelectedBlocks() {
-  const blocks = useChatStore((s) => s.blocks)
-  const branchId = useChatStore((s) => s.branchId)
-  const refineTargetBlockId = useChatStore((s) => s.refineTargetBlockId)
-  const refineJob = useChatStore((s) => s.refineJob)
-  const editing = useChatStore((s) => s.editingBlockId === refineTargetBlockId)
-  const draft = useChatStore((s) => s.editingDraft)
-  const editBusy = useChatStore((s) => s.isSavingEdit)
-  const startEdit = useChatStore((s) => s.startEdit)
-  const setEditingDraft = useChatStore((s) => s.setEditingDraft)
-  const cancelEdit = useChatStore((s) => s.cancelEdit)
-  const saveEdit = useChatStore((s) => s.editBlock)
-  const createBranchAt = useChatStore((s) => s.createBranchAt)
+  const blocks = useChatPaneStore((s) => s.blocks)
+  const branchId = useChatPaneStore((s) => s.branchId)
+  const refineTargetBlockId = useChatPaneStore((s) => s.refineTargetBlockId)
+  const refineJob = useChatPaneStore((s) => s.refineJob)
+  const editing = useChatPaneStore((s) => s.editingBlockId === refineTargetBlockId)
+  const draft = useChatPaneStore((s) => s.editingDraft)
+  const editBusy = useChatPaneStore((s) => s.isSavingEdit)
+  const startEdit = useChatPaneStore((s) => s.startEdit)
+  const setEditingDraft = useChatPaneStore((s) => s.setEditingDraft)
+  const cancelEdit = useChatPaneStore((s) => s.cancelEdit)
+  const saveEdit = useChatPaneStore((s) => s.editBlock)
+  const createBranchAt = useChatPaneStore((s) => s.createBranchAt)
 
   const selected = blocks.find((b) => b.blockId === refineTargetBlockId)
   if (!selected) return null
@@ -237,18 +139,18 @@ function SelectedBlocks() {
 
 // 자연어 편집 지시 입력 (REQ-025)
 function RefineForm() {
-  const instruction = useChatStore((s) => s.contextInstruction)
-  const setInstruction = useChatStore((s) => s.setContextInstruction)
-  const focusSignal = useChatStore((s) => s.contextInstructionFocusSignal)
-  const blocks = useChatStore((s) => s.blocks)
-  const refineTargetBlockId = useChatStore((s) => s.refineTargetBlockId)
-  const branchId = useChatStore((s) => s.branchId)
-  const isRefining = useChatStore((s) => s.isRefining)
-  const runRefine = useChatStore((s) => s.runRefine)
-  const retryRefine = useChatStore((s) => s.retryRefine)
-  const refineFailed = useChatStore((s) => s.refineFailed)
-  const refineError = useChatStore((s) => s.error)
-  const refineJob = useChatStore((s) => s.refineJob)
+  const instruction = useChatPaneStore((s) => s.contextInstruction)
+  const setInstruction = useChatPaneStore((s) => s.setContextInstruction)
+  const focusSignal = useChatPaneStore((s) => s.contextInstructionFocusSignal)
+  const blocks = useChatPaneStore((s) => s.blocks)
+  const refineTargetBlockId = useChatPaneStore((s) => s.refineTargetBlockId)
+  const branchId = useChatPaneStore((s) => s.branchId)
+  const isRefining = useChatPaneStore((s) => s.isRefining)
+  const runRefine = useChatPaneStore((s) => s.runRefine)
+  const retryRefine = useChatPaneStore((s) => s.retryRefine)
+  const refineFailed = useChatPaneStore((s) => s.refineFailed)
+  const refineError = useChatPaneStore((s) => s.error)
+  const refineJob = useChatPaneStore((s) => s.refineJob)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -310,13 +212,13 @@ function RefineForm() {
 
 // 정제 결과 미리보기 — 원본과 정제본 비교 (REQ-029)
 function RefinePreview() {
-  const refineJob = useChatStore((s) => s.refineJob)
-  const blocks = useChatStore((s) => s.blocks)
-  const approve = useChatStore((s) => s.approveResult)
-  const reject = useChatStore((s) => s.rejectResult)
-  const approveAll = useChatStore((s) => s.approveAll)
-  const rejectAll = useChatStore((s) => s.rejectAll)
-  const closeRefine = useChatStore((s) => s.closeRefine)
+  const refineJob = useChatPaneStore((s) => s.refineJob)
+  const blocks = useChatPaneStore((s) => s.blocks)
+  const approve = useChatPaneStore((s) => s.approveResult)
+  const reject = useChatPaneStore((s) => s.rejectResult)
+  const approveAll = useChatPaneStore((s) => s.approveAll)
+  const rejectAll = useChatPaneStore((s) => s.rejectAll)
+  const closeRefine = useChatPaneStore((s) => s.closeRefine)
 
   // 방금 승인되어 밀려 나가는 중인 항목. 애니메이션이 끝나야 목록에서 완전히 빠진다 (REQ-039)
   const [leavingIds, setLeavingIds] = useState<Set<string>>(new Set())

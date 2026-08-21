@@ -2,7 +2,7 @@ import { ChevronDown, Folder, FolderCog, FolderPlus, MessageSquare, PanelLeft, P
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { ProfileMenu } from '@/components/ProfileMenu'
-import { useChatStore } from '@/store/chatStore'
+import { openChatInSidePanel, useChatStore } from '@/store/chatStore'
 import { buildSideChatTreeOrder } from '@/lib/sideChatTree'
 import { ProjectManager } from '@/components/ProjectManager'
 import * as projectApi from '@/api/project'
@@ -231,6 +231,7 @@ export function Sidebar({
           onDropChat={handleChatDrop}
           onClearDropTarget={() => setDropTarget(null)}
         />
+        <ConversationStructureSection />
         <div
           onDragOver={(event) => allowChatDrop(event, RECENT_DROP_TARGET)}
           onDragLeave={() => setDropTarget((target) => (target === RECENT_DROP_TARGET ? null : target))}
@@ -326,8 +327,6 @@ export function Sidebar({
           </button>
         )}
         </div>
-
-        <ConversationStructureSection />
       </div>
 
       <ProfileMenu />
@@ -546,7 +545,7 @@ function ConversationStructureSection() {
         >
           <button
             type="button"
-            onClick={() => void openChat(chat.chatId)}
+            onClick={() => void (chat.kind === 'SIDE' ? openChatInSidePanel(chat.chatId) : openChat(chat.chatId))}
             style={{ paddingLeft: `${8 + depth * 14}px` }}
             className="flex min-w-0 flex-1 items-center gap-2 py-[7px] pr-1 text-left text-[12.5px] transition"
           >

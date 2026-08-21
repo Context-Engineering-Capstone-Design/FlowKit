@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiKeyModal } from '@/components/ApiKeyModal'
-import { ChatArea } from '@/components/ChatArea'
-import { ContextPanel } from '@/components/ContextPanel'
+import { ChatPane } from '@/components/ChatPane'
 import { LoginScreen } from '@/components/LoginScreen'
 import { Sidebar } from '@/components/Sidebar'
 import { UserProfileModal } from '@/components/UserProfileModal'
@@ -12,7 +11,7 @@ import { reportClientError } from '@/lib/errorReporting'
 import { handleAuthExpired } from '@/lib/authExpiration'
 import { AUTH_EXPIRED_EVENT } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
-import { useChatStore } from '@/store/chatStore'
+import { createChatStore, setSidePanelOpener, useChatStore } from '@/store/chatStore'
 import { useNotificationStore } from '@/store/notificationStore'
 
 // 앱 최상단 틀 — 로그인 여부에 따라 로그인 화면 또는 3단 작업 화면을 보여준다
@@ -60,16 +59,16 @@ function isNarrowViewport() {
   return window.matchMedia('(max-width: 1023.98px)').matches
 }
 
-// 3단 작업 화면 — 좌측 대화·브랜치, 중앙 채팅, 우측 Context 편집 (NFR-001)
+// 좌측 사이드바와 최대 두 개의 독립 대화 패널을 배치한다.
 function Workspace() {
   // 좁은 화면에서는 기본으로 접어 둔다. 화면 폭은 마운트 시점에만 확인하고,
   // 이후 창 크기를 바꿔도 사용자가 이미 고른 열림 상태는 임의로 바꾸지 않는다.
   const [sidebarPinned, setSidebarPinned] = useState(() => !isNarrowViewport())
   const [sidebarPeeking, setSidebarPeeking] = useState(false)
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [panelWidth, setPanelWidth] = useState(() => Number(sessionStorage.getItem('flowkit_context_panel_width')) || 310)
+  const [sideStore, setSideStore] = useState<typeof useChatStore | null>(null)
+  const sideStoreRef = useRef<typeof useChatStore | null>(null)
+  const [sideWidth, setSideWidth] = useState(() => Number(sessionStorage.getItem('flowkit_side_panel_width')) || 520)
   const openDefaultChat = useChatStore((s) => s.openDefaultChat)
-  const contextPanelSignal = useChatStore((s) => s.contextPanelSignal)
   const draftText = useChatStore((s) => s.draftText)
   const attachmentCount = useChatStore((s) => s.draftAttachments.length)
   const editingBlockId = useChatStore((s) => s.editingBlockId)
@@ -84,9 +83,17 @@ function Workspace() {
 
 
   useEffect(() => {
-    if (contextPanelSignal) openPanel()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextPanelSignal])
+    setSidePanelOpener(async (chatId, branchId) => {
+      let store = sideStoreRef.current
+      if (!store) {
+        store = createChatStore({ onEmptyTabs: () => { sideStoreRef.current = null; setSideStore(null) } })
+        sideStoreRef.current = store
+        setSideStore(store)
+      }
+      await store.getState().openChat(chatId, branchId)
+    })
+    return () => setSidePanelOpener(null)
+  }, [])
 
   useEffect(() => {
     const dirty = Boolean(draftText.trim() || attachmentCount || (editingBlockId && editingDraft !== editingOriginal))
@@ -96,10 +103,10 @@ function Workspace() {
     return () => window.removeEventListener('beforeunload', guard)
   }, [attachmentCount, draftText, editingBlockId, editingDraft, editingOriginal])
 
-  function resizePanel(clientX: number) {
-    const next = Math.min(480, Math.max(260, window.innerWidth - clientX))
-    setPanelWidth(next)
-    sessionStorage.setItem('flowkit_context_panel_width', String(next))
+  function resizeSidePanel(clientX: number) {
+    const next = Math.min(Math.floor(window.innerWidth * 0.7), Math.max(360, window.innerWidth - clientX))
+    setSideWidth(next)
+    sessionStorage.setItem('flowkit_side_panel_width', String(next))
   }
 
   function closeSidebar() {
@@ -107,25 +114,9 @@ function Workspace() {
     setSidebarPeeking(false)
   }
 
-  // 좁은 화면에서는 사이드바와 Context 패널이 동시에 화면을 덮지 않도록,
-  // 한쪽을 열면 다른 쪽을 닫는다 (0821_01 B3).
   function openSidebar() {
     setSidebarPinned(true)
     setSidebarPeeking(false)
-    if (isNarrowViewport()) setPanelOpen(false)
-  }
-
-  function openPanel() {
-    setPanelOpen(true)
-    if (isNarrowViewport()) {
-      setSidebarPinned(false)
-      setSidebarPeeking(false)
-    }
-  }
-
-  function togglePanel() {
-    if (panelOpen) setPanelOpen(false)
-    else openPanel()
   }
 
   return (
@@ -163,22 +154,24 @@ function Workspace() {
         onPeekEnter={() => setSidebarPeeking(true)}
         onPeekLeave={() => setSidebarPeeking(false)}
       />
-      <ChatArea
-        panelOpen={panelOpen}
-        onTogglePanel={togglePanel}
-        sidebarOpen={sidebarOpen}
-        onOpenSidebar={openSidebar}
-      />
-      <ContextPanel
-        open={panelOpen}
-        onClose={() => setPanelOpen(false)}
-        width={panelWidth}
-        onResizeStart={() => {
-        function move(event: PointerEvent) { resizePanel(event.clientX) }
-        function end() { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end) }
-        window.addEventListener('pointermove', move)
-        window.addEventListener('pointerup', end)
-      }} />
+      <div className="flex min-w-0 flex-1">
+        <ChatPane store={useChatStore} sidebarOpen={sidebarOpen} onOpenSidebar={openSidebar} />
+        {sideStore && (
+          <div style={{ width: sideWidth }} className="relative hidden min-w-[360px] shrink-0 lg:flex">
+            <div
+              aria-label="사이드 패널 너비 조절"
+              onPointerDown={() => {
+                function move(event: PointerEvent) { resizeSidePanel(event.clientX) }
+                function end() { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end) }
+                window.addEventListener('pointermove', move)
+                window.addEventListener('pointerup', end)
+              }}
+              className="absolute inset-y-0 left-0 z-20 w-1 cursor-col-resize hover:bg-blue"
+            />
+            <ChatPane store={sideStore} sidebarOpen={sidebarOpen} onOpenSidebar={openSidebar} />
+          </div>
+        )}
+      </div>
       <UserProfileModal />
       <ApiKeyModal />
     </div>
