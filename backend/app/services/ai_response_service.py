@@ -228,6 +228,35 @@ def generating_job_ids_for_blocks(db: Session, block_ids: list[uuid.UUID]) -> di
     return {job.assistant_message_block_id: job.id for job in rows}
 
 
+def retryable_failed_job_ids_for_user_blocks(db: Session, block_ids: list[uuid.UUID]) -> dict[uuid.UUID, uuid.UUID]:
+    """각 사용자 질문의 마지막 generate 작업이 실패했을 때만 재시도 id를 돌려준다."""
+    if not block_ids:
+        return {}
+    jobs = list(
+        db.scalars(
+            select(AiResponseJob)
+            .where(
+                AiResponseJob.user_message_block_id.in_(block_ids),
+                AiResponseJob.job_type == AiResponseJobType.GENERATE,
+            )
+            .order_by(AiResponseJob.created_at.desc(), AiResponseJob.id.desc())
+        )
+    )
+    # retry는 직전 실패 작업을 source_job_id로 잇는다. DB의 created_at 정밀도가
+    # 낮아도 이 연결을 보면 오래된 실패를 최신 작업으로 잘못 판단하지 않는다.
+    superseded_job_ids = {job.source_job_id for job in jobs if job.source_job_id is not None}
+    latest_by_user_block: dict[uuid.UUID, AiResponseJob] = {}
+    for job in jobs:
+        if job.id in superseded_job_ids:
+            continue
+        latest_by_user_block.setdefault(job.user_message_block_id, job)
+    return {
+        user_block_id: job.id
+        for user_block_id, job in latest_by_user_block.items()
+        if job.status is AiResponseJobStatus.FAILED
+    }
+
+
 def cleanup_stuck_jobs(db: Session) -> int:
     """서버가 내려갔다 올라왔을 때, 진행 중으로 남은 작업을 실패로 정리한다 .
 
@@ -265,6 +294,8 @@ def _start_job(job_id, block_id, version_id, chat_id, user_id, snapshot, api_key
 def _run_generation_job(job_id, block_id, version_id, chat_id, user_id, snapshot, api_key, answerer=None) -> None:
     streaming_service.start(job_id)
     db = session_factory()
+    retryable = False
+    retry_user_message_block_id: str | None = None
     try:
         job = db.get(AiResponseJob, job_id)
         branch_id = job.branch_id
@@ -349,11 +380,21 @@ def _run_generation_job(job_id, block_id, version_id, chat_id, user_id, snapshot
         if status is BlockGenerationStatus.COMPLETE:
             job.result_version_id = version_id
         db.commit()
+        retryable = job_status is AiResponseJobStatus.FAILED and job.job_type is AiResponseJobType.GENERATE
+        retry_user_message_block_id = str(job.user_message_block_id) if retryable else None
     finally:
         db.close()
 
     error_out = {"errorCode": error_code, "message": error_message} if error_code else None
-    streaming_service.publish_done(job_id, job_status.value, final_text, sources_payload or [], error_out)
+    streaming_service.publish_done(
+        job_id,
+        job_status.value,
+        final_text,
+        sources_payload or [],
+        error_out,
+        retry_user_message_block_id,
+        retryable,
+    )
     realtime_service.publish_chat_activity(user_id, chat_id, branch_id)
     realtime_service.publish_chats_changed(user_id)
 

@@ -66,12 +66,25 @@ def _applied_context_by_block(db, user_blocks) -> dict[uuid.UUID, list[AppliedCo
 
 
 def _block_list(db, blocks) -> list[MessageBlockOut]:
-    """생성 중인 블록에는 다시 붙을 작업 id를 함께 실어 보낸다."""
+    """진행 중 작업과 마지막 실패 생성 작업을 화면 복구용으로 함께 실어 보낸다."""
+    # 생성 스레드는 별도 세션에서 블록·작업 상태를 확정한다. 개발 서버와 테스트의
+    # 요청 세션이 이전 객체를 잡고 있어도, 상세 조회는 반드시 DB의 마지막 상태를
+    # 직렬화해야 한다.
+    db.expire_all()
     generating_ids = [b.id for b in blocks if b.generation_status.value == "generating"]
     job_by_block = ai_response_service.generating_job_ids_for_blocks(db, generating_ids)
-    applied_context_by_block = _applied_context_by_block(db, [b for b in blocks if b.role.value == "user"])
+    user_blocks = [b for b in blocks if b.role.value == "user"]
+    applied_context_by_block = _applied_context_by_block(db, user_blocks)
+    retry_job_by_user_block = ai_response_service.retryable_failed_job_ids_for_user_blocks(
+        db, [b.id for b in user_blocks]
+    )
     return [
-        MessageBlockOut.of(b, job_by_block.get(b.id), applied_context_by_block.get(b.id))
+        MessageBlockOut.of(
+            b,
+            generation_job_id=job_by_block.get(b.id),
+            applied_context=applied_context_by_block.get(b.id),
+            retry_ai_response_job_id=retry_job_by_user_block.get(b.id),
+        )
         for b in blocks
     ]
 

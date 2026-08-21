@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/store/authStore'
-import { useChatStore } from '@/store/chatStore'
+import { resetAllChatSessions } from '@/store/chatStore'
 import { useNotificationStore } from '@/store/notificationStore'
 import { useSettingsStore } from '@/store/settingsStore'
 
@@ -7,7 +7,7 @@ import { useSettingsStore } from '@/store/settingsStore'
 export function handleAuthExpired() {
   useAuthStore.getState().clearSession()
   useSettingsStore.getState().closeModal()
-  useChatStore.getState().resetSession()
+  resetAllChatSessions()
   useNotificationStore.getState().showError(new Error('auth-session-expired'), {
     message: '세션이 만료되었습니다. 다시 로그인해주세요.',
     scope: 'auth-session',

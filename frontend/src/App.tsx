@@ -105,6 +105,11 @@ function Workspace() {
     return () => disconnectRealtime()
   }, [])
 
+  useEffect(() => () => {
+    sideStoreRef.current?.getState().dispose()
+    sideStoreRef.current = null
+  }, [])
+
 
   useEffect(() => {
     setSidePanelOpener(async (chatId, branchId) => {
@@ -112,6 +117,7 @@ function Workspace() {
       if (!store) {
         store = createChatStore({
           onEmptyTabs: () => {
+            sideStoreRef.current?.getState().dispose()
             sideStoreRef.current = null
             setSideStore(null)
             setSidePanelFocused(false)

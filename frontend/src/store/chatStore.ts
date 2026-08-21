@@ -68,26 +68,8 @@ function newDraftId() {
   return `draft:${crypto.randomUUID()}`
 }
 
-let latestChatListRequestId: string | null = null
-let latestChatMoreRequestId: string | null = null
-let chatStatusPoll: ReturnType<typeof setInterval> | null = null
-
-let chatsRefreshTimer: ReturnType<typeof setTimeout> | null = null
 const CHATS_REFRESH_COALESCE_MS = 300
-
-/**
- * 새 대화 생성·전송 완료·실시간 이벤트처럼 화면 밖에서 오는 신호로 채팅 목록을
- * 다시 불러올 때 쓴다. 메시지 하나를 보내고 응답을 받는 사이 이런 신호가 여러
- * 곳에서 거의 동시에 겹쳐 들어오는데, 신호마다 바로 불러오면 짧은 시간에 목록이
- * 여러 번 다시 그려져 화면이 깜빡인다. 짧은 시간 안에 겹친 신호는 하나로 합친다.
- */
-function scheduleChatsRefresh(get: () => ChatState) {
-  if (chatsRefreshTimer) return
-  chatsRefreshTimer = setTimeout(() => {
-    chatsRefreshTimer = null
-    void get().loadChats(get().chatListKeyword || undefined)
-  }, CHATS_REFRESH_COALESCE_MS)
-}
+const STREAM_RECONNECT_DELAYS_MS = [1000, 2000, 4000]
 
 function uniqueChats(chats: ChatSummary[]): ChatSummary[] {
   const seenChatIds = new Set<string>()
@@ -98,24 +80,26 @@ function uniqueChats(chats: ChatSummary[]): ChatSummary[] {
   })
 }
 
+function retryableJobsByBlock(blocks: MessageBlock[]): Record<string, string> {
+  return Object.fromEntries(
+    blocks.flatMap((block) => (
+      block.retryAiResponseJobId ? [[block.blockId, block.retryAiResponseJobId] as const] : []
+    )),
+  )
+}
+
 // 0821_05: 실시간 이벤트 채널이 주 경로다. 이 폴링은 연결이 끊겼다가 재연결
 // 전까지 이벤트를 놓쳤을 때만 의미가 있는 안전망이라 간격을 크게 늘렸다.
 const CHAT_STATUS_POLL_INTERVAL_MS = 60_000
-
-function syncChatStatusPolling(get: () => ChatState) {
-  const shouldPoll = get().chats.some((chat) => chat.isGenerating)
-  if (shouldPoll && chatStatusPoll === null) {
-    chatStatusPoll = setInterval(() => void get().loadChats(get().chatListKeyword || undefined), CHAT_STATUS_POLL_INTERVAL_MS)
-  } else if (!shouldPoll && chatStatusPoll !== null) {
-    clearInterval(chatStatusPoll)
-    chatStatusPoll = null
-  }
-}
-
-// 답변 블록별로 지금 붙어 있는 스트리밍 연결. AbortController는 직렬화할 수
-// 없는 값이라 Zustand 상태 밖(모듈 스코프)에 둔다 .
-const activeStreams = new Map<string, { controller: AbortController; jobId: string }>()
 const TEMPORARY_CHAT_STORAGE_KEY = 'flowkit:temporary-chat-ids'
+const registeredChatSessionResetters = new Set<(deactivate?: boolean) => void>()
+
+/** 로그인 전환 시 메인·사이드 패널의 대화 상태와 실행 중 작업을 함께 비운다. */
+export function resetAllChatSessions() {
+  disconnectRealtime()
+  for (const resetSession of [...registeredChatSessionResetters]) resetSession(true)
+  try { sessionStorage.removeItem(TEMPORARY_CHAT_STORAGE_KEY) } catch {}
+}
 
 /** 어느 패널에서 파생해도 새 사이드 대화는 우측 패널로 보낸다. */
 let openSidePanel: ((chatId: string, branchId?: string) => Promise<void>) | null = null
@@ -144,14 +128,6 @@ function streamKey(chatId: string, branchId: string, blockId: string) {
   return `${chatId}:${branchId}:${blockId}`
 }
 
-function stopStream(chatId: string, branchId: string, blockId: string, expectedJobId?: string) {
-  const key = streamKey(chatId, branchId, blockId)
-  const active = activeStreams.get(key)
-  if (!active || (expectedJobId && active.jobId !== expectedJobId)) return
-  active.controller.abort()
-  activeStreams.delete(key)
-}
-
 // 0820_06 마일스톤 C: 작업별 화면 전달 시간 측정값. 질문·답변 본문은 담지
 // 않는다 — 시각과 재접속 횟수만 모아뒀다가 끝날 때 한 번에 보낸다.
 interface DeliveryDraft {
@@ -160,34 +136,6 @@ interface DeliveryDraft {
   streamConnectedAt?: number
   firstChunkShownAt?: number
   reconnectCount: number
-}
-const deliveryDrafts = new Map<string, DeliveryDraft>()
-
-function beginDelivery(jobId: string, clickedAt?: number) {
-  deliveryDrafts.set(jobId, { clickedAt, blockShownAt: Date.now(), reconnectCount: 0 })
-}
-
-function flushDeliveryTiming(
-  chatId: string,
-  branchId: string,
-  jobId: string,
-  finalOutcome: convApi.DeliveryOutcome,
-) {
-  const draft = deliveryDrafts.get(jobId)
-  if (!draft) return // 이미 보냈거나 측정을 시작하지 않은 작업(예: 재접속 실패 후 중복 호출)
-  deliveryDrafts.delete(jobId)
-  const iso = (ms?: number) => (ms ? new Date(ms).toISOString() : null)
-  void convApi
-    .sendDeliveryTiming(chatId, branchId, jobId, {
-      clickedAt: iso(draft.clickedAt),
-      blockShownAt: iso(draft.blockShownAt),
-      streamConnectedAt: iso(draft.streamConnectedAt),
-      firstChunkShownAt: iso(draft.firstChunkShownAt),
-      doneAt: new Date().toISOString(),
-      reconnectCount: draft.reconnectCount,
-      finalOutcome,
-    })
-    .catch(() => {}) // 개발·운영 조회용 신호라 실패해도 화면 흐름을 막지 않는다
 }
 
 // 목록 조회에 실패했을 때 보여줄 기본 모델 . 서버 목록과 어긋나면
@@ -301,8 +249,12 @@ export interface ChatState {
   newChat: (projectId?: string) => Promise<void>
   /** 로그인·새로고침 후 작업 화면에 들어오면 바로 빈 대화를 연다. */
   openDefaultChat: () => Promise<void>
-  /** 로그아웃·세션 만료 때 이전 사용자의 대화 상태를 비운다. */
-  resetSession: () => void
+  /** 이전 대화 상태를 비운다. 로그인 전환 경로는 내부 비활성 플래그도 함께 쓴다. */
+  resetSession: (deactivate?: boolean) => void
+  /** 패널을 완전히 닫을 때 스트림·타이머까지 정리하고 세션 등록을 해제한다. */
+  dispose: () => void
+  /** 같은 스토어 안에서 채팅 목록 갱신 신호를 짧게 합친다. */
+  refreshChatListSoon: () => void
   openChat: (chatId: string, branchId?: string) => Promise<void>
   deleteChat: (chatId: string) => Promise<void>
   /** 대화 이름을 사용자가 직접 입력한 값으로 바꾼다 . */
@@ -414,6 +366,141 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   const targetActivityByKey = new Map<string, { sequence: number; pending: boolean; revision: number }>()
   const pendingChatCreationsByDraftId = new Map<string, Promise<ChatDetail>>()
   let pendingOpenChat: { chatId: string; requestId: number } | null = null
+  let sessionEpoch = 0
+  let canRefreshForSession = true
+  let disposed = false
+  let latestChatListRequestId: string | null = null
+  let latestChatMoreRequestId: string | null = null
+  let chatStatusPoll: ReturnType<typeof setInterval> | null = null
+  let chatsRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  let sessionResetter: ((deactivate?: boolean) => void) | null = null
+  const activeStreams = new Map<string, { controller: AbortController; jobId: string }>()
+  const deliveryDrafts = new Map<string, DeliveryDraft>()
+
+  function isCurrentSession(epoch: number) {
+    return !disposed && sessionEpoch === epoch
+  }
+
+  /** 이 스토어의 목록 갱신 신호만 짧게 합친다. */
+  function scheduleChatsRefresh(get: () => ChatState) {
+    if (disposed || !canRefreshForSession || chatsRefreshTimer) return
+    const epoch = sessionEpoch
+    chatsRefreshTimer = setTimeout(() => {
+      chatsRefreshTimer = null
+      if (!canRefreshForSession || !isCurrentSession(epoch)) return
+      void get().loadChats(get().chatListKeyword || undefined)
+    }, CHATS_REFRESH_COALESCE_MS)
+  }
+
+  function syncChatStatusPolling(get: () => ChatState) {
+    if (!canRefreshForSession) {
+      if (chatStatusPoll !== null) clearInterval(chatStatusPoll)
+      chatStatusPoll = null
+      return
+    }
+    const shouldPoll = get().chats.some((chat) => chat.isGenerating)
+    if (shouldPoll && chatStatusPoll === null) {
+      const epoch = sessionEpoch
+      chatStatusPoll = setInterval(() => {
+        if (!canRefreshForSession || !isCurrentSession(epoch)) return
+        void get().loadChats(get().chatListKeyword || undefined)
+      }, CHAT_STATUS_POLL_INTERVAL_MS)
+    } else if (!shouldPoll && chatStatusPoll !== null) {
+      clearInterval(chatStatusPoll)
+      chatStatusPoll = null
+    }
+  }
+
+  function stopStream(chatId: string, branchId: string, blockId: string, expectedJobId?: string) {
+    const key = streamKey(chatId, branchId, blockId)
+    const active = activeStreams.get(key)
+    if (!active || (expectedJobId && active.jobId !== expectedJobId)) return
+    active.controller.abort()
+    activeStreams.delete(key)
+    deliveryDrafts.delete(active.jobId)
+  }
+
+  function beginDelivery(jobId: string, clickedAt?: number) {
+    deliveryDrafts.set(jobId, { clickedAt, blockShownAt: Date.now(), reconnectCount: 0 })
+  }
+
+  function flushDeliveryTiming(
+    chatId: string,
+    branchId: string,
+    jobId: string,
+    finalOutcome: convApi.DeliveryOutcome,
+  ) {
+    const draft = deliveryDrafts.get(jobId)
+    if (!draft) return
+    deliveryDrafts.delete(jobId)
+    const iso = (ms?: number) => (ms ? new Date(ms).toISOString() : null)
+    void convApi
+      .sendDeliveryTiming(chatId, branchId, jobId, {
+        clickedAt: iso(draft.clickedAt),
+        blockShownAt: iso(draft.blockShownAt),
+        streamConnectedAt: iso(draft.streamConnectedAt),
+        firstChunkShownAt: iso(draft.firstChunkShownAt),
+        doneAt: new Date().toISOString(),
+        reconnectCount: draft.reconnectCount,
+        finalOutcome,
+      })
+      .catch(() => {})
+  }
+
+  async function reconnectStreamWithBackoff(
+    chatId: string,
+    branchId: string,
+    jobId: string,
+    handlers: convApi.AiStreamHandlers,
+    signal: AbortSignal,
+    isStreamActive: () => boolean,
+    ownsStreamBlock: () => boolean,
+    attempt = 0,
+  ): Promise<void> {
+    if (signal.aborted || !isStreamActive()) return
+    if (attempt >= STREAM_RECONNECT_DELAYS_MS.length) {
+      if (!isStreamActive()) return
+      flushDeliveryTiming(chatId, branchId, jobId, 'connection_failed')
+      if (ownsStreamBlock()) {
+        useNotificationStore.getState().show(
+          '연결이 끊겼습니다. 새로고침하면 이어서 볼 수 있습니다.',
+          'error',
+        )
+      }
+      return
+    }
+    const draft = deliveryDrafts.get(jobId)
+    if (draft) draft.reconnectCount += 1
+    await new Promise((resolve) => setTimeout(resolve, STREAM_RECONNECT_DELAYS_MS[attempt]))
+    if (signal.aborted || !isStreamActive()) return
+    try {
+      await convApi.openAiResponseStream(chatId, branchId, jobId, handlers, signal)
+    } catch {
+      await reconnectStreamWithBackoff(
+        chatId, branchId, jobId, handlers, signal, isStreamActive, ownsStreamBlock, attempt + 1,
+      )
+    }
+  }
+
+  function clearSessionRuntime() {
+    sessionEpoch += 1
+    latestChatListRequestId = null
+    latestChatMoreRequestId = null
+    if (chatsRefreshTimer) clearTimeout(chatsRefreshTimer)
+    chatsRefreshTimer = null
+    if (chatStatusPoll) clearInterval(chatStatusPoll)
+    chatStatusPoll = null
+    for (const active of activeStreams.values()) active.controller.abort()
+    activeStreams.clear()
+    deliveryDrafts.clear()
+    targetActivityByKey.clear()
+    pendingChatCreationsByDraftId.clear()
+    sideChatContextRequestId += 1
+    latestTargetActivitySequence = 0
+    latestTargetActivityRevision = 0
+    beginViewRequest()
+    commitViewChange()
+  }
 
   function beginViewRequest() {
     pendingOpenChat = null
@@ -449,6 +536,34 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     return hasTargetActivitySequence(state, activity) && targetActivityByKey.get(activity.key)?.pending === true
   }
 
+  function ownsRefineTarget(
+    get: () => ChatState,
+    epoch: number,
+    chatId: string,
+    branchId: string,
+    targetBlockId: string,
+  ) {
+    const current = get()
+    return isCurrentSession(epoch) &&
+      current.chatId === chatId &&
+      current.branchId === branchId &&
+      current.refineTargetBlockId === targetBlockId
+  }
+
+  function ownsRefineJob(
+    get: () => ChatState,
+    epoch: number,
+    chatId: string,
+    branchId: string,
+    jobId: string,
+  ) {
+    const current = get()
+    return isCurrentSession(epoch) &&
+      current.chatId === chatId &&
+      current.branchId === branchId &&
+      current.refineJob?.refineJobId === jobId
+  }
+
   function finishTargetActivity(activity: { key: string; sequence: number }) {
     const current = targetActivityByKey.get(activity.key)
     if (current?.sequence === activity.sequence) {
@@ -457,7 +572,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     }
   }
 
-  return create<ChatState>((set, get) => ({
+  const store = create<ChatState>((set, get) => ({
   chats: [],
   nextCursor: null,
   isLoadingChats: false,
@@ -526,6 +641,8 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   sourceNavigationError: null,
 
   async loadChats(keyword) {
+    if (disposed || !canRefreshForSession) return
+    const epoch = sessionEpoch
     const normalizedKeyword = keyword?.trim() || undefined
     latestChatMoreRequestId = null
     set({ isLoadingChats: true, isLoadingMoreChats: false, chatListError: null })
@@ -540,22 +657,24 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         )
         return { result, requestId: id }
       })
-      if (latestChatListRequestId !== res.requestId) return
+      if (!isCurrentSession(epoch) || latestChatListRequestId !== res.requestId) return
       useNotificationStore.getState().dismissBanner('chat-list')
       set({ chats: uniqueChats(res.result.chats), nextCursor: res.result.nextCursor, chatListKeyword: normalizedKeyword ?? '' })
       syncChatStatusPolling(get)
     } catch (e) {
-      if (requestId && latestChatListRequestId !== requestId) return
+      if (!isCurrentSession(epoch) || (requestId && latestChatListRequestId !== requestId)) return
       set({ chatListError: toErrorMessage(e) })
       showChatError(e, 'chat-list', () => void get().loadChats(normalizedKeyword))
     } finally {
-      if (!requestId || latestChatListRequestId === requestId) {
+      if (isCurrentSession(epoch) && (!requestId || latestChatListRequestId === requestId)) {
         set({ isLoadingChats: false })
       }
     }
   },
 
   async loadMoreChats() {
+    if (disposed || !canRefreshForSession) return
+    const epoch = sessionEpoch
     const { nextCursor, isLoadingChats, isLoadingMoreChats, chatListKeyword } = get()
     if (!nextCursor || isLoadingChats || isLoadingMoreChats) return
     set({ isLoadingMoreChats: true, chatListError: null })
@@ -570,7 +689,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         )
         return { result, requestId: id }
       })
-      if (latestChatMoreRequestId !== res.requestId) return
+      if (!isCurrentSession(epoch) || latestChatMoreRequestId !== res.requestId) return
       useNotificationStore.getState().dismissBanner('chat-list')
       set((s) => ({
         chats: [...s.chats, ...res.result.chats.filter((item) => !s.chats.some((chat) => chat.chatId === item.chatId))],
@@ -578,11 +697,11 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       }))
       syncChatStatusPolling(get)
     } catch (e) {
-      if (requestId && latestChatMoreRequestId !== requestId) return
+      if (!isCurrentSession(epoch) || (requestId && latestChatMoreRequestId !== requestId)) return
       set({ chatListError: toErrorMessage(e) })
       showChatError(e, 'chat-list', () => void get().loadMoreChats())
     } finally {
-      if (!requestId || latestChatMoreRequestId === requestId) {
+      if (isCurrentSession(epoch) && (!requestId || latestChatMoreRequestId === requestId)) {
         set({ isLoadingMoreChats: false })
       }
     }
@@ -612,11 +731,15 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async openDefaultChat() {
+    if (disposed) return
+    canRefreshForSession = true
+    const epoch = sessionEpoch
     // 새로고침 뒤에도 열려 있던 탭 목록은 세션 상태라 유지하지 않는다 — 탭이 하나도
     // 없을 때만 빈 대화 탭 하나를 만든다.
     const staleTemporaryIds = temporaryChatIds()
     if (staleTemporaryIds.length) {
       await Promise.all(staleTemporaryIds.map((chatId) => chatApi.deleteChat(chatId).catch(() => undefined)))
+      if (!canRefreshForSession || !isCurrentSession(epoch)) return
       try { sessionStorage.removeItem(TEMPORARY_CHAT_STORAGE_KEY) } catch {}
     }
     if (get().tabs.length > 0) return
@@ -625,13 +748,19 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     resetToDraft(set, get, newDraftId())
   },
 
-  resetSession() {
-    beginViewRequest()
-    commitViewChange()
+  refreshChatListSoon() {
+    scheduleChatsRefresh(get)
+  },
+
+  resetSession(deactivate = false) {
+    canRefreshForSession = !deactivate
+    clearSessionRuntime()
     get().clearDraft()
     set({
       chats: [],
       nextCursor: null,
+      isLoadingChats: false,
+      isLoadingMoreChats: false,
       chatId: null,
       projectId: null,
       chatTitle: '',
@@ -639,6 +768,13 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       branches: [],
       blocks: [],
       sourceContext: [],
+      chatKind: 'MAIN',
+      parentChatId: null,
+      parentBranchId: null,
+      parentMessageBlockId: null,
+      rootChatId: null,
+      rootBranchId: null,
+      isTemporary: false,
       tabs: [],
       activeTabId: null,
       sideChatsByBlockId: {},
@@ -649,6 +785,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       appliedBlockIds: [],
       appliedContextLabel: null,
       contextRangeTags: [],
+      refineTargetBlockId: null,
       refineJob: null,
       inlineView: {},
       ratings: {},
@@ -666,6 +803,9 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       selectedModelId: null,
       webSearchMode: 'auto',
       reasoningEffort: 'medium',
+      draftText: '',
+      draftAttachments: [],
+      selectedLibraryResourceIds: [],
       isModelListLoading: false,
       pendingByBlockId: {},
       failedJobsByBlockId: {},
@@ -685,11 +825,20 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     })
   },
 
+  dispose() {
+    get().resetSession()
+    disposed = true
+    if (sessionResetter) registeredChatSessionResetters.delete(sessionResetter)
+  },
+
   async loadInputAssist() {
+    if (disposed || !canRefreshForSession) return
+    const epoch = sessionEpoch
     if (get().isModelListLoading || get().models.length) return
     set({ isModelListLoading: true })
     try {
       const models = await inputAssistApi.fetchModels()
+      if (!isCurrentSession(epoch)) return
       const selected = get().selectedModelId
       set({
         models,
@@ -698,6 +847,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
           : (models.find((m) => m.isDefault)?.modelId ?? selected),
       })
     } catch (e) {
+      if (!isCurrentSession(epoch)) return
       const selected = get().selectedModelId
       set({
         models: [FALLBACK_MODEL],
@@ -705,7 +855,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         error: toErrorMessage(e),
       })
     } finally {
-      set({ isModelListLoading: false })
+      if (isCurrentSession(epoch)) set({ isModelListLoading: false })
     }
   },
 
@@ -775,7 +925,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     // 새 대화에서 붙여넣기·드래그로 첫 파일을 올리는 경우, 첫 메시지 전송과 같은 방식으로
     // 채팅을 먼저 만든다. 잘못된 파일만 왔을 때는 채팅을 만들지 않는다(위에서 이미 걸러졌다).
     // 이미 채팅이 있으면 await 을 타지 않는다.
-    if (!get().chatId && !(await ensureChat(set, get, pendingChatCreationsByDraftId, ownsView))) {
+    if (!get().chatId && !(await ensureChat(set, get, pendingChatCreationsByDraftId, ownsView, () => scheduleChatsRefresh(get)))) {
       if (ownsView()) {
         const localIds = new Set<string>(entries.map((entry) => entry.localId))
         set((s) => ({
@@ -979,7 +1129,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         sourceContext: detail.sourceContextInfo,
         // 브랜치가 바뀌면 이전 브랜치의 선택은 의미가 없다
         selectedBlockIds: [],
-        failedJobsByBlockId: {},
+        failedJobsByBlockId: retryableJobsByBlock(detail.messageBlocks),
         appliedBlockIds: [],
         contextRangeTags: [],
         refineJob: null,
@@ -1113,7 +1263,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     // 이미 채팅이 있으면 await 을 타지 않아, 아래 임시 질문 블록이 여전히 동기적으로 바로 보인다.
     let { chatId, branchId } = input
     if (!chatId || !branchId) {
-      const ensured = await ensureChat(set, get, pendingChatCreationsByDraftId, ownsView)
+      const ensured = await ensureChat(set, get, pendingChatCreationsByDraftId, ownsView, () => scheduleChatsRefresh(get))
       if (!ensured) {
         if (ownsView()) set({ isSending: false })
         return
@@ -1367,15 +1517,20 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async attachToJob(blockId, jobId, clickedAt) {
+    if (disposed) return
+    const streamEpoch = sessionEpoch
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
     const key = streamKey(chatId, branchId, blockId)
     const currentBlock = get().blocks.find((block) => block.blockId === blockId && block.branchId === branchId)
     if (activeStreams.get(key)?.jobId === jobId && currentBlock?.generationJobId === jobId) return
     const controller = new AbortController()
+    const isStreamActive = () => (
+      isCurrentSession(streamEpoch) && activeStreams.get(key)?.controller === controller
+    )
     const ownsStreamBlock = () => {
       const current = get()
-      if (activeStreams.get(key)?.controller !== controller || current.chatId !== chatId || current.branchId !== branchId) return false
+      if (!isStreamActive() || current.chatId !== chatId || current.branchId !== branchId) return false
       return current.blocks.some((block) => block.blockId === blockId && block.branchId === branchId && block.generationJobId === jobId)
     }
     stopStream(chatId, branchId, blockId)
@@ -1392,9 +1547,19 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
     const handlers: convApi.AiStreamHandlers = {
       onOpen: () => {
-        if (activeStreams.get(key)?.controller !== controller) return
+        if (!isStreamActive()) return
         const draft = deliveryDrafts.get(jobId)
         if (draft && draft.streamConnectedAt === undefined) draft.streamConnectedAt = Date.now()
+      },
+      onSnapshot: (content) => {
+        if (!ownsStreamBlock()) return
+        set((s) => ({
+          blocks: s.blocks.map((block) => (
+            block.blockId === blockId && block.branchId === branchId && block.generationJobId === jobId
+              ? { ...block, content }
+              : block
+          )),
+        }))
       },
       onText: (delta) => {
         if (!ownsStreamBlock()) return
@@ -1422,6 +1587,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         }))
       },
       onDone: (payload) => {
+        if (!isStreamActive()) return
         if (ownsStreamBlock()) {
           set((s) => ({
             blocks: s.blocks.map((b) =>
@@ -1435,6 +1601,9 @@ export function createChatStore(options: ChatStoreOptions = {}) {
                   }
                 : b,
             ),
+            failedJobsByBlockId: payload.status === 'failed' && payload.retryable && payload.userMessageBlockId
+              ? { ...s.failedJobsByBlockId, [payload.userMessageBlockId]: jobId }
+              : s.failedJobsByBlockId,
           }))
           if (payload.status === 'failed' && payload.error) {
             useNotificationStore.getState().show(payload.error.message, 'error')
@@ -1448,8 +1617,10 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     try {
       await convApi.openAiResponseStream(chatId, branchId, jobId, handlers, controller.signal)
     } catch {
-      if (controller.signal.aborted) return
-      await reconnectStreamWithBackoff(chatId, branchId, jobId, handlers, controller.signal)
+      if (controller.signal.aborted || !isStreamActive()) return
+      await reconnectStreamWithBackoff(
+        chatId, branchId, jobId, handlers, controller.signal, isStreamActive, ownsStreamBlock,
+      )
     } finally {
       if (activeStreams.get(key)?.controller === controller) activeStreams.delete(key)
     }
@@ -1597,6 +1768,8 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async runRefine(instruction) {
     const { chatId, branchId, refineTargetBlockId } = get()
     if (!chatId || !branchId || !refineTargetBlockId) return
+    const epoch = sessionEpoch
+    const ownsRequest = () => ownsRefineTarget(get, epoch, chatId, branchId, refineTargetBlockId)
 
     set({ isRefining: true, error: null, refineFailed: false, lastRefineInstruction: instruction })
     try {
@@ -1606,6 +1779,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         [refineTargetBlockId],
         instruction,
       )
+      if (!ownsRequest()) return
       set({
         refineJob: job,
         lastRefineInstruction: instruction,
@@ -1615,12 +1789,16 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         ),
       })
       useNotificationStore.getState().dismissBanner('api-key-required')
-      requestAnimationFrame(() => document.getElementById(`block-${job.results[0]?.blockId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+      requestAnimationFrame(() => {
+        if (!ownsRequest()) return
+        document.getElementById(`block-${job.results[0]?.blockId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
     } catch (e) {
+      if (!ownsRequest()) return
       if (openApiKeyWhenMissing(e)) set({ error: null })
       else set({ error: toErrorMessage(e), refineFailed: true })
     } finally {
-      set({ isRefining: false })
+      if (ownsRequest()) set({ isRefining: false })
     }
   },
 
@@ -1632,6 +1810,8 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async approveResult(resultId) {
     const { chatId, branchId, refineJob } = get()
     if (!chatId || !branchId || !refineJob) return
+    const epoch = sessionEpoch
+    const ownsMutation = () => ownsRefineJob(get, epoch, chatId, branchId, refineJob.refineJobId)
     try {
       // 승인은 블록의 활성 버전을 바꾸므로 블록 목록을 다시 받아온다
       const updated = await convApi.approveResult(
@@ -1640,7 +1820,9 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         refineJob.refineJobId,
         resultId,
       )
+      if (!ownsMutation()) return
       const detail = await chatApi.fetchChat(chatId, branchId)
+      if (!ownsMutation()) return
       set((s) => ({
         blocks: detail.messageBlocks,
         refineJob: s.refineJob && {
@@ -1650,18 +1832,22 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       }))
       useNotificationStore.getState().show('정제 결과를 반영했습니다.', 'success')
     } catch (e) {
+      if (!ownsMutation()) return
       set({ error: toErrorMessage(e) })
       // 이미 처리된 결과 등 서버와 어긋난 상태일 수 있으므로 최신 상태로 다시 맞춘다
-      await refreshRefineJob(set, chatId, branchId, refineJob.refineJobId)
+      await refreshRefineJob(set, chatId, branchId, refineJob.refineJobId, ownsMutation)
     }
   },
 
   async rejectResult(resultId) {
     const { chatId, branchId, refineJob } = get()
     if (!chatId || !branchId || !refineJob) return
+    const epoch = sessionEpoch
+    const ownsMutation = () => ownsRefineJob(get, epoch, chatId, branchId, refineJob.refineJobId)
     try {
       // 거절은 블록 내용을 바꾸지 않으므로 결과 상태만 반영한다
       const updated = await convApi.rejectResult(chatId, branchId, refineJob.refineJobId, resultId)
+      if (!ownsMutation()) return
       set((s) => ({
         refineJob: s.refineJob && {
           ...s.refineJob,
@@ -1670,21 +1856,26 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       }))
       useNotificationStore.getState().show('정제 결과를 거절했습니다.', 'info')
     } catch (e) {
+      if (!ownsMutation()) return
       set({ error: toErrorMessage(e) })
-      await refreshRefineJob(set, chatId, branchId, refineJob.refineJobId)
+      await refreshRefineJob(set, chatId, branchId, refineJob.refineJobId, ownsMutation)
     }
   },
 
   async approveAll() {
     const { chatId, branchId, refineJob } = get()
     if (!chatId || !branchId || !refineJob) return
+    const epoch = sessionEpoch
+    const ownsMutation = () => ownsRefineJob(get, epoch, chatId, branchId, refineJob.refineJobId)
     try {
       const { processed, failed, actionMeta } = await convApi.approveAll(
         chatId,
         branchId,
         refineJob.refineJobId,
       )
+      if (!ownsMutation()) return
       const detail = await chatApi.fetchChat(chatId, branchId)
+      if (!ownsMutation()) return
       const processedById = new Map(processed.map((r) => [r.resultId, r]))
       set((s) => ({
         blocks: detail.messageBlocks,
@@ -1696,6 +1887,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       }))
       showBulkResult(actionMeta, failed, () => void get().approveAll())
     } catch (e) {
+      if (!ownsMutation()) return
       set({ error: toErrorMessage(e) })
     }
   },
@@ -1703,16 +1895,26 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async rejectAll() {
     const { chatId, branchId, refineJob } = get()
     if (!chatId || !branchId || !refineJob) return
+    const epoch = sessionEpoch
+    const ownsMutation = () => ownsRefineJob(get, epoch, chatId, branchId, refineJob.refineJobId)
     try {
       const { processed, failed, actionMeta } = await convApi.rejectAll(chatId, branchId, refineJob.refineJobId)
+      if (!ownsMutation()) return
       const byId = new Map(processed.map((item) => [item.resultId, item]))
       set((s) => ({ refineJob: s.refineJob && { ...s.refineJob, results: s.refineJob.results.map((item) => byId.get(item.resultId) ?? item) }, error: null }))
       showBulkResult(actionMeta, failed, () => void get().rejectAll())
-    } catch (e) { set({ error: toErrorMessage(e) }) }
+    } catch (e) {
+      if (ownsMutation()) set({ error: toErrorMessage(e) })
+    }
   },
 
   async closeRefine() {
     const { chatId, branchId, refineJob } = get()
+    const epoch = sessionEpoch
+    const ownsMutation = () => (
+      Boolean(chatId && branchId && refineJob) &&
+      ownsRefineJob(get, epoch, chatId!, branchId!, refineJob!.refineJobId)
+    )
     if (chatId && branchId && refineJob) {
       // 남은 대기 항목을 정리하지 않으면 다음에 열었을 때 되살아난 것처럼 보인다
       try {
@@ -1720,6 +1922,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       } catch {
         /* 정리 실패는 화면을 막을 만한 문제가 아니다 */
       }
+      if (!ownsMutation()) return
     }
     set({ refineJob: null, inlineView: {} })
   },
@@ -2034,6 +2237,9 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     }
   },
   }))
+  sessionResetter = (deactivate) => store.getState().resetSession(deactivate)
+  registeredChatSessionResetters.add(sessionResetter)
+  return store
 }
 
 /** 좌측 사이드바와 전역 메뉴가 쓰는 기본(메인) 패널 상태. */
@@ -2089,7 +2295,7 @@ async function runRealtimeLoop(signal: AbortSignal, attempt: number): Promise<vo
 }
 
 function handleRealtimeChatsChanged() {
-  scheduleChatsRefresh(useChatStore.getState)
+  useChatStore.getState().refreshChatListSoon()
 }
 
 /** 지금 열려 있는 대화와 같은 chatId·branchId일 때만 조용히 다시 불러오고, 생성 중인 블록에 다시 붙는다. */
@@ -2100,7 +2306,11 @@ async function handleRealtimeChatActivity(data: realtimeApi.RealtimeChatActivity
     const detail = await chatApi.fetchChat(data.chatId, data.branchId)
     const current = useChatStore.getState()
     if (current.chatId !== data.chatId || current.branchId !== data.branchId) return
-    useChatStore.setState({ blocks: detail.messageBlocks, chatTitle: detail.chatMeta.title })
+    useChatStore.setState({
+      blocks: detail.messageBlocks,
+      chatTitle: detail.chatMeta.title,
+      failedJobsByBlockId: retryableJobsByBlock(detail.messageBlocks),
+    })
   } catch {
     return // 조회 실패는 조용히 넘어간다 — 다음 이벤트나 안전망 폴링이 보정한다
   }
@@ -2209,7 +2419,7 @@ function applyDetail(
     draftText: '',
     draftAttachments: [],
     pendingByBlockId: {},
-    failedJobsByBlockId: {},
+    failedJobsByBlockId: retryableJobsByBlock(detail.messageBlocks),
     editingBlockId: null,
     editingDraft: '',
     editingOriginal: '',
@@ -2299,6 +2509,7 @@ async function ensureChat(
   get: () => ChatState,
   pendingCreations: Map<string, Promise<ChatDetail>>,
   shouldApply: () => boolean = () => true,
+  scheduleRefresh: () => void = () => {},
 ): Promise<{ chatId: string; branchId: string } | null> {
   const existing = get()
   if (existing.chatId && existing.branchId) return { chatId: existing.chatId, branchId: existing.branchId }
@@ -2349,7 +2560,7 @@ async function ensureChat(
     } else {
       promoteExistingDraftTab(set, get, draftId, created.chatMeta, branchId)
     }
-    if (startsCreation) scheduleChatsRefresh(get)
+    if (startsCreation) scheduleRefresh()
     return { chatId, branchId }
   } catch (e) {
     if (shouldApply()) set({ error: toErrorMessage(e) })
@@ -2456,9 +2667,11 @@ async function refreshRefineJob(
   chatId: string,
   branchId: string,
   jobId: string,
+  shouldApply: () => boolean = () => true,
 ) {
   try {
     const job = await convApi.fetchRefineJob(chatId, branchId, jobId)
+    if (!shouldApply()) return
     set({ refineJob: job })
   } catch {
     // 재조회마저 실패하면 기존 오류 안내만 남기고 화면 상태는 그대로 둔다
@@ -2480,38 +2693,6 @@ function openApiKeyWhenMissing(error: unknown): boolean {
     },
   })
   return true
-}
-
-// 연결이 끊기면 몇 번 다시 붙어보고, 안 되면 새로고침 안내로 넘긴다 (문서 C8).
-const STREAM_RECONNECT_DELAYS_MS = [1000, 2000, 4000]
-
-async function reconnectStreamWithBackoff(
-  chatId: string,
-  branchId: string,
-  jobId: string,
-  handlers: convApi.AiStreamHandlers,
-  signal: AbortSignal,
-  attempt = 0,
-): Promise<void> {
-  if (signal.aborted) return
-  if (attempt >= STREAM_RECONNECT_DELAYS_MS.length) {
-    // 0820_06 C3: 재시도를 다 썼는데도 안 되면 연결 실패로 남긴다.
-    flushDeliveryTiming(chatId, branchId, jobId, 'connection_failed')
-    useNotificationStore.getState().show(
-      '연결이 끊겼습니다. 새로고침하면 이어서 볼 수 있습니다.',
-      'error',
-    )
-    return
-  }
-  const draft = deliveryDrafts.get(jobId)
-  if (draft) draft.reconnectCount += 1
-  await new Promise((resolve) => setTimeout(resolve, STREAM_RECONNECT_DELAYS_MS[attempt]))
-  if (signal.aborted) return
-  try {
-    await convApi.openAiResponseStream(chatId, branchId, jobId, handlers, signal)
-  } catch {
-    await reconnectStreamWithBackoff(chatId, branchId, jobId, handlers, signal, attempt + 1)
-  }
 }
 
 function showChatError(error: unknown, scope: string, retry?: () => void) {

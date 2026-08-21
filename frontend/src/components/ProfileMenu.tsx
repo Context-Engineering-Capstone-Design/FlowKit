@@ -8,7 +8,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { useSettingsStore } from '@/store/settingsStore'
-import { useChatStore } from '@/store/chatStore'
+import { resetAllChatSessions } from '@/store/chatStore'
 import { FeedbackModal } from '@/components/FeedbackModal'
 
 // 프로필 메뉴 — 현재 사용자 정보와 계정·API 키·로그아웃 동작을 연결한다
@@ -17,7 +17,6 @@ export function ProfileMenu() {
   const logout = useAuthStore((state) => state.logout)
   const openProfile = useSettingsStore((state) => state.openProfile)
   const openApiKey = useSettingsStore((state) => state.openApiKey)
-  const resetSession = useChatStore((state) => state.resetSession)
   const [isOpen, setIsOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const holderRef = useRef<HTMLDivElement>(null)
@@ -74,7 +73,7 @@ export function ProfileMenu() {
             icon={<LogOut className="h-3.5 w-3.5" />}
             label="로그아웃"
             danger
-            onClick={() => run(() => { resetSession(); void logout() })}
+            onClick={() => run(() => { resetAllChatSessions(); void logout() })}
           />
         </div>
       )}

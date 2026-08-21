@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-EventType = Literal["text", "sources", "status"]
+EventType = Literal["text", "snapshot", "sources", "status"]
 
 # 구독자 큐에 이 값이 오면 더 이상 조각이 없다는 뜻이다 (종료 신호).
 _SENTINEL = None
@@ -88,6 +88,8 @@ def publish_done(
     content: str,
     sources: list[dict],
     error: dict | None = None,
+    user_message_block_id: str | None = None,
+    retryable: bool = False,
 ) -> None:
     """생성이 끝났음을 알리고 통로를 닫는다.
 
@@ -103,7 +105,14 @@ def publish_done(
         _broadcast(
             stream,
             "status",
-            {"status": status, "content": content, "sources": sources, "error": error},
+            {
+                "status": status,
+                "content": content,
+                "sources": sources,
+                "error": error,
+                "userMessageBlockId": user_message_block_id,
+                "retryable": retryable,
+            },
         )
         for q in stream.subscribers:
             q.put(_SENTINEL)

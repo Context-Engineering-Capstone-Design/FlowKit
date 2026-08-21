@@ -119,6 +119,8 @@ export interface MessageBlock {
   generationStatus: GenerationStatus
   /** generating일 때만 값이 있다. 스트리밍 통로에 (다시) 붙을 때 쓴다. */
   generationJobId?: string | null
+  /** 마지막 generate 작업이 실패한 사용자 질문에만 있다. 재진입 뒤 재시도에 쓴다. */
+  retryAiResponseJobId?: string | null
   /** 이 사용자 메시지를 보낼 때 인용한 Context 스니펫 . 어시스턴트 블록은 항상 빈 배열. */
   appliedContext?: AppliedContextOut[]
 }

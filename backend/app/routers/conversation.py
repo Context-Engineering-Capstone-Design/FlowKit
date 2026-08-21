@@ -9,7 +9,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from app.deps import CurrentUser, DbSession
-from app.models import AiResponseJobStatus, MessageBlock
+from app.models import AiResponseJob, AiResponseJobStatus, AiResponseJobType, MessageBlock
 from app.schemas.conversation import (
     AppliedContextOut,
     FeedbackMutationResponse,
@@ -166,28 +166,42 @@ def stream_ai_response(
     def events():
         snap = streaming_service.subscribe(job_id)
         if snap is None:
-            block = db.get(MessageBlock, job.assistant_message_block_id)
+            # subscribe()가 None을 돌려준 직전에 생성 스레드가 끝날 수 있다.
+            # 요청 초기에 읽어 둔 job은 아직 generating이라 DB 최종 상태를 다시 읽는다.
+            db.expire_all()
+            final_job = db.get(AiResponseJob, job_id)
+            if final_job is None:
+                final_job = job
+            block = db.get(MessageBlock, final_job.assistant_message_block_id)
             version = block.current_version if block else None
             content = version.content if version else ""
             sources = (version.search_sources if version else None) or []
             status = (
-                job.status.value
-                if job.status is not AiResponseJobStatus.GENERATING
+                final_job.status.value
+                if final_job.status is not AiResponseJobStatus.GENERATING
                 else "failed"
             )
             error = (
-                {"errorCode": job.error_code, "message": job.error_message}
-                if job.error_code
+                {"errorCode": final_job.error_code, "message": final_job.error_message}
+                if final_job.error_code
                 else None
             )
+            retryable = final_job.status is AiResponseJobStatus.FAILED and final_job.job_type is AiResponseJobType.GENERATE
             yield streaming_service.format_sse(
                 "status",
-                {"status": status, "content": content, "sources": sources, "error": error},
+                {
+                    "status": status,
+                    "content": content,
+                    "sources": sources,
+                    "error": error,
+                    "userMessageBlockId": str(final_job.user_message_block_id) if retryable else None,
+                    "retryable": retryable,
+                },
             )
             return
 
         if snap.buffer:
-            yield streaming_service.format_sse("text", {"delta": snap.buffer})
+            yield streaming_service.format_sse("snapshot", {"content": snap.buffer})
         if snap.sources:
             yield streaming_service.format_sse("sources", {"sources": snap.sources})
         while True:

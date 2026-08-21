@@ -7,6 +7,7 @@ send()/receive 흐름은 test_conversation.py 에서 검증한다. 여기서는 
 
 from __future__ import annotations
 
+import queue
 import threading
 import time
 import uuid
@@ -178,6 +179,44 @@ def test_chat_detail_exposes_job_id_only_while_generating(client, auth, chat, db
     assert blocks[user_block_id]["generationJobId"] is None
 
 
+def test_chat_detail_exposes_retry_id_only_for_the_latest_failed_generate_job(client, auth, chat, db_session):
+    """재진입한 사용자 질문은 마지막 generate 시도가 실패한 경우에만 재시도 id를 받는다."""
+    from app.models import AiResponseJob, AiResponseJobStatus, AiResponseJobType, BlockGenerationStatus, MessageBlock
+
+    body = client.post(msg_url(chat), json={"userPrompt": "Self-Attention 실패 재시도"}, headers=auth).json()
+    job = db_session.get(AiResponseJob, uuid.UUID(body["aiResponseJobId"]))
+    assistant = db_session.get(MessageBlock, uuid.UUID(body["assistantBlock"]["blockId"]))
+    job.status = AiResponseJobStatus.FAILED
+    job.error_code, job.error_message = "AI_PROVIDER_ERROR", "모델 응답이 중단되었습니다."
+    assistant.generation_status = BlockGenerationStatus.FAILED
+    db_session.commit()
+
+    detail = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth).json()
+    blocks = {block["blockId"]: block for block in detail["messageBlocks"]}
+    user_block_id = body["userBlock"]["blockId"]
+    assert blocks[user_block_id]["retryAiResponseJobId"] == str(job.id)
+    assert blocks[body["assistantBlock"]["blockId"]]["retryAiResponseJobId"] is None
+
+    # 더 늦은 생성 시도가 완료됐다면, 오래된 실패 작업은 다시 누를 수 없어야 한다.
+    latest = AiResponseJob(
+        user_id=job.user_id,
+        chat_id=job.chat_id,
+        branch_id=job.branch_id,
+        user_message_block_id=job.user_message_block_id,
+        assistant_message_block_id=job.assistant_message_block_id,
+        source_job_id=job.id,
+        job_type=AiResponseJobType.GENERATE,
+        status=AiResponseJobStatus.COMPLETED,
+        input_snapshot=job.input_snapshot,
+    )
+    db_session.add(latest)
+    db_session.commit()
+
+    refreshed = client.get(f"/api/chats/{chat['chatMeta']['chatId']}", headers=auth).json()
+    refreshed_blocks = {block["blockId"]: block for block in refreshed["messageBlocks"]}
+    assert refreshed_blocks[user_block_id]["retryAiResponseJobId"] is None
+
+
 # ── , 009: 중계와 도중 합류 ──────────────────────────────────
 
 
@@ -209,6 +248,102 @@ def test_stream_of_finished_job_replays_final_state_once(client, auth, chat, mon
     assert '"status": "completed"' in text
     assert "완료된 답변" in text
     assert "event: text" not in text
+
+
+def test_stream_reloads_terminal_state_when_job_finishes_before_subscribe(client, auth, chat, db_session, monkeypatch):
+    """구독 직전 완료된 작업도 요청 초반의 generating 캐시 대신 DB 최종 상태를 보낸다."""
+    import modeling
+    from app.models import AiResponseJob, AiResponseJobStatus, BlockGenerationStatus, MessageBlock, MessageBlockVersion
+    from app.services import ai_response_service, streaming_service
+    from modeling.types import AnswerResult
+
+    monkeypatch.setattr(
+        modeling,
+        "generate_answer_stream",
+        lambda _request, **_kwargs: iter([AnswerChunk(type="done", result=AnswerResult(text="초기 답변", search_sources=[]))]),
+    )
+    body = client.post(msg_url(chat), json={"userPrompt": "Multi-Head Attention 완료 경합"}, headers=auth).json()
+    job_id = uuid.UUID(body["aiResponseJobId"])
+    assistant_id = uuid.UUID(body["assistantBlock"]["blockId"])
+
+    # 요청 라우터는 아직 generating으로 읽어 둔 상태라고 가정한다.
+    stale_job = db_session.get(AiResponseJob, job_id)
+    stale_assistant = db_session.get(MessageBlock, assistant_id)
+    stale_job.status = AiResponseJobStatus.GENERATING
+    stale_assistant.generation_status = BlockGenerationStatus.GENERATING
+    db_session.commit()
+
+    def finish_after_initial_lookup(subscribed_job_id: uuid.UUID):
+        assert subscribed_job_id == job_id
+        with ai_response_service.session_factory() as final_db:
+            final_job = final_db.get(AiResponseJob, job_id)
+            final_assistant = final_db.get(MessageBlock, assistant_id)
+            final_version = final_db.get(MessageBlockVersion, final_assistant.current_version_id)
+            final_job.status = AiResponseJobStatus.COMPLETED
+            final_assistant.generation_status = BlockGenerationStatus.COMPLETE
+            final_version.content = "완료된 Multi-Head Attention 답변"
+            final_db.commit()
+        return None
+
+    monkeypatch.setattr(streaming_service, "subscribe", finish_after_initial_lookup)
+
+    with client.stream("GET", job_action_url(chat, str(job_id), "stream"), headers=auth) as res:
+        assert res.status_code == 200
+        text = "".join(res.iter_text())
+
+    assert '"status": "completed"' in text
+    assert "완료된 Multi-Head Attention 답변" in text
+    assert '"status": "failed"' not in text
+
+
+def test_stream_reconnect_marks_accumulated_text_as_snapshot(client, auth, chat, monkeypatch):
+    """도중 합류 본문은 새 조각이 아니라 교체용 snapshot 이벤트로 보낸다."""
+    from app.services import streaming_service
+
+    body = client.post(msg_url(chat), json={"userPrompt": "재접속 질문"}, headers=auth).json()
+    job_id = body["aiResponseJobId"]
+    replay_queue: queue.Queue = queue.Queue()
+    replay_queue.put(None)
+    monkeypatch.setattr(
+        streaming_service,
+        "subscribe",
+        lambda _job_id: streaming_service.Snapshot(
+            buffer="이미 받은 Self-Attention 본문",
+            sources=[],
+            status="generating",
+            queue=replay_queue,
+        ),
+    )
+
+    with client.stream("GET", job_action_url(chat, job_id, "stream"), headers=auth) as res:
+        assert res.status_code == 200
+        text = "".join(res.iter_text())
+
+    assert "event: snapshot" in text
+    assert '"content": "이미 받은 Self-Attention 본문"' in text
+    assert "event: text" not in text
+
+
+def test_finished_failed_stream_exposes_retry_target(client, auth, chat, db_session):
+    """이미 끝난 실패 작업에 다시 붙어도 재시도 대상 사용자 블록을 알 수 있다."""
+    from app.models import AiResponseJob, AiResponseJobStatus, BlockGenerationStatus, MessageBlock
+
+    body = client.post(msg_url(chat), json={"userPrompt": "Causal Mask 실패 재시도"}, headers=auth).json()
+    job_id = uuid.UUID(body["aiResponseJobId"])
+    job = db_session.get(AiResponseJob, job_id)
+    assistant = db_session.get(MessageBlock, uuid.UUID(body["assistantBlock"]["blockId"]))
+    job.status = AiResponseJobStatus.FAILED
+    job.error_code, job.error_message = "AI_PROVIDER_ERROR", "모델 응답이 중단되었습니다."
+    assistant.generation_status = BlockGenerationStatus.FAILED
+    db_session.commit()
+
+    with client.stream("GET", job_action_url(chat, str(job_id), "stream"), headers=auth) as res:
+        assert res.status_code == 200
+        text = "".join(res.iter_text())
+
+    assert '"status": "failed"' in text
+    assert f'"userMessageBlockId": "{body["userBlock"]["blockId"]}"' in text
+    assert '"retryable": true' in text
 
 
 def test_stream_rejects_other_users_job(client, auth, chat, monkeypatch):

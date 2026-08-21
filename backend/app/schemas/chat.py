@@ -123,6 +123,11 @@ class MessageBlockOut(BaseModel):
     # generating일 때만 채워진다. 새로고침·브랜치 재진입 시 이 값으로 스트리밍
     # 통로에 다시 붙는다.
     generation_job_id: uuid.UUID | None = Field(None, serialization_alias="generationJobId")
+    # 마지막 생성이 실패한 사용자 질문에만 채워진다. 재진입 뒤 재시도 단추가
+    # 어떤 실패 작업을 다시 시작할지 알기 위해 쓴다.
+    retry_ai_response_job_id: uuid.UUID | None = Field(
+        None, serialization_alias="retryAiResponseJobId"
+    )
     # 이 사용자 메시지를 보낼 때 인용한 Context 스니펫 . 어시스턴트 블록은 항상 빈 목록.
     applied_context: list[AppliedContextOut] = Field(
         default_factory=list, serialization_alias="appliedContext"
@@ -136,6 +141,7 @@ class MessageBlockOut(BaseModel):
         block: MessageBlock,
         generation_job_id: uuid.UUID | None = None,
         applied_context: list[AppliedContextOut] | None = None,
+        retry_ai_response_job_id: uuid.UUID | None = None,
     ) -> MessageBlockOut:
         version = block.current_version
         return cls(
@@ -149,6 +155,7 @@ class MessageBlockOut(BaseModel):
             created_at=block.created_at,
             generation_status=block.generation_status.value,
             generation_job_id=generation_job_id,
+            retry_ai_response_job_id=retry_ai_response_job_id,
             applied_context=applied_context or [],
             attachments=[
                 AttachmentOut(

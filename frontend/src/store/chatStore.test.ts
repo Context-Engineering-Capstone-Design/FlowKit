@@ -20,9 +20,13 @@ const convApi = vi.hoisted(() => ({
   cancelAiResponseJob: vi.fn(),
   openAiResponseStream: vi.fn().mockResolvedValue(undefined),
   sendDeliveryTiming: vi.fn().mockResolvedValue(undefined),
+  runRefine: vi.fn(),
   fetchRefineJob: vi.fn(),
   approveResult: vi.fn(),
   rejectResult: vi.fn(),
+  approveAll: vi.fn(),
+  rejectAll: vi.fn(),
+  cleanupJob: vi.fn(),
   editBlock: vi.fn(),
   fetchVersions: vi.fn(),
 }))
@@ -39,8 +43,9 @@ vi.mock('@/api/conversation', () => convApi)
 vi.mock('@/api/inputAssist', () => ({}))
 vi.mock('@/api/sideChat', () => sideChatApi)
 
-import { createChatStore, setSidePanelOpener, useChatStore } from '@/store/chatStore'
+import { createChatStore, resetAllChatSessions, setSidePanelOpener, useChatStore } from '@/store/chatStore'
 import { useConfirmStore } from '@/store/confirmStore'
+import { useNotificationStore } from '@/store/notificationStore'
 import type { SideChatTreeResponse } from '@/types/api'
 
 function deferred<T>() {
@@ -75,6 +80,206 @@ describe('chatStore 화면 상태', () => {
 
     expect(main.getState().draftText).toBe('메인 입력')
     expect(side.getState().draftText).toBe('사이드 입력')
+    main.getState().dispose()
+    side.getState().dispose()
+  })
+
+  it('세션 초기화 뒤 늦은 목록 응답은 이전 계정 화면을 되살리지 않는다', async () => {
+    const store = createChatStore()
+    const pending = deferred<{ chats: { chatId: string; title: string }[]; nextCursor: string | null }>()
+    chatApi.fetchChats.mockReturnValueOnce(pending.promise)
+
+    const loading = store.getState().loadChats()
+    await vi.waitFor(() => expect(chatApi.fetchChats).toHaveBeenCalledTimes(1))
+    store.getState().resetSession()
+    pending.resolve({ chats: [{ chatId: 'previous-user-chat', title: '이전 계정 대화' }], nextCursor: null })
+    await loading
+
+    expect(store.getState()).toMatchObject({ chats: [], nextCursor: null, isLoadingChats: false, chatListError: null })
+    store.getState().dispose()
+  })
+
+  it('로그아웃으로 비활성화된 세션은 목록 갱신 요청을 다시 만들지 않는다', async () => {
+    const store = createChatStore()
+    store.getState().resetSession(true)
+
+    await store.getState().loadChats()
+    await store.getState().loadMoreChats()
+
+    expect(chatApi.fetchChats).not.toHaveBeenCalled()
+    store.getState().dispose()
+  })
+
+  it('임시 대화 정리 중 세션이 바뀌면 빈 초안을 다시 열지 않는다', async () => {
+    const store = createChatStore()
+    const deleting = deferred<unknown>()
+    sessionStorage.setItem('flowkit:temporary-chat-ids', JSON.stringify(['temporary-chat']))
+    chatApi.deleteChat.mockReturnValueOnce(deleting.promise)
+
+    const opening = store.getState().openDefaultChat()
+    await vi.waitFor(() => expect(chatApi.deleteChat).toHaveBeenCalledWith('temporary-chat'))
+    store.getState().resetSession(true)
+    deleting.resolve(undefined)
+    await opening
+
+    expect(store.getState().tabs).toEqual([])
+    sessionStorage.removeItem('flowkit:temporary-chat-ids')
+    store.getState().dispose()
+  })
+
+  it('세션 초기화 뒤 늦은 정제 시작 결과는 이전 대화에 붙지 않는다', async () => {
+    const store = createChatStore()
+    const pending = deferred<unknown>()
+    convApi.runRefine.mockReturnValueOnce(pending.promise)
+    store.setState({ chatId: 'old-chat', branchId: 'old-branch', refineTargetBlockId: 'old-block' })
+
+    const refining = store.getState().runRefine('Transformer 핵심만 설명')
+    await vi.waitFor(() => expect(convApi.runRefine).toHaveBeenCalledOnce())
+    store.getState().resetSession(true)
+    pending.resolve({ refineJobId: 'old-job', status: 'completed', instructionText: 'Transformer 핵심만 설명', results: [] })
+    await refining
+
+    expect(store.getState()).toMatchObject({ chatId: null, branchId: null, refineJob: null, isRefining: false })
+    store.getState().dispose()
+  })
+
+  it('세션 초기화 뒤 늦은 정제 승인은 이전 대화 본문을 되살리지 않는다', async () => {
+    const store = createChatStore()
+    const pending = deferred<unknown>()
+    convApi.approveResult.mockReturnValueOnce(pending.promise)
+    store.setState({
+      chatId: 'old-chat',
+      branchId: 'old-branch',
+      blocks: [{ blockId: 'old-block', branchId: 'old-branch', role: 'assistant', content: '이전 답변', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      refineJob: {
+        refineJobId: 'old-job',
+        status: 'completed',
+        instructionText: 'Self-Attention 정제',
+        results: [{ resultId: 'result-1', blockId: 'old-block', baseVersionId: 'v1', baseContent: '이전 답변', refinedContent: '정제 답변', status: 'pending', approvedVersionId: null, orderIndex: 0, updatedAt: 't' }],
+      },
+    })
+
+    const approving = store.getState().approveResult('result-1')
+    await vi.waitFor(() => expect(convApi.approveResult).toHaveBeenCalledOnce())
+    store.getState().resetSession(true)
+    pending.resolve({ resultId: 'result-1', blockId: 'old-block', baseVersionId: 'v1', baseContent: '이전 답변', refinedContent: '정제 답변', status: 'approved', approvedVersionId: 'v2', orderIndex: 0, updatedAt: 't' })
+    await approving
+
+    expect(store.getState()).toMatchObject({ chatId: null, branchId: null, blocks: [], refineJob: null })
+    expect(chatApi.fetchChat).not.toHaveBeenCalled()
+    store.getState().dispose()
+  })
+
+  it('같은 블록을 메인과 사이드 패널이 각각 독립된 스트림으로 받는다', async () => {
+    const main = createChatStore()
+    const side = createChatStore()
+    const streams: { handlers: Parameters<typeof convApi.openAiResponseStream>[3]; resolve: () => void }[] = []
+    convApi.openAiResponseStream.mockImplementation(async (_c: string, _b: string, _j: string, handlers: Parameters<typeof convApi.openAiResponseStream>[3]) => {
+      await new Promise<void>((resolve) => streams.push({ handlers, resolve }))
+    })
+    const block = { blockId: 'shared-block', branchId: 'shared-branch', role: 'assistant' as const, content: '', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' as const, generationJobId: 'shared-job' }
+    main.setState({ chatId: 'shared-chat', branchId: 'shared-branch', blocks: [block] })
+    side.setState({ chatId: 'shared-chat', branchId: 'shared-branch', blocks: [block] })
+
+    const mainAttaching = main.getState().attachToJob('shared-block', 'shared-job')
+    const sideAttaching = side.getState().attachToJob('shared-block', 'shared-job')
+    await vi.waitFor(() => expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(2))
+    streams[0].handlers.onText?.('메인 Self-Attention')
+    streams[1].handlers.onText?.('사이드 Causal Mask')
+    streams[0].handlers.onDone?.({ status: 'completed', content: '메인 Self-Attention', sources: [], error: null })
+    streams[1].handlers.onDone?.({ status: 'completed', content: '사이드 Causal Mask', sources: [], error: null })
+    streams[0].resolve()
+    streams[1].resolve()
+    await Promise.all([mainAttaching, sideAttaching])
+
+    expect(main.getState().blocks[0]?.content).toBe('메인 Self-Attention')
+    expect(side.getState().blocks[0]?.content).toBe('사이드 Causal Mask')
+    main.getState().dispose()
+    side.getState().dispose()
+    convApi.openAiResponseStream.mockResolvedValue(undefined)
+  })
+
+  it('사이드 패널을 닫은 뒤 같은 작업을 새 패널에서 다시 연결할 수 있다', async () => {
+    const oldPanel = createChatStore()
+    const streams: { signal?: AbortSignal; handlers: Parameters<typeof convApi.openAiResponseStream>[3]; resolve: () => void }[] = []
+    convApi.openAiResponseStream.mockImplementation((_c: string, _b: string, _j: string, handlers: Parameters<typeof convApi.openAiResponseStream>[3], signal?: AbortSignal) => (
+      new Promise<void>((resolve, reject) => {
+        streams.push({ signal, handlers, resolve })
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+      })
+    ))
+    const block = { blockId: 'panel-block', branchId: 'panel-branch', role: 'assistant' as const, content: '', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' as const, generationJobId: 'panel-job' }
+    oldPanel.setState({ chatId: 'panel-chat', branchId: 'panel-branch', blocks: [block] })
+
+    const oldAttaching = oldPanel.getState().attachToJob('panel-block', 'panel-job')
+    await vi.waitFor(() => expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(1))
+    oldPanel.getState().dispose()
+    await oldAttaching
+    expect(streams[0].signal?.aborted).toBe(true)
+
+    const newPanel = createChatStore()
+    newPanel.setState({ chatId: 'panel-chat', branchId: 'panel-branch', blocks: [block] })
+    const newAttaching = newPanel.getState().attachToJob('panel-block', 'panel-job')
+    await vi.waitFor(() => expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(2))
+    streams[1].handlers.onDone?.({ status: 'completed', content: '새 패널 답변', sources: [], error: null })
+    streams[1].resolve()
+    await newAttaching
+
+    expect(newPanel.getState().blocks[0]?.content).toBe('새 패널 답변')
+    newPanel.getState().dispose()
+    convApi.openAiResponseStream.mockResolvedValue(undefined)
+  })
+
+  it('로그인 전환은 등록된 패널들의 세션 상태를 함께 비운다', () => {
+    const main = createChatStore()
+    const side = createChatStore()
+    main.setState({
+      chats: [{ chatId: 'old-main', title: '이전 사용자' }],
+      chatId: 'old-main', branchId: 'branch-main', chatKind: 'SIDE', parentChatId: 'parent', rootChatId: 'root',
+      isTemporary: true, refineTargetBlockId: 'block-main', selectedLibraryResourceIds: ['resource-main'],
+      isLoadingChats: true, isLoadingMoreChats: true,
+    })
+    side.setState({ chats: [{ chatId: 'old-side', title: '이전 사용자 사이드' }], chatId: 'old-side', branchId: 'branch-side' })
+
+    resetAllChatSessions()
+
+    expect(main.getState()).toMatchObject({
+      chats: [], chatId: null, branchId: null, chatKind: 'MAIN', parentChatId: null, rootChatId: null,
+      isTemporary: false, refineTargetBlockId: null, selectedLibraryResourceIds: [],
+      isLoadingChats: false, isLoadingMoreChats: false,
+    })
+    expect(side.getState()).toMatchObject({ chats: [], chatId: null, branchId: null })
+    main.getState().dispose()
+    side.getState().dispose()
+  })
+
+  it('백그라운드 대화의 스트림 실패는 현재 대화에 오류 알림을 띄우지 않는다', async () => {
+    let handlers!: Parameters<typeof convApi.openAiResponseStream>[3]
+    const streaming = deferred<unknown>()
+    convApi.openAiResponseStream.mockImplementation(async (_c: string, _b: string, _j: string, nextHandlers: typeof handlers) => {
+      handlers = nextHandlers
+      await streaming.promise
+    })
+    useChatStore.setState({
+      chatId: 'chat-a', branchId: 'branch-a',
+      blocks: [{ blockId: 'a1', branchId: 'branch-a', role: 'assistant', content: '', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-a' }],
+    })
+    const show = vi.spyOn(useNotificationStore.getState(), 'show')
+    const attaching = useChatStore.getState().attachToJob('a1', 'job-a')
+    await vi.waitFor(() => expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(1))
+    useChatStore.setState({ chatId: 'chat-b', branchId: 'branch-b', blocks: [] })
+    handlers.onDone?.({
+      status: 'failed', content: '', sources: [],
+      error: { errorCode: 'AI_PROVIDER_ERROR', message: 'A 답변 생성 실패' },
+      userMessageBlockId: 'user-a', retryable: true,
+    })
+    streaming.resolve(undefined)
+    await attaching
+
+    expect(show).not.toHaveBeenCalled()
+    show.mockRestore()
+    useChatStore.getState().resetSession()
+    convApi.openAiResponseStream.mockResolvedValue(undefined)
   })
 
   it('검색 cursor 다음 페이지를 중복 없이 이어 붙인다', async () => {
@@ -963,6 +1168,72 @@ describe('chatStore 화면 상태', () => {
     expect(block?.generationStatus).toBe('complete')
   })
 
+  it('재접속 스냅샷은 이미 보인 Transformer 본문을 교체한 뒤 새 조각을 붙인다', async () => {
+    let handlers!: Parameters<typeof convApi.openAiResponseStream>[3]
+    const streaming = deferred<unknown>()
+    convApi.openAiResponseStream.mockImplementation(async (_c: string, _b: string, _j: string, nextHandlers: typeof handlers) => {
+      handlers = nextHandlers
+      await streaming.promise
+    })
+    useChatStore.setState({
+      blocks: [{ blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: 'Self-Attention', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-1' }],
+    })
+
+    const attaching = useChatStore.getState().attachToJob('a1', 'job-1')
+    await vi.waitFor(() => expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(1))
+    handlers.onSnapshot?.('Self-Attention')
+    handlers.onText?.('은 토큰 관계를 계산합니다.')
+    handlers.onDone?.({ status: 'completed', content: 'Self-Attention은 토큰 관계를 계산합니다.', sources: [], error: null })
+    streaming.resolve(undefined)
+    await attaching
+
+    expect(useChatStore.getState().blocks[0]?.content).toBe('Self-Attention은 토큰 관계를 계산합니다.')
+  })
+
+  it('백그라운드 생성 실패도 재시도할 사용자 질문과 작업 ID를 보존한다', async () => {
+    let handlers!: Parameters<typeof convApi.openAiResponseStream>[3]
+    const streaming = deferred<unknown>()
+    convApi.openAiResponseStream.mockImplementation(async (_c: string, _b: string, _j: string, nextHandlers: typeof handlers) => {
+      handlers = nextHandlers
+      await streaming.promise
+    })
+    useChatStore.setState({
+      blocks: [{ blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-1' }],
+    })
+
+    const attaching = useChatStore.getState().attachToJob('a1', 'job-1')
+    await vi.waitFor(() => expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(1))
+    handlers.onDone?.({
+      status: 'failed',
+      content: '',
+      sources: [],
+      error: { errorCode: 'AI_PROVIDER_ERROR', message: '모델 응답이 중단되었습니다.' },
+      userMessageBlockId: 'user-1',
+      retryable: true,
+    })
+    streaming.resolve(undefined)
+    await attaching
+
+    expect(useChatStore.getState().failedJobsByBlockId).toEqual({ 'user-1': 'job-1' })
+  })
+
+  it('대화 재진입 상세의 실패 작업 ID를 재시도 상태로 복원한다', async () => {
+    chatApi.fetchChat.mockResolvedValue({
+      chatMeta: mainMeta({ chatId: 'chat-retry', title: 'Causal Mask 학습' }),
+      branchMeta: { branchId: 'branch-retry' },
+      messageBlocks: [
+        { blockId: 'user-retry', branchId: 'branch-retry', role: 'user', content: 'Causal Mask는 왜 필요한가?', currentVersionId: 'v-user', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete', retryAiResponseJobId: 'job-failed' },
+        { blockId: 'assistant-failed', branchId: 'branch-retry', role: 'assistant', content: '', currentVersionId: 'v-assistant', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'failed' },
+      ],
+      branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'assistant-failed', rating: null })
+
+    await useChatStore.getState().openChat('chat-retry', 'branch-retry')
+
+    expect(useChatStore.getState().failedJobsByBlockId).toEqual({ 'user-retry': 'job-failed' })
+  })
+
   it('스트리밍이 끝나면 화면 전달 시간을 서버에 보낸다 (0820_06 마일스톤 C)', async () => {
     convApi.sendMessage.mockResolvedValue({
       userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
@@ -1741,6 +2012,7 @@ describe('chatStore 탭 상태', () => {
 
     expect(useChatStore.getState().sideChatTree.map((chat) => chat.chatId)).toEqual(['side-child'])
     setSidePanelOpener(null)
+    sideStore.getState().dispose()
   })
 
   it('대화를 삭제하면 그 탭도 함께 닫히고 남은 탭으로 전환한다', async () => {

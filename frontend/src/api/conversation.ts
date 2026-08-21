@@ -73,11 +73,16 @@ export interface AiStreamDonePayload {
   content: string
   sources: SearchSource[]
   error: { errorCode: string; message: string } | null
+  /** 실패한 최초 생성 작업일 때만 재시도 대상 사용자 질문을 가리킨다. */
+  userMessageBlockId?: string | null
+  retryable?: boolean
 }
 
 export interface AiStreamHandlers {
   /** 0820_06 마일스톤 C: 스트림 연결이 열린 시각을 잰다. 재접속마다 다시 불린다. */
   onOpen?: () => void
+  /** 재접속 때 서버가 보낸 누적 본문이다. 새 조각처럼 붙이지 않고 교체한다. */
+  onSnapshot?: (content: string) => void
   onText?: (delta: string) => void
   onSources?: (sources: SearchSource[]) => void
   onDone?: (payload: AiStreamDonePayload) => void
@@ -109,31 +114,35 @@ export async function openAiResponseStream(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let receivedTerminalStatus = false
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
     let sepIndex = buffer.indexOf('\n\n')
     while (sepIndex !== -1) {
-      dispatchStreamEvent(buffer.slice(0, sepIndex), handlers)
+      if (dispatchStreamEvent(buffer.slice(0, sepIndex), handlers)) receivedTerminalStatus = true
       buffer = buffer.slice(sepIndex + 2)
       sepIndex = buffer.indexOf('\n\n')
     }
   }
+  if (!receivedTerminalStatus) throw new Error('AI 응답 스트림이 완료 상태 없이 종료되었습니다.')
 }
 
-function dispatchStreamEvent(raw: string, handlers: AiStreamHandlers) {
+function dispatchStreamEvent(raw: string, handlers: AiStreamHandlers): boolean {
   let event = 'message'
   let dataLine = ''
   for (const line of raw.split('\n')) {
     if (line.startsWith('event:')) event = line.slice('event:'.length).trim()
     else if (line.startsWith('data:')) dataLine += line.slice('data:'.length).trim()
   }
-  if (!dataLine) return // ": ping" 같은 하트비트 줄에는 data가 없다
+  if (!dataLine) return false // ": ping" 같은 하트비트 줄에는 data가 없다
   const data = JSON.parse(dataLine) as Record<string, unknown>
-  if (event === 'text') handlers.onText?.(data.delta as string)
+  if (event === 'snapshot') handlers.onSnapshot?.(data.content as string)
+  else if (event === 'text') handlers.onText?.(data.delta as string)
   else if (event === 'sources') handlers.onSources?.(data.sources as SearchSource[])
   else if (event === 'status') handlers.onDone?.(data as unknown as AiStreamDonePayload)
+  return event === 'status'
 }
 
 export async function fetchFeedback(
