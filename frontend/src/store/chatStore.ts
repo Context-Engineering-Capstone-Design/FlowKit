@@ -89,6 +89,15 @@ function scheduleChatsRefresh(get: () => ChatState) {
   }, CHATS_REFRESH_COALESCE_MS)
 }
 
+function uniqueChats(chats: ChatSummary[]): ChatSummary[] {
+  const seenChatIds = new Set<string>()
+  return chats.filter((chat) => {
+    if (seenChatIds.has(chat.chatId)) return false
+    seenChatIds.add(chat.chatId)
+    return true
+  })
+}
+
 // 0821_05: 실시간 이벤트 채널이 주 경로다. 이 폴링은 연결이 끊겼다가 재연결
 // 전까지 이벤트를 놓쳤을 때만 의미가 있는 안전망이라 간격을 크게 늘렸다.
 const CHAT_STATUS_POLL_INTERVAL_MS = 60_000
@@ -469,7 +478,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       })
       if (latestChatListRequestId !== res.requestId) return
       useNotificationStore.getState().dismissBanner('chat-list')
-      set({ chats: res.result.chats, nextCursor: res.result.nextCursor, chatListKeyword: normalizedKeyword ?? '' })
+      set({ chats: uniqueChats(res.result.chats), nextCursor: res.result.nextCursor, chatListKeyword: normalizedKeyword ?? '' })
       syncChatStatusPolling(get)
     } catch (e) {
       if (requestId && latestChatListRequestId !== requestId) return

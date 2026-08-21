@@ -83,6 +83,21 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState().chats.map((item) => item.chatId)).toEqual(['1', '2'])
   })
 
+  it('첫 목록 응답의 중복 채팅은 한 번만 표시한다', async () => {
+    chatApi.fetchChats.mockResolvedValue({
+      chats: [
+        { chatId: '1', title: '첫째' },
+        { chatId: '1', title: '첫째 (중복)' },
+        { chatId: '2', title: '둘째' },
+      ],
+      nextCursor: null,
+    })
+
+    await useChatStore.getState().loadChats()
+
+    expect(useChatStore.getState().chats.map((item) => item.chatId)).toEqual(['1', '2'])
+  })
+
   it('검색어 앞뒤 공백을 제거하고 공백만 입력하면 전체 목록을 요청한다', async () => {
     chatApi.fetchChats.mockResolvedValue({ chats: [], nextCursor: null })
 
