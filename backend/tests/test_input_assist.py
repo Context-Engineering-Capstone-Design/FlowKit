@@ -82,6 +82,27 @@ def test_upload_delete_and_send_attachment(client, auth, chat, monkeypatch):
     assert user_block["attachments"][0]["status"] == "attached"
 
 
+def test_upload_accepts_cp949_encoded_text_attachment(client, auth, chat):
+    # 한글 레거시 인코딩(cp949)으로 저장된 .txt 도 첨부할 수 있어야 한다.
+    # modeling.attachments._decode 가 실제 답변 생성 때 cp949 로 한 번 더
+    # 읽어 주므로, 업로드 검증에서도 같은 순서로 받아 줘야 한다.
+    cp949_bytes = "한글 문서 테스트".encode("cp949")
+    uploaded = client.post(
+        attachment_url(chat), files={"file": ("note.txt", cp949_bytes, "text/plain")}, headers=auth
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    assert uploaded.json()["mimeType"] == "text/plain"
+
+
+def test_upload_rejects_undecodable_bytes_with_text_extension(client, auth, chat):
+    garbage = bytes([0xFF, 0xFF, 0xFF, 0xFF])
+    uploaded = client.post(
+        attachment_url(chat), files={"file": ("broken.txt", garbage, "text/plain")}, headers=auth
+    )
+    assert uploaded.status_code == 400
+    assert uploaded.json()["errorCode"] == "ATTACHMENT_INVALID_TYPE"
+
+
 MIN_PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
     "0000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"

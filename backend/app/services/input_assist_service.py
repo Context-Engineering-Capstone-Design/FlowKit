@@ -259,9 +259,27 @@ def _detect_mime(path: Path, suffix: str) -> str:
     if data.startswith(b"%PDF-") and suffix == ".pdf":
         return "application/pdf"
     if suffix in _ALLOWED["text/plain"] | _ALLOWED["text/markdown"]:
-        try:
-            data.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise AttachmentInvalidTypeError() from exc
+        if not _is_text_decodable(path):
+            raise AttachmentInvalidTypeError()
         return "text/markdown" if suffix in _ALLOWED["text/markdown"] else "text/plain"
     raise AttachmentInvalidTypeError()
+
+
+def _is_text_decodable(path: Path) -> bool:
+    # .txt/.md 로 올라온 파일이 실제로 읽을 수 있는 글자 파일인지 확인한다.
+    #
+    # 사용자가 올리는 파일의 인코딩은 제각각이라, UTF-8로 못 읽으면 cp949(한글
+    # 레거시 인코딩)도 시도한다. modeling.attachments._decode 가 실제 답변 생성
+    # 때 쓰는 순서와 같다. 여기서 UTF-8만 보고 거절하면, cp949로 저장된 문서는
+    # 그 쪽 재시도 기회조차 얻지 못하고 업로드 단계에서 막힌다.
+    #
+    # 앞부분 몇 바이트만 보면 멀티바이트 글자가 그 경계에서 잘려 오판할 수 있어
+    # 전체 내용을 읽는다. 첨부 크기 제한(기본 10 MiB)이 이미 걸려 있어 비용은 작다.
+    content = path.read_bytes()
+    for encoding in ("utf-8", "cp949"):
+        try:
+            content.decode(encoding)
+            return True
+        except UnicodeDecodeError:
+            continue
+    return False
