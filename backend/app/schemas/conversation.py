@@ -43,6 +43,7 @@ class AppliedContextOut(BaseModel):
     block_id: uuid.UUID = Field(..., serialization_alias="blockId")
     version_id: uuid.UUID = Field(..., serialization_alias="versionId")
     order_index: int = Field(..., serialization_alias="orderIndex")
+    content: str
 
     model_config = ConfigDict(populate_by_name=True)
 

@@ -64,7 +64,8 @@ def send_message(
         assistant_block=BlockResponse.of(result.assistant_block),
         applied_context=[
             AppliedContextOut(
-                block_id=i.block_id, version_id=i.version_id, order_index=i.order_index
+                block_id=i.block_id, version_id=i.version_id, order_index=i.order_index,
+                content=i.content,
             )
             for i in result.context_items
         ],
@@ -123,7 +124,7 @@ def retry_ai_response_job(chat_id: uuid.UUID, branch_id: uuid.UUID, job_id: uuid
     result = ai_response_service.retry_failed_job(db, user, chat, branch, job_id)
     return SendMessageResponse(
         user_block=BlockResponse.of(result.user_block), assistant_block=BlockResponse.of(result.assistant_block),
-        applied_context=[AppliedContextOut(block_id=i.block_id, version_id=i.version_id, order_index=i.order_index) for i in result.context_items],
+        applied_context=[AppliedContextOut(block_id=i.block_id, version_id=i.version_id, order_index=i.order_index, content=i.content) for i in result.context_items],
         chat_title=chat.title, title_generated=result.title_generated, selected_model=result.selected_model,
         web_search_mode=result.web_search_mode, attachments=[_attachment_out(i) for i in result.attachments],
         reasoning_effort=result.reasoning_effort,

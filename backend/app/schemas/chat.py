@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import Branch, Chat, MessageBlock
+from app.schemas.conversation import AppliedContextOut
 from app.schemas.input_assist import AttachmentOut, SearchSourceOut
 from app.schemas.notification import ActionMeta
 
@@ -122,11 +123,20 @@ class MessageBlockOut(BaseModel):
     # generating일 때만 채워진다. 새로고침·브랜치 재진입 시 이 값으로 스트리밍
     # 통로에 다시 붙는다(BE-AIRESP-009).
     generation_job_id: uuid.UUID | None = Field(None, serialization_alias="generationJobId")
+    # 이 사용자 메시지를 보낼 때 인용한 Context 스니펫 (REQ-072). 어시스턴트 블록은 항상 빈 목록.
+    applied_context: list[AppliedContextOut] = Field(
+        default_factory=list, serialization_alias="appliedContext"
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
     @classmethod
-    def of(cls, block: MessageBlock, generation_job_id: uuid.UUID | None = None) -> MessageBlockOut:
+    def of(
+        cls,
+        block: MessageBlock,
+        generation_job_id: uuid.UUID | None = None,
+        applied_context: list[AppliedContextOut] | None = None,
+    ) -> MessageBlockOut:
         version = block.current_version
         return cls(
             block_id=block.id,
@@ -139,6 +149,7 @@ class MessageBlockOut(BaseModel):
             created_at=block.created_at,
             generation_status=block.generation_status.value,
             generation_job_id=generation_job_id,
+            applied_context=applied_context or [],
             attachments=[
                 AttachmentOut(
                     attachment_id=link.attachment.id,

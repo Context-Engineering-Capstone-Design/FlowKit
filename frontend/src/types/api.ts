@@ -119,6 +119,8 @@ export interface MessageBlock {
   generationStatus: GenerationStatus
   /** generating일 때만 값이 있다. 스트리밍 통로에 (다시) 붙을 때 쓴다. */
   generationJobId?: string | null
+  /** 이 사용자 메시지를 보낼 때 인용한 Context 스니펫 (REQ-072). 어시스턴트 블록은 항상 빈 배열. */
+  appliedContext?: AppliedContextOut[]
 }
 
 export interface ChatDetail {
@@ -215,6 +217,7 @@ export interface AppliedContextOut {
   blockId: string
   versionId: string
   orderIndex: number
+  content: string
 }
 
 /** 드래그로 고른 메시지 안 부분 범위 하나 (0820_13). 전체 블록이 아니라 이 스니펫만 Context 로 쓴다. */

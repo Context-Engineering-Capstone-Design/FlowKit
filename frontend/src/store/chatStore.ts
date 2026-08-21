@@ -958,7 +958,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         })),
       )
       set((s) => ({
-        blocks: [...dropTempBlock(s), res.userBlock, res.assistantBlock],
+        // 전송 응답에는 인용 스니펫 내용(appliedContext)이 userBlock과 별도로 온다 (REQ-072)
+        blocks: [...dropTempBlock(s), { ...res.userBlock, appliedContext: res.appliedContext }, res.assistantBlock],
         chatTitle: res.chatTitle,
         tabs: s.tabs.map((t) => (t.chatId === chatId ? { ...t, title: res.chatTitle } : t)),
         // 한 번 쓴 Context 는 자동으로 해제한다. 남겨두면 다음 질문까지

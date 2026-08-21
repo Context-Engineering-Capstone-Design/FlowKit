@@ -95,6 +95,27 @@ it('이미지 첨부는 미리보기로 보여준다', () => {
   expect(screen.queryByText('screen.png')).toBeNull()
 })
 
+it('보낼 때 인용한 Context 스니펫을 사용자 메시지 위에 태그로 보여준다 (REQ-072)', () => {
+  const withContext = {
+    ...block,
+    appliedContext: [{ blockId: 'src-1', versionId: 'v-src', orderIndex: 0, content: '원문 인용' }],
+  }
+  render(<MessageBlockItem block={withContext} />)
+
+  expect(screen.getByText('“원문 인용”')).toBeTruthy()
+})
+
+it('AI 답변에는 인용 태그를 보여주지 않는다', () => {
+  const assistantWithContext = {
+    ...block,
+    role: 'assistant' as const,
+    appliedContext: [{ blockId: 'src-1', versionId: 'v-src', orderIndex: 0, content: '원문 인용' }],
+  }
+  render(<MessageBlockItem block={assistantWithContext} />)
+
+  expect(screen.queryByText('“원문 인용”')).toBeNull()
+})
+
 it('다른 브랜치에서 이어받은 답변은 재생성 버튼을 숨긴다', () => {
   const inherited = { ...block, role: 'assistant' as const, branchId: 'other-branch' }
   render(<MessageBlockItem block={inherited} />)

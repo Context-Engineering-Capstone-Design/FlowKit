@@ -11,8 +11,8 @@ import { SelectionActionToggle } from '@/components/SelectionActionToggle'
 import { useChatStore } from '@/store/chatStore'
 import { closeUnterminatedMarkdown } from '@/lib/streamingMarkdown'
 import { rehypeHighlightRanges } from '@/lib/rehypeHighlightRanges'
-import { captureSelection, SELECTABLE_ROOT_ATTR } from '@/lib/textRangeSelection'
-import type { AttachmentResponse, MessageBlock, RefineResultItem, RefineStatus } from '@/types/api'
+import { captureSelection, SELECTABLE_ROOT_ATTR, toTagPreview } from '@/lib/textRangeSelection'
+import type { AppliedContextOut, AttachmentResponse, MessageBlock, RefineResultItem, RefineStatus } from '@/types/api'
 import { fetchAttachmentFile } from '@/api/inputAssist'
 
 interface Props {
@@ -220,6 +220,10 @@ export function MessageBlockItem({ block, refine }: Props) {
 
         {imageAttachments.length > 0 && (
           <ImagePreviewList chatId={chatId} attachments={imageAttachments} />
+        )}
+
+        {isUser && block.appliedContext && block.appliedContext.length > 0 && (
+          <AppliedContextTagList items={block.appliedContext} />
         )}
 
         {editing ? (
@@ -469,6 +473,23 @@ function AuthenticatedImage({
       alt={attachment.fileName}
       className="max-h-72 max-w-full rounded-2xl object-contain"
     />
+  )
+}
+
+// 전송 당시 인용한 Context 스니펫 — 채팅 내역에 영구적으로 남는 읽기 전용 태그 (REQ-072)
+function AppliedContextTagList({ items }: { items: AppliedContextOut[] }) {
+  return (
+    <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+      {items.map((item, index) => (
+        <span
+          key={index}
+          title={item.content}
+          className="max-w-[220px] truncate rounded-full bg-blue-dim px-2.5 py-1 text-[11px] text-blue"
+        >
+          “{toTagPreview(item.content)}”
+        </span>
+      ))}
+    </div>
   )
 }
 

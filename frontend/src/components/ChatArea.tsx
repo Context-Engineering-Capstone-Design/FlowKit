@@ -11,6 +11,7 @@ import { WebSearchToggle } from '@/components/WebSearchToggle'
 import { ReasoningEffortSelector } from '@/components/ReasoningEffortSelector'
 import { useChatStore, type ContextRangeTag } from '@/store/chatStore'
 import { buildConversationOutline } from '@/lib/conversationOutline'
+import { toTagPreview } from '@/lib/textRangeSelection'
 import * as projectApi from '@/api/project'
 import type { ProjectLibraryResource } from '@/types/api'
 
@@ -376,12 +377,6 @@ function Composer() {
 function ProjectLibraryMenu({ resources, selectedIds, onChange }: { resources: ProjectLibraryResource[]; selectedIds: string[]; onChange: (ids: string[]) => void }) {
   function toggle(resourceId: string) { onChange(selectedIds.includes(resourceId) ? selectedIds.filter((id) => id !== resourceId) : [...selectedIds, resourceId]) }
   return <div className="absolute bottom-9 left-0 z-30 w-56 rounded-lg border border-line bg-bg-1 p-2 shadow-xl"><p className="px-1 pb-1 text-[11px] text-txt-3">이번 질문에 참고할 자료</p>{resources.map((resource) => <label key={resource.resourceId} className="flex cursor-pointer items-start gap-2 rounded p-1.5 text-[12px] hover:bg-bg-2"><input type="checkbox" checked={selectedIds.includes(resource.resourceId)} onChange={() => toggle(resource.resourceId)} /><span className="min-w-0"><b className="block truncate font-medium">{resource.title}</b><span className="line-clamp-1 text-txt-3">{resource.content}</span></span></label>)}</div>
-}
-
-/** 태그 미리보기에 보일 짧은 문구 (0820_13 B1: 앞 5~10자 이하) */
-function toTagPreview(text: string): string {
-  const trimmed = text.trim().replace(/\s+/g, ' ')
-  return trimmed.length > 10 ? `${trimmed.slice(0, 10)}…` : trimmed
 }
 
 // 드래그로 고른 부분 범위 태그 목록 — 다음 전송의 Context로 쓰인다 (0820_13 B1~B3)

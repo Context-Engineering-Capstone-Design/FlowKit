@@ -5,8 +5,12 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Query
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 from app.deps import CurrentUser, DbSession
+from app.models import AppliedContextLog
+from app.schemas.conversation import AppliedContextOut
 from app.schemas.chat import (
     BranchDetailResponse,
     BranchListItem,
@@ -31,11 +35,38 @@ from app.services import ai_response_service, branch_service, chat_service, proj
 router = APIRouter(prefix="/api/chats", tags=["Chat"])
 
 
+def _applied_context_by_block(db, user_block_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[AppliedContextOut]]:
+    """REQ-072: 사용자 블록별로 전송 당시 인용한 Context 스니펫을 일괄 조회한다."""
+    if not user_block_ids:
+        return {}
+    logs = db.scalars(
+        select(AppliedContextLog)
+        .where(AppliedContextLog.user_message_block_id.in_(user_block_ids))
+        .options(joinedload(AppliedContextLog.items))
+    ).unique()
+    return {
+        log.user_message_block_id: [
+            AppliedContextOut(
+                block_id=item.source_block_id,
+                version_id=item.version_id,
+                order_index=item.order_index,
+                content=item.content,
+            )
+            for item in log.items
+        ]
+        for log in logs
+    }
+
+
 def _block_list(db, blocks) -> list[MessageBlockOut]:
     """BE-AIRESP-009: 생성 중인 블록에는 다시 붙을 작업 id를 함께 실어 보낸다."""
     generating_ids = [b.id for b in blocks if b.generation_status.value == "generating"]
     job_by_block = ai_response_service.generating_job_ids_for_blocks(db, generating_ids)
-    return [MessageBlockOut.of(b, job_by_block.get(b.id)) for b in blocks]
+    applied_context_by_block = _applied_context_by_block(db, [b.id for b in blocks if b.role.value == "user"])
+    return [
+        MessageBlockOut.of(b, job_by_block.get(b.id), applied_context_by_block.get(b.id))
+        for b in blocks
+    ]
 
 
 def _branch_list(db, chat, active_branch_id: uuid.UUID) -> list[BranchListItem]:

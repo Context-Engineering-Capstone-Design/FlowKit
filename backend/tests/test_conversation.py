@@ -472,6 +472,39 @@ def test_range_context_can_combine_with_multiple_snippets_from_same_block(client
     assert captured[-1].applied_context == ["답변", "(1)"]
 
 
+def test_range_context_content_is_included_in_send_response(client, auth, chat, captured):
+    """REQ-072: 전송 응답에도 인용 스니펫 내용이 곧바로 실려야 채팅 내역에 바로 보여줄 수 있다."""
+    first = send_and_wait(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    version_id = first["assistantBlock"]["currentVersionId"]
+
+    body = send(
+        client, auth, chat, "이 부분만 표로 정리해줘",
+        context_ranges=[{"blockId": block_id, "versionId": version_id, "snippetText": "답변(1)"}],
+    )
+
+    assert body["appliedContext"][0]["content"] == "답변(1)"
+
+
+def test_range_context_snippet_persists_on_chat_reload(client, auth, chat, captured):
+    """REQ-072: 대화를 다시 조회해도 사용자 메시지에 인용 스니펫이 그대로 남아 있어야 한다."""
+    first = send_and_wait(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    version_id = first["assistantBlock"]["currentVersionId"]
+
+    sent = send(
+        client, auth, chat, "이 부분만 표로 정리해줘",
+        context_ranges=[{"blockId": block_id, "versionId": version_id, "snippetText": "답변(1)"}],
+    )
+    user_block_id = sent["userBlock"]["blockId"]
+
+    reloaded = block_of(client, auth, chat, user_block_id)
+    assert [c["content"] for c in reloaded["appliedContext"]] == ["답변(1)"]
+
+    other_block = block_of(client, auth, chat, first["userBlock"]["blockId"])
+    assert other_block["appliedContext"] == []
+
+
 def test_range_context_keeps_snapshot_of_its_pinned_version_after_edit(client, auth, chat, captured):
     """0820_13 D3: 원문이 나중에 수정돼도 선택 당시(구 버전) 스냅샷을 Context로 쓴다."""
     first = send_and_wait(client, auth, chat, "질문")

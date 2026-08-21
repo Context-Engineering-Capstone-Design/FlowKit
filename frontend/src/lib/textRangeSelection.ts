@@ -50,3 +50,9 @@ export function captureSelection(selection: Selection | null): CapturedSelection
 
   return { root: anchorRoot, text, snapshotText: flatText, startOffset, endOffset: startOffset + text.length }
 }
+
+/** 태그 미리보기에 보일 짧은 문구 (0820_13 B1: 앞 5~10자 이하) */
+export function toTagPreview(text: string): string {
+  const trimmed = text.trim().replace(/\s+/g, ' ')
+  return trimmed.length > 10 ? `${trimmed.slice(0, 10)}…` : trimmed
+}

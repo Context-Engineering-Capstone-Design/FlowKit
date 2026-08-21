@@ -191,6 +191,21 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
   })
 
+  it('전송 응답의 인용 스니펫을 사용자 블록에 합쳐 저장한다 (REQ-072)', async () => {
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답변', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      appliedContext: [{ blockId: 'src-1', versionId: 'v-src', orderIndex: 0, content: '인용한 문장' }],
+      chatTitle: '대화',
+      titleGenerated: false,
+    })
+
+    await useChatStore.getState().sendMessage('질문')
+
+    const userBlock = useChatStore.getState().blocks.find((b) => b.blockId === 'u1')
+    expect(userBlock?.appliedContext).toEqual([{ blockId: 'src-1', versionId: 'v-src', orderIndex: 0, content: '인용한 문장' }])
+  })
+
   it('기본 웹 검색 상태는 자동이고, 고른 상태 그대로 전송한다 (AI-SEARCH-001)', async () => {
     convApi.sendMessage.mockResolvedValue({
       userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
