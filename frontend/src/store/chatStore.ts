@@ -72,6 +72,23 @@ let latestChatListRequestId: string | null = null
 let latestChatMoreRequestId: string | null = null
 let chatStatusPoll: ReturnType<typeof setInterval> | null = null
 
+let chatsRefreshTimer: ReturnType<typeof setTimeout> | null = null
+const CHATS_REFRESH_COALESCE_MS = 300
+
+/**
+ * 새 대화 생성·전송 완료·실시간 이벤트처럼 화면 밖에서 오는 신호로 채팅 목록을
+ * 다시 불러올 때 쓴다. 메시지 하나를 보내고 응답을 받는 사이 이런 신호가 여러
+ * 곳에서 거의 동시에 겹쳐 들어오는데, 신호마다 바로 불러오면 짧은 시간에 목록이
+ * 여러 번 다시 그려져 화면이 깜빡인다. 짧은 시간 안에 겹친 신호는 하나로 합친다.
+ */
+function scheduleChatsRefresh(get: () => ChatState) {
+  if (chatsRefreshTimer) return
+  chatsRefreshTimer = setTimeout(() => {
+    chatsRefreshTimer = null
+    void get().loadChats(get().chatListKeyword || undefined)
+  }, CHATS_REFRESH_COALESCE_MS)
+}
+
 // 0821_05: 실시간 이벤트 채널이 주 경로다. 이 폴링은 연결이 끊겼다가 재연결
 // 전까지 이벤트를 놓쳤을 때만 의미가 있는 안전망이라 간격을 크게 늘렸다.
 const CHAT_STATUS_POLL_INTERVAL_MS = 60_000
@@ -506,7 +523,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         captureActiveTabSnapshot(set, get)
         applyDetail(set, created)
         upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
-        await get().loadChats()
+        scheduleChatsRefresh(get)
       } catch (e) { set({ error: toErrorMessage(e) }) }
       return
     }
@@ -988,7 +1005,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       get().clearDraft()
       useNotificationStore.getState().dismissBanner('api-key-required')
       void get().attachToJob(res.assistantBlock.blockId, res.aiResponseJobId, clickedAt)
-      if (res.titleGenerated) await get().loadChats()
+      if (res.titleGenerated) scheduleChatsRefresh(get)
     } catch (e) {
       if (openApiKeyWhenMissing(e)) {
         set((s) => ({ error: null, blocks: dropTempBlock(s) }))
@@ -1044,7 +1061,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       set((s) => ({ blocks: [...s.blocks, result.assistantBlock], chatTitle: result.chatTitle,
         failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([, id]) => id !== jobId)) }))
       void get().attachToJob(result.assistantBlock.blockId, result.aiResponseJobId, clickedAt)
-      await get().loadChats()
+      scheduleChatsRefresh(get)
     } catch (e) { set({ error: toErrorMessage(e) }) }
     finally { set({ isSending: false }) }
   },
@@ -1093,7 +1110,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         if (payload.status === 'failed' && payload.error) {
           useNotificationStore.getState().show(payload.error.message, 'error')
         }
-        void get().loadChats(get().chatListKeyword || undefined)
+        scheduleChatsRefresh(get)
         flushDeliveryTiming(chatId, branchId, jobId, payload.status)
       },
     }
@@ -1707,8 +1724,7 @@ async function runRealtimeLoop(signal: AbortSignal, attempt: number): Promise<vo
 }
 
 function handleRealtimeChatsChanged() {
-  const state = useChatStore.getState()
-  void state.loadChats(state.chatListKeyword || undefined)
+  scheduleChatsRefresh(useChatStore.getState)
 }
 
 /** 지금 열려 있는 대화와 같은 chatId·branchId일 때만 조용히 다시 불러오고, 생성 중인 블록에 다시 붙는다. */
@@ -1923,7 +1939,7 @@ async function ensureChat(
       tabs: promoteDraftTab(get().tabs, draftId, created.chatMeta, created.branchMeta.branchId),
       activeTabId: chatId,
     })
-    void get().loadChats()
+    scheduleChatsRefresh(get)
     return { chatId, branchId }
   } catch (e) {
     set({ error: toErrorMessage(e) })
