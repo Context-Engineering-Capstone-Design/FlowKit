@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, BookOpen, PanelRight, Square, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BookOpen, PanelLeft, PanelRight, Square, Upload, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentItem } from '@/components/AttachmentItem'
 import { AttachmentMenu } from '@/components/AttachmentMenu'
@@ -18,10 +18,12 @@ import type { ProjectLibraryResource } from '@/types/api'
 interface Props {
   panelOpen: boolean
   onTogglePanel: () => void
+  sidebarOpen: boolean
+  onOpenSidebar: () => void
 }
 
 // 중앙 채팅 영역 — 메시지 블록 목록과 입력창
-export function ChatArea({ panelOpen, onTogglePanel }: Props) {
+export function ChatArea({ panelOpen, onTogglePanel, sidebarOpen, onOpenSidebar }: Props) {
   const chatTitle = useChatStore((s) => s.chatTitle)
   const chatId = useChatStore((s) => s.chatId)
   const blocks = useChatStore((s) => s.blocks)
@@ -145,6 +147,19 @@ export function ChatArea({ panelOpen, onTogglePanel }: Props) {
       <ChatTabBar />
       <header className="flex items-center justify-between px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-1">
+          {/* 사이드바가 닫혀 있으면 항상 눌러서 열 수 있는 버튼을 둔다.
+              좁은 화면에는 호버로 여는 방법이 없어 이 버튼이 유일한 진입로다 (0821_01 B1). */}
+          {!sidebarOpen && (
+            <button
+              type="button"
+              onClick={onOpenSidebar}
+              title="사이드바 열기"
+              aria-label="사이드바 열기"
+              className="mr-1 shrink-0 rounded-md p-1.5 text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </button>
+          )}
           {chatId && editingTitle ? (
             <input
               ref={titleInputRef}
@@ -341,7 +356,7 @@ function Composer() {
           className="max-h-40 w-full resize-none bg-transparent text-[13.5px] text-txt-0 outline-none placeholder:text-txt-3"
         />
         <div className="mt-2 flex items-center justify-between">
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             <AttachmentMenu disabled={!chatId || isSending || selectedModel?.supportsAttachment === false} onSelect={(files) => void addFiles(files)} />
             <WebSearchToggle mode={webSearchMode} disabled={!selectedModel?.supportsWebSearch} reason={selectedModel?.supportsWebSearch ? undefined : '선택한 모델은 웹 검색을 지원하지 않습니다.'} onChange={setWebSearchMode} />
             <ReasoningEffortSelector value={reasoningEffort} onChange={setReasoningEffort} />

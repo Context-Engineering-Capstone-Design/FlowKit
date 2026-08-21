@@ -23,7 +23,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function renderChat() {
+function renderChat(sidebarOpen = true, onOpenSidebar = () => undefined) {
   const renameChat = vi.fn().mockResolvedValue(true)
   useChatStore.setState({
     chatId: 'chat-1',
@@ -45,10 +45,27 @@ function renderChat() {
     <ChatArea
       panelOpen={false}
       onTogglePanel={() => undefined}
+      sidebarOpen={sidebarOpen}
+      onOpenSidebar={onOpenSidebar}
     />,
   )
   return { renameChat }
 }
+
+it('사이드바가 닫혀 있으면 여는 버튼이 보이고, 눌러 열 수 있다 (0821_01 B1)', () => {
+  const onOpenSidebar = vi.fn()
+  renderChat(false, onOpenSidebar)
+
+  fireEvent.click(screen.getByRole('button', { name: '사이드바 열기' }))
+
+  expect(onOpenSidebar).toHaveBeenCalledOnce()
+})
+
+it('사이드바가 열려 있으면 여는 버튼을 보여주지 않는다 (0821_01 B1)', () => {
+  renderChat(true)
+
+  expect(screen.queryByRole('button', { name: '사이드바 열기' })).toBeNull()
+})
 
 it('화면 상단 제목을 바꾸면 이름 변경을 요청한다', () => {
   const { renameChat } = renderChat()
@@ -130,6 +147,8 @@ it('새 채팅이 없으면 상단 제목을 보여주지 않는다', () => {
     <ChatArea
       panelOpen={false}
       onTogglePanel={() => undefined}
+      sidebarOpen
+      onOpenSidebar={() => undefined}
     />,
   )
 

@@ -34,6 +34,8 @@ it('마크다운 표를 표 태그로 그린다', () => {
   expect(screen.getByRole('table')).toBeTruthy()
   expect(screen.getByRole('columnheader', { name: '종류' })).toBeTruthy()
   expect(screen.getByRole('cell', { name: '하나' })).toBeTruthy()
+  // 좁은 화면에서 표가 페이지를 밀어내지 않고 표 안에서만 가로로 스크롤되어야 한다 (0821_01 C4)
+  expect(screen.getByRole('table').parentElement?.className).toContain('overflow-x-auto')
 })
 
 it('표 칸 안의 <br> 을 줄바꿈 태그로 바꾼다', () => {

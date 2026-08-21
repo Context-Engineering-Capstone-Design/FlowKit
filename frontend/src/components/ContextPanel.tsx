@@ -36,15 +36,24 @@ export function ContextPanel({ open = true, onClose, width, onResizeStart }: Pro
   }
 
   return (
-    <aside
-      id="context-panel"
-      aria-hidden={!open}
-      inert={!open}
-      style={{ '--panel-width': `${width}px` } as CSSProperties}
-      className={`relative shrink-0 overflow-hidden bg-bg-1 max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 ${
-        open ? 'w-[min(90vw,380px)] shadow-2xl lg:w-[var(--panel-width)]' : 'w-0'
-      } ${resizing ? '' : 'transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none'}`}
-    >
+    <>
+      {/* lg 미만에서 패널이 오버레이로 열려 있는 동안 뒤 화면 조작을 막는다 (0821_01 B2) */}
+      {open && (
+        <div
+          aria-hidden
+          onClick={onClose}
+          className="fixed inset-0 z-20 bg-black/50 lg:hidden"
+        />
+      )}
+      <aside
+        id="context-panel"
+        aria-hidden={!open}
+        inert={!open}
+        style={{ '--panel-width': `${width}px` } as CSSProperties}
+        className={`relative shrink-0 overflow-hidden bg-bg-1 max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 ${
+          open ? 'w-[min(90vw,380px)] shadow-2xl lg:w-[var(--panel-width)]' : 'w-0'
+        } ${resizing ? '' : 'transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none'}`}
+      >
       <div
         className={`flex h-full w-[min(90vw,380px)] flex-col lg:w-[var(--panel-width)] ${
           resizing ? '' : 'transition-opacity duration-200 motion-reduce:transition-none'
@@ -81,7 +90,8 @@ export function ContextPanel({ open = true, onClose, width, onResizeStart }: Pro
       </div>
 
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }
 

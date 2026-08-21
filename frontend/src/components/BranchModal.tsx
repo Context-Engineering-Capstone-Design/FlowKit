@@ -40,7 +40,7 @@ export function BranchModal({ onClose, initialBaseBlockId, editedBaseContent }: 
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="flex max-h-[80vh] w-[480px] flex-col rounded-2xl bg-bg-1">
+      <div className="flex max-h-[80vh] w-full max-w-[480px] flex-col rounded-2xl bg-bg-1">
         <header className="flex items-center justify-between px-5 py-4">
           <span className="flex items-center gap-2 text-[14px] font-semibold">
             <GitBranch className="h-4 w-4 text-green" />

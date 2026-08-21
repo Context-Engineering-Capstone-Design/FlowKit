@@ -262,7 +262,7 @@ export function MessageBlockItem({ block, refine }: Props) {
                 rehypeHighlight,
                 [rehypeHighlightRanges, { ranges: highlightRanges }],
               ]}
-              components={{ pre: CodeBlock }}
+              components={{ pre: CodeBlock, table: TableBlock }}
             >
               {displayed}
             </ReactMarkdown>
@@ -381,6 +381,15 @@ function InlineRefineBar({ result }: { result: RefineResultItem }) {
 }
 
 // 코드 블록 — 언어별 색 구분에 더해 블록 하나만 복사하는 버튼을 얹는다
+// 표가 화면보다 넓으면 페이지 전체가 아니라 표 안에서만 가로로 스크롤되게 한다 (0821_01 C4)
+function TableBlock(props: ComponentPropsWithoutRef<'table'>) {
+  return (
+    <div className="overflow-x-auto">
+      <table {...props} />
+    </div>
+  )
+}
+
 function CodeBlock(props: ComponentPropsWithoutRef<'pre'>) {
   const ref = useRef<HTMLPreElement>(null)
   const [copied, setCopied] = useState(false)

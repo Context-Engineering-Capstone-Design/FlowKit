@@ -29,9 +29,9 @@
   --color-sel-bg: rgba(79, 142, 247, 0.1);
   --color-sel-line: rgba(79, 142, 247, 0.5);
 
-  /* 드래그로 고른 부분 범위 강조 (0820_13) */
-  --color-range-bg: rgba(240, 160, 62, 0.2);
-  --color-range-line: rgba(240, 160, 62, 0.55);
+  /* 드래그로 고른 부분 범위 강조 (0820_13) — 브랜드 블루로 통일 */
+  --color-range-bg: rgba(79, 142, 247, 0.2);
+  --color-range-line: rgba(79, 142, 247, 0.6);
 }
 
 html,
@@ -47,6 +47,19 @@ body {
     -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo',
     'Segoe UI', sans-serif;
   font-size: 14px;
+  /* 팝오버·태그 미리보기 등 화면 밖으로 밀려나는 요소가 있어도
+     페이지 전체가 가로로 스크롤되지 않게 막는다 (0821_01 D). */
+  overflow-x: hidden;
+}
+
+/* 마우스가 없는 터치 기기에서는 hover로만 드러나는 조작 버튼을 항상 보이게 한다.
+   Tailwind가 만드는 group-hover:opacity-100 계열 유틸리티 클래스 이름을 그대로
+   부분 일치시켜, 새 컴포넌트에 같은 유틸리티를 쓰면 자동으로 적용된다 (0821_01 D). */
+@media (hover: none) {
+  [class*="group-hover:opacity-100"],
+  [class*="group-hover/code:opacity-100"] {
+    opacity: 1 !important;
+  }
 }
 
 /* AI 답변은 마크다운으로 온다 */

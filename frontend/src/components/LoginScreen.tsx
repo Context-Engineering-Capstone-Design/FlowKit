@@ -10,8 +10,8 @@ export function LoginScreen() {
   const error = useAuthStore((s) => s.error)
 
   return (
-    <div className="flex h-full items-center justify-center bg-bg-0">
-      <div className="w-[380px] rounded-2xl bg-bg-1 p-10 text-center">
+    <div className="flex h-full items-center justify-center bg-bg-0 px-4">
+      <div className="w-full max-w-[380px] rounded-2xl bg-bg-1 p-8 text-center sm:p-10">
         <div className="mb-6 flex items-center justify-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-linear-to-br from-blue to-green">
             <Layers className="h-5 w-5 text-white" strokeWidth={2} />
