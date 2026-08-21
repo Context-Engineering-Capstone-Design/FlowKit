@@ -35,7 +35,7 @@ from app.models.refine import (
     RefineJobStatus,
     RefineResultStatus,
 )
-from app.models.user import AuthSession, User
+from app.models.user import AuthSession, GoogleLoginExchange, User
 from app.models.user_setting import ApiKeyConnectionStatus, UserApiKey
 
 __all__ = [
@@ -48,6 +48,7 @@ __all__ = [
     "MessageAttachment",
     "User",
     "AuthSession",
+    "GoogleLoginExchange",
     "Chat",
     "ChatReadState",
     "ChatKind",

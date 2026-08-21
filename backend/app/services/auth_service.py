@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,12 +18,13 @@ from app.core.security import (
 )
 from app.exceptions import (
     EmailAlreadyExistsError,
+    GoogleLoginExchangeInvalidError,
     SessionNotFoundError,
     TokenExpiredError,
     TokenReuseDetectedError,
     UserNotFoundError,
 )
-from app.models import AuthSession, User
+from app.models import AuthSession, GoogleLoginExchange, User
 from app.services.google_auth import GoogleUser
 
 
@@ -73,6 +76,49 @@ def issue_tokens(
     access_token, expires_at = create_access_token(user.id, session.id)
     db.commit()
     return access_token, raw_refresh, expires_at
+
+
+def create_google_login_exchange(
+    db: Session, user: User, is_new_user: bool
+) -> str:
+    """URL에는 원문 대신 짧게 살아 있는 일회용 코드만 남긴다."""
+    code = secrets.token_urlsafe(32)
+    exchange = GoogleLoginExchange(
+        user_id=user.id,
+        code_hash=_hash_login_exchange_code(code),
+        is_new_user=is_new_user,
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    db.add(exchange)
+    db.commit()
+    return code
+
+
+def redeem_google_login_exchange(
+    db: Session, code: str
+) -> tuple[User, bool]:
+    """교환 코드를 소비한다. 코드 원문과 서비스 토큰은 DB에 저장하지 않는다."""
+    exchange = db.scalar(
+        select(GoogleLoginExchange).where(
+            GoogleLoginExchange.code_hash == _hash_login_exchange_code(code)
+        )
+    )
+    if exchange is None or _as_utc(exchange.expires_at) < datetime.now(UTC):
+        if exchange is not None:
+            db.delete(exchange)
+            db.commit()
+        raise GoogleLoginExchangeInvalidError()
+
+    user = db.get(User, exchange.user_id)
+    if user is None:
+        db.delete(exchange)
+        db.commit()
+        raise GoogleLoginExchangeInvalidError()
+
+    is_new_user = exchange.is_new_user
+    db.delete(exchange)
+    db.commit()
+    return user, is_new_user
 
 
 def rotate_tokens(
@@ -154,3 +200,7 @@ def _revoke_all_sessions(db: Session, user_id: uuid.UUID) -> None:
 def _as_utc(value: datetime) -> datetime:
     """SQLite 는 tz 정보를 잃으므로 naive datetime 을 UTC 로 간주한다."""
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def _hash_login_exchange_code(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()

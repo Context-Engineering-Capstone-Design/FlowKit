@@ -6,14 +6,11 @@
 
 const SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 
-interface CredentialResponse {
-  credential: string
-}
-
 interface GoogleAccountsId {
   initialize: (config: {
     client_id: string
-    callback: (response: CredentialResponse) => void
+    login_uri?: string
+    ux_mode?: 'popup' | 'redirect'
     auto_select?: boolean
     use_fedcm_for_prompt?: boolean
   }) => void
@@ -52,16 +49,14 @@ function loadScript(): Promise<GoogleAccountsId> {
 export async function renderGoogleButton(
   parent: HTMLElement,
   clientId: string,
-  onCredential: (idToken: string) => void,
+  loginUri: string,
 ): Promise<void> {
   const api = await loadScript()
 
   api.initialize({
     client_id: clientId,
-    callback: (response) => onCredential(response.credential),
-    // 서드파티 쿠키를 막는 최신 브라우저에서 "다른 계정 사용" 흐름이
-    // 400으로 막히는 문제를 피하기 위해 구글 권장 FedCM 경로를 사용한다.
-    use_fedcm_for_prompt: true,
+    login_uri: loginUri,
+    ux_mode: 'redirect',
   })
 
   parent.replaceChildren()

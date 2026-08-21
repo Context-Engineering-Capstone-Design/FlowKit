@@ -20,14 +20,23 @@ export default function App() {
   const user = useAuthStore((s) => s.user)
   const isChecking = useAuthStore((s) => s.isChecking)
   const check = useAuthStore((s) => s.check)
+  const exchangeGoogleLogin = useAuthStore((s) => s.exchangeGoogleLogin)
   const showError = useNotificationStore((s) => s.showError)
   const dismissBanner = useNotificationStore((s) => s.dismissBanner)
   const chatError = useChatStore((s) => s.error)
   const refineFailed = useChatStore((s) => s.refineFailed)
 
   useEffect(() => {
-    void check()
-  }, [check])
+    const url = new URL(window.location.href)
+    const code = url.searchParams.get('googleLoginCode')
+    if (!code) {
+      void check()
+      return
+    }
+    url.searchParams.delete('googleLoginCode')
+    window.history.replaceState({}, '', url)
+    void exchangeGoogleLogin(code)
+  }, [check, exchangeGoogleLogin])
 
   useEffect(() => {
     window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)

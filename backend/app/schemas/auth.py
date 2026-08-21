@@ -15,6 +15,10 @@ class GoogleLoginRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class GoogleLoginExchangeRequest(BaseModel):
+    code: str = Field(..., min_length=20, max_length=512)
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str = Field(..., alias="refreshToken")
 

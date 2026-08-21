@@ -81,24 +81,22 @@ function DevelopmentLoginButton() {
 // Google 로그인 버튼 — 구글이 제공하는 공식 버튼을 그린다
 function GoogleLoginButton() {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
-  const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle)
+  const loginUri = import.meta.env.VITE_GOOGLE_LOGIN_URI
   const holder = useRef<HTMLDivElement>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!clientId || !holder.current) return
-    renderGoogleButton(holder.current, clientId, (idToken) => {
-      void loginWithGoogle(idToken)
-    }).catch((e: Error) => setLoadError(e.message))
-  }, [clientId, loginWithGoogle])
+    if (!clientId || !loginUri || !holder.current) return
+    renderGoogleButton(holder.current, clientId, loginUri).catch((e: Error) => setLoadError(e.message))
+  }, [clientId, loginUri])
 
-  if (!clientId) {
+  if (!clientId || !loginUri) {
     return (
       <p className="mt-7 rounded-lg bg-bg-2 p-3 text-[11.5px] leading-relaxed text-orange">
         Google 클라이언트 ID가 없어 로그인할 수 없습니다.
         <br />
         <span className="text-txt-2">
-          frontend/.env의 VITE_GOOGLE_CLIENT_ID를 채워주세요.
+          frontend/.env의 VITE_GOOGLE_CLIENT_ID와 VITE_GOOGLE_LOGIN_URI를 채워주세요.
         </span>
       </p>
     )

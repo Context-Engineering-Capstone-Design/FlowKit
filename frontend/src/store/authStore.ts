@@ -12,6 +12,7 @@ interface AuthState {
   /** 새로고침 후에도 로그인 상태를 이어가기 위해 저장된 토큰으로 확인한다. */
   check: () => Promise<void>
   loginWithGoogle: (idToken: string) => Promise<void>
+  exchangeGoogleLogin: (code: string) => Promise<void>
   loginForDevelopment: () => Promise<void>
   updateProfile: (payload: {
     name: string
@@ -52,6 +53,19 @@ export const useAuthStore = create<AuthState>((set) => ({
       useNotificationStore.getState().dismissBanner('auth-session')
     } catch (e) {
       set({ error: toErrorMessage(e) })
+      useNotificationStore.getState().showError(e, { scope: 'auth' })
+    }
+  },
+
+  async exchangeGoogleLogin(code) {
+    set({ error: null, isChecking: true })
+    try {
+      const res = await authApi.exchangeGoogleLogin(code)
+      set({ user: res.user, isChecking: false })
+      useNotificationStore.getState().dismissBanner('auth')
+      useNotificationStore.getState().dismissBanner('auth-session')
+    } catch (e) {
+      set({ user: null, isChecking: false, error: toErrorMessage(e) })
       useNotificationStore.getState().showError(e, { scope: 'auth' })
     }
   },

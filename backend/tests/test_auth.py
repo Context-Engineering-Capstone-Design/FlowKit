@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +15,7 @@ from sqlalchemy import select
 
 from app.db import get_db
 from app.main import app
-from app.models import AuthSession, User
+from app.models import AuthSession, GoogleLoginExchange, User
 from app.routers import auth as auth_router
 from app.services import google_auth
 from app.services.google_auth import GoogleUser, extract_google_user
@@ -41,6 +42,24 @@ def login(client, stub_google) -> dict:
     res = client.post("/api/auth/google", json={"idToken": "dummy"})
     assert res.status_code == 200, res.text
     return res.json()
+
+
+def google_redirect_login(client, stub_google, monkeypatch) -> str:
+    stub_google()
+    monkeypatch.setattr(
+        auth_router,
+        "get_settings",
+        lambda: type("Settings", (), {"frontend_base_url": "https://flowkit.example.com"})(),
+    )
+    res = client.post(
+        "/api/auth/google/redirect",
+        data={"credential": "dummy"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303, res.text
+    location = res.headers["location"]
+    assert location.startswith("https://flowkit.example.com/?googleLoginCode=")
+    return parse_qs(urlparse(location).query)["googleLoginCode"][0]
 
 
 # ── payload 추출 ──────────────────────────────────────────────
@@ -156,6 +175,32 @@ def test_second_login_reuses_existing_user(client, stub_google, db_session):
 
     assert body["isNewUser"] is False
     assert len(db_session.scalars(select(User)).all()) == 1
+
+
+def test_google_redirect_login_exchanges_code_once(client, stub_google, monkeypatch):
+    code = google_redirect_login(client, stub_google, monkeypatch)
+
+    exchanged = client.post("/api/auth/google/exchange", json={"code": code})
+
+    assert exchanged.status_code == 200, exchanged.text
+    assert exchanged.json()["user"]["email"] == GOOGLE_USER.email
+    assert client.post("/api/auth/google/exchange", json={"code": code}).json()[
+        "errorCode"
+    ] == "GOOGLE_LOGIN_EXCHANGE_INVALID"
+
+
+def test_google_redirect_login_rejects_expired_code(
+    client, stub_google, monkeypatch, db_session
+):
+    code = google_redirect_login(client, stub_google, monkeypatch)
+    exchange = db_session.scalars(select(GoogleLoginExchange)).one()
+    exchange.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    db_session.commit()
+
+    res = client.post("/api/auth/google/exchange", json={"code": code})
+
+    assert res.status_code == 401
+    assert res.json()["errorCode"] == "GOOGLE_LOGIN_EXCHANGE_INVALID"
 
 
 def test_login_links_google_account_to_existing_email(client, stub_google, db_session):

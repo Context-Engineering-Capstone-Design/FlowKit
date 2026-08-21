@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from ipaddress import ip_address
+from typing import Annotated
+from urllib.parse import quote
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
+from fastapi.responses import RedirectResponse
 
 from app.deps import CurrentUser, DbSession, OptionalUser
 from app.exceptions import DevLoginUnavailableError
 from app.schemas.auth import (
     AuthStatusResponse,
+    GoogleLoginExchangeRequest,
     GoogleLoginRequest,
     LogoutResponse,
     RefreshRequest,
@@ -50,6 +54,45 @@ def google_login(payload: GoogleLoginRequest, db: DbSession) -> TokenResponse:
     user, is_new_user = auth_service.find_or_create_user(db, google_user)
     access_token, refresh_token, expires_at = auth_service.issue_tokens(
         db, user, device_info=payload.device_info
+    )
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+        user=UserProfile.model_validate(user),
+        is_new_user=is_new_user,
+        action_meta=ActionMeta(
+            action_type="auth_login",
+            success_code="AUTH_LOGIN_SUCCEEDED",
+            message="로그인했습니다.",
+            affected_resource_id=user.id,
+        ),
+    )
+
+
+@router.post("/google/redirect", response_class=RedirectResponse)
+def google_redirect_login(
+    credential: Annotated[str, Form()], db: DbSession
+) -> RedirectResponse:
+    """Google가 POST한 ID 토큰을 현재 탭 복귀용 일회성 코드로 바꾼다."""
+    google_user = verify_google_id_token(credential)
+    user, is_new_user = auth_service.find_or_create_user(db, google_user)
+    code = auth_service.create_google_login_exchange(db, user, is_new_user)
+    frontend_base_url = get_settings().frontend_base_url.rstrip("/")
+    return RedirectResponse(
+        url=f"{frontend_base_url}/?googleLoginCode={quote(code)}",
+        status_code=303,
+    )
+
+
+@router.post("/google/exchange", response_model=TokenResponse)
+def exchange_google_login(
+    payload: GoogleLoginExchangeRequest, db: DbSession
+) -> TokenResponse:
+    """프론트엔드가 복귀 URL의 코드를 한 번만 서비스 토큰으로 교환한다."""
+    user, is_new_user = auth_service.redeem_google_login_exchange(db, payload.code)
+    access_token, refresh_token, expires_at = auth_service.issue_tokens(
+        db, user, device_info="google-redirect"
     )
     return TokenResponse(
         access_token=access_token,

@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # Google 로그인 : FE가 획득한 ID 토큰의 audience 검증에 사용
     google_client_id: str = ""
 
+    # Google redirect 로그인 완료 뒤 돌아갈 프론트엔드 주소.
+    frontend_base_url: str = "http://localhost:5173"
+
     # Cursor 내장 브라우저 등에서 쓰는 로컬 전용 로그인. 운영 환경에서는 켜지 않는다.
     dev_login_enabled: bool = False
 

@@ -53,6 +53,12 @@ class InvalidGoogleIdTokenError(AppError):
     message = "유효하지 않은 Google 로그인 정보입니다."
 
 
+class GoogleLoginExchangeInvalidError(AppError):
+    status_code = 401
+    error_code = "GOOGLE_LOGIN_EXCHANGE_INVALID"
+    message = "로그인 확인 시간이 만료되었거나 이미 처리되었습니다. 다시 로그인해주세요."
+
+
 class DevLoginUnavailableError(AppError):
     status_code = 404
     error_code = "DEV_LOGIN_UNAVAILABLE"
