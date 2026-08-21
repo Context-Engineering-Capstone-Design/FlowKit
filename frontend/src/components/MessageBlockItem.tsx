@@ -14,6 +14,7 @@ import { rehypeHighlightRanges } from '@/lib/rehypeHighlightRanges'
 import { captureSelection, SELECTABLE_ROOT_ATTR, toTagPreview } from '@/lib/textRangeSelection'
 import type { AppliedContextOut, AttachmentResponse, MessageBlock, RefineResultItem, RefineStatus } from '@/types/api'
 import { fetchAttachmentFile } from '@/api/inputAssist'
+import { openChatInSidePanel } from '@/store/chatStore'
 
 interface Props {
   block: MessageBlock
@@ -42,7 +43,6 @@ export function MessageBlockItem({ block, refine }: Props) {
   const createBranchAt = useChatPaneStore((s) => s.createBranchAt)
   const openRefine = useChatPaneStore((s) => s.openRefine)
   const createSideChatTab = useChatPaneStore((s) => s.createSideChatTab)
-  const openChat = useChatPaneStore((s) => s.openChat)
   const linkedSideChats = useChatPaneStore((s) => s.sideChatsByBlockId[block.blockId])
   const view = useChatPaneStore((s) => s.inlineView[block.blockId] ?? 'refined')
   const highlighted = useChatPaneStore(
@@ -309,7 +309,7 @@ export function MessageBlockItem({ block, refine }: Props) {
               <button
                 key={sideChat.chatId}
                 type="button"
-                onClick={() => void openChat(sideChat.chatId)}
+                onClick={() => void openChatInSidePanel(sideChat.chatId)}
                 title="사이드 채팅 열기"
                 className="flex items-center gap-1 rounded-full border border-line bg-bg-2 px-2 py-0.5 text-[10.5px] text-txt-2 transition hover:bg-bg-3 hover:text-txt-0"
               >

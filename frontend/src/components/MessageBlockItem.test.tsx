@@ -3,12 +3,15 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MessageBlockItem } from '@/components/MessageBlockItem'
-import { useChatStore } from '@/store/chatStore'
+import { setSidePanelOpener, useChatStore } from '@/store/chatStore'
 import { useNotificationStore } from '@/store/notificationStore'
 
 const block = { blockId: 'block-1', branchId: 'branch-1', role: 'user' as const, content: '복사할 내용', currentVersionId: 'v1', versionNo: 1, orderIndex: 0, createdAt: new Date().toISOString(), attachments: [], searchSources: [], generationStatus: 'complete' as const }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  setSidePanelOpener(null)
+})
 
 beforeEach(() => {
   useNotificationStore.getState().clearToast()
@@ -216,10 +219,10 @@ it('여기서 사이드 채팅 만들기 버튼을 누르면 이 블록을 지�
   expect(createSideChatTab).toHaveBeenCalledWith('block-1')
 })
 
-it('이 지점에서 만든 사이드 채팅이 있으면 칩으로 보여주고, 누르면 그 채팅을 연다', () => {
-  const openChat = vi.fn()
+it('이 지점에서 만든 사이드 채팅이 있으면 칩으로 보여주고, 누르면 우측 패널에 연다', () => {
+  const openSidePanel = vi.fn().mockResolvedValue(undefined)
+  setSidePanelOpener(openSidePanel)
   useChatStore.setState({
-    openChat,
     sideChatsByBlockId: {
       'block-1': [{ chatId: 'side-1', title: '탐색 대화', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-1', parentMessageBlockId: 'block-1', rootChatId: 'chat-1' }],
     },
@@ -230,7 +233,7 @@ it('이 지점에서 만든 사이드 채팅이 있으면 칩으로 보여주고
   expect(chip.textContent).toContain('탐색 대화')
   fireEvent.click(chip)
 
-  expect(openChat).toHaveBeenCalledWith('side-1')
+  expect(openSidePanel).toHaveBeenCalledWith('side-1', undefined)
 })
 
 // 0820_13: 메시지 안 드래그 범위 선택
