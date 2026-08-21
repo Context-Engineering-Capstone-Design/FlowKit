@@ -124,6 +124,10 @@ export async function openChatInSidePanel(chatId: string, branchId?: string) {
   if (openSidePanel) await openSidePanel(chatId, branchId)
 }
 
+async function refreshMainSideChatTree() {
+  await useChatStore.getState().loadSideChatContext()
+}
+
 function temporaryChatIds(): string[] {
   try { return JSON.parse(sessionStorage.getItem(TEMPORARY_CHAT_STORAGE_KEY) ?? '[]') } catch { return [] }
 }
@@ -1435,6 +1439,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
         void get().loadSideChatContext()
       }
+      await refreshMainSideChatTree()
       useNotificationStore.getState().show('분기 대화를 만들었습니다.', 'success')
       return true
     } catch (e) {
@@ -1596,7 +1601,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
       }
       if (created.chatMeta.isTemporary) rememberTemporaryChat(created.chatMeta.chatId)
-      void get().loadSideChatContext()
+      await refreshMainSideChatTree()
       useNotificationStore.getState().show(created.chatMeta.isTemporary ? 'Temporary Chat을 만들었습니다. 탭을 닫으면 삭제됩니다.' : '사이드 채팅을 만들었습니다.', 'success')
     } catch (e) {
       set({ error: toErrorMessage(e) })

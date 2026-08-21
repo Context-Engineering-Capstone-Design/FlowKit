@@ -39,7 +39,7 @@ vi.mock('@/api/conversation', () => convApi)
 vi.mock('@/api/inputAssist', () => ({}))
 vi.mock('@/api/sideChat', () => sideChatApi)
 
-import { createChatStore, useChatStore } from '@/store/chatStore'
+import { createChatStore, setSidePanelOpener, useChatStore } from '@/store/chatStore'
 import { useConfirmStore } from '@/store/confirmStore'
 
 describe('chatStore 화면 상태', () => {
@@ -617,6 +617,31 @@ describe('chatStore 탭 상태', () => {
     expect(state.activeTabId).toBe('side-1')
     expect(state.chatId).toBe('side-1')
     expect(state.branchId).toBe('side-branch-1')
+  })
+
+  it('우측 사이드 패널에서 만든 대화도 메인 대화 구조를 즉시 새로고침한다', async () => {
+    const sideStore = createChatStore()
+    sideStore.setState({ chatId: 'side-parent', branchId: 'side-branch', tabs: [] })
+    useChatStore.setState({ chatId: 'chat-1', branchId: 'branch-1' })
+    sideChatApi.createSideChat.mockResolvedValue({
+      chatMeta: {
+        chatId: 'side-child', title: '자식 사이드', kind: 'SIDE', parentChatId: 'side-parent',
+        parentBranchId: 'side-branch', parentMessageBlockId: 'block-1', rootChatId: 'chat-1', rootBranchId: 'branch-1',
+      },
+      branchMeta: { branchId: 'side-child-branch' },
+      messageBlocks: [],
+      branchList: [],
+    })
+    sideChatApi.fetchSideChatTree.mockResolvedValue({
+      rootChatId: 'chat-1',
+      chats: [{ chatId: 'side-child', title: '자식 사이드', kind: 'SIDE', parentChatId: 'side-parent', parentBranchId: 'side-branch', parentMessageBlockId: 'block-1', rootChatId: 'chat-1' }],
+    })
+    setSidePanelOpener(async () => undefined)
+
+    await sideStore.getState().createSideChatTab('block-1')
+
+    expect(useChatStore.getState().sideChatTree.map((chat) => chat.chatId)).toEqual(['side-child'])
+    setSidePanelOpener(null)
   })
 
   it('대화를 삭제하면 그 탭도 함께 닫히고 남은 탭으로 전환한다', async () => {
