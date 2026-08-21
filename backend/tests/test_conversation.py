@@ -1,9 +1,9 @@
-"""메시지 전송·답변 테스트 (2.7 Context 적용, 2.8 AI 응답 관리, BE-AIRESP-007~009).
+"""메시지 전송·답변 테스트 (2.7 Context 적용, 2.8 AI 응답 관리, ).
 
 AI 답변 생성은 백그라운드 스레드에서 돈다. conftest의 client 픽스처가
 ai_response_service.run_jobs_synchronously를 True로 바꿔두므로, 이 파일의
 테스트에서는 send()/regenerate() 호출이 돌아올 때 이미 생성이 끝나 있다 —
-다만 응답 본문 자체는 "즉시 응답" 계약대로 늘 빈 채로 온다(BE-AIRESP-007 B1).
+다만 응답 본문 자체는 "즉시 응답" 계약대로 늘 빈 채로 온다.
 그래서 최종 본문을 확인해야 하는 테스트는 wait_done()으로 블록을 다시 읽는다.
 """
 
@@ -116,11 +116,11 @@ def feedback_url(chat: dict, block_id: str) -> str:
     )
 
 
-# ── BE-AIRESP-001, 002, 007: 전송과 저장 ─────────────────────────────────
+# ── , 002, 007: 전송과 저장 ─────────────────────────────────
 
 
 def test_send_returns_immediately_with_empty_generating_block(client, auth, chat, captured):
-    """BE-AIRESP-007 B1: 전송 응답은 답변을 기다리지 않고 빈 블록을 즉시 돌려준다."""
+    """ B1: 전송 응답은 답변을 기다리지 않고 빈 블록을 즉시 돌려준다."""
     body = send(client, auth, chat, "파이프라이닝이 뭐야?")
 
     assert body["userBlock"]["role"] == "user"
@@ -146,7 +146,7 @@ def test_send_creates_question_and_answer(client, auth, chat, captured):
 
 
 def test_default_send_does_not_enable_web_search(client, auth, chat, captured):
-    """AI-SEARCH-001: 웹 검색 모드를 지정하지 않으면 off로 전달돼 검색 도구가 붙지 않아야 한다."""
+    """웹 검색 모드를 지정하지 않으면 off로 전달돼 검색 도구가 붙지 않아야 한다."""
     send(client, auth, chat, "질문")
 
     assert captured[0].web_search_mode == "off"
@@ -203,7 +203,7 @@ def test_question_survives_ai_failure(client, auth, chat, monkeypatch):
     """답변 생성이 실패해도 질문은 남아야 다시 입력하지 않는다.
 
     실패는 이제 백그라운드에서 일어나므로 전송 응답 자체는 여전히 201이고,
-    답변 블록의 상태가 failed 로 바뀐다(BE-AIRESP-007).
+    답변 블록의 상태가 failed 로 바뀐다.
     """
     import modeling
 
@@ -224,7 +224,7 @@ def test_question_survives_ai_failure(client, auth, chat, monkeypatch):
     assert [b["content"] for b in detail.json()["messageBlocks"]] == ["질문", ""]
 
 
-# ── BE-AIRESP-004: AI 답변 평가 ───────────────────────────────────────────
+# ── AI 답변 평가 ───────────────────────────────────────────
 
 
 def test_feedback_can_be_saved_changed_and_cleared(client, auth, chat, captured):
@@ -265,7 +265,7 @@ def test_feedback_rejects_user_block_and_invalid_rating(client, auth, chat, capt
 
 
 def test_feedback_allowed_on_inherited_block(client, auth, chat, captured):
-    """A1: 평가는 내용을 바꾸지 않으므로 하위 브랜치가 이어받은 답변도 허용한다 (BE-AIRESP-004, 006)."""
+    """A1: 평가는 내용을 바꾸지 않으므로 하위 브랜치가 이어받은 답변도 허용한다 (, 006)."""
     sent = send_and_wait(client, auth, chat, "질문")
     assistant_id = sent["assistantBlock"]["blockId"]
     chat_id = chat["chatMeta"]["chatId"]
@@ -293,7 +293,7 @@ def test_feedback_allowed_on_inherited_block(client, auth, chat, captured):
     assert client.get(url, headers=auth).json()["rating"] == "like"
 
 
-# ── BE-CTXAPPLY-001~003: Context 적용 ─────────────────────────────────────
+# ── Context 적용 ─────────────────────────────────────
 
 
 def test_applied_context_is_passed_to_ai(client, auth, chat, captured):
@@ -307,7 +307,7 @@ def test_applied_context_is_passed_to_ai(client, auth, chat, captured):
 
 
 def test_applied_context_replaces_prior_conversation(client, auth, chat, captured):
-    """Context 를 고르면 나머지 대화는 빼고 묻는 것이다 (NFR-011).
+    """Context 를 고르면 나머지 대화는 빼고 묻는 것이다 .
 
     이전 흐름을 함께 넣으면 최근 대화가 Context 를 눌러, 고르지 않은 주제로
     답이 흘러간다.
@@ -400,11 +400,96 @@ def test_range_context_snippet_is_passed_to_ai_instead_of_full_block(client, aut
 
     body = send(
         client, auth, chat, "이 부분만 표로 정리해줘",
-        context_ranges=[{"blockId": block_id, "versionId": version_id, "snippetText": "답변(1)"}],
+        context_ranges=[{
+            "blockId": block_id,
+            "versionId": version_id,
+            "snippetText": "답변(1)",
+            "startOffset": 0,
+            "endOffset": 5,
+        }],
     )
 
     assert [c["blockId"] for c in body["appliedContext"]] == [block_id]
-    assert captured[1].applied_context == ["답변(1)"]
+    assert body["appliedContext"][0]["startOffset"] == 0
+    assert body["appliedContext"][0]["endOffset"] == 5
+    assert captured[1].applied_context == ["[[답변(1)]]"]
+
+
+def test_range_context_handles_repeated_words_at_different_offsets(client, auth, chat, captured):
+    """0821_10: 같은 문구가 여러 번 나와도 지정한 startOffset/endOffset 기준 맥락이 AI로 넘어간다."""
+    source = client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}/blocks",
+        json={"role": "assistant", "content": "첫 번째 K 그리고 두 번째 K와 세 번째 K"},
+        headers=auth,
+    ).json()
+    block_id = source["blockId"]
+    version_id = source["currentVersionId"]
+
+    # "두 번째 K"의 "K" 위치는 offset 12 (0-indexed: "첫 번째 K 그리고 두 번째 K와 세 번째 K")
+    # "첫 번째 K 그리고 두 번째 " -> 12글자
+    k_offset = source["content"].index("두 번째 K") + len("두 번째 ")
+    body = send(
+        client, auth, chat, "이 K가 뭐야?",
+        context_ranges=[{
+            "blockId": block_id,
+            "versionId": version_id,
+            "snippetText": "K",
+            "startOffset": k_offset,
+            "endOffset": k_offset + 1,
+        }],
+    )
+
+    assert body["appliedContext"][0]["startOffset"] == k_offset
+    assert body["appliedContext"][0]["endOffset"] == k_offset + 1
+    assert captured[-1].applied_context == ["첫 번째 K 그리고 두 번째 [[K]]와 세 번째 K"]
+
+
+def test_range_context_rejects_mismatched_offset(client, auth, chat, captured):
+    """0821_10: 오프셋 위치의 원문과 snippetText가 일치하지 않으면 거부한다."""
+    first = send_and_wait(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    version_id = first["assistantBlock"]["currentVersionId"]
+
+    res = client.post(
+        msg_url(chat),
+        json={
+            "userPrompt": "이어서",
+            "contextRanges": [{
+                "blockId": block_id,
+                "versionId": version_id,
+                "snippetText": "답변",
+                "startOffset": 10,
+                "endOffset": 12,
+            }],
+        },
+        headers=auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+def test_range_context_rejects_out_of_bounds_offset(client, auth, chat, captured):
+    """0821_10: 본문 길이를 벗어난 오프셋은 거부한다."""
+    first = send_and_wait(client, auth, chat, "질문")
+    block_id = first["assistantBlock"]["blockId"]
+    version_id = first["assistantBlock"]["currentVersionId"]
+
+    res = client.post(
+        msg_url(chat),
+        json={
+            "userPrompt": "이어서",
+            "contextRanges": [{
+                "blockId": block_id,
+                "versionId": version_id,
+                "snippetText": "답변",
+                "startOffset": 100,
+                "endOffset": 102,
+            }],
+        },
+        headers=auth,
+    )
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
 
 
 def test_range_context_replaces_prior_conversation_like_block_context(client, auth, chat, captured):
@@ -469,11 +554,11 @@ def test_range_context_can_combine_with_multiple_snippets_from_same_block(client
     )
 
     assert len(body["appliedContext"]) == 2
-    assert captured[-1].applied_context == ["답변", "(1)"]
+    assert captured[-1].applied_context == ["[[답변]](1)", "답변[[(1)]]"]
 
 
 def test_range_context_content_is_included_in_send_response(client, auth, chat, captured):
-    """REQ-072: 전송 응답에도 인용 스니펫 내용이 곧바로 실려야 채팅 내역에 바로 보여줄 수 있다."""
+    """전송 응답에도 인용 스니펫 내용이 곧바로 실려야 채팅 내역에 바로 보여줄 수 있다."""
     first = send_and_wait(client, auth, chat, "질문")
     block_id = first["assistantBlock"]["blockId"]
     version_id = first["assistantBlock"]["currentVersionId"]
@@ -487,7 +572,7 @@ def test_range_context_content_is_included_in_send_response(client, auth, chat, 
 
 
 def test_range_context_snippet_persists_on_chat_reload(client, auth, chat, captured):
-    """REQ-072: 대화를 다시 조회해도 사용자 메시지에 인용 스니펫이 그대로 남아 있어야 한다."""
+    """대화를 다시 조회해도 사용자 메시지에 인용 스니펫이 그대로 남아 있어야 한다."""
     first = send_and_wait(client, auth, chat, "질문")
     block_id = first["assistantBlock"]["blockId"]
     version_id = first["assistantBlock"]["currentVersionId"]
@@ -523,7 +608,7 @@ def test_range_context_keeps_snapshot_of_its_pinned_version_after_edit(client, a
     )
 
     # 지금 활성 버전(수정된 답변)이 아니라, 태그가 고정한 예전 버전의 스니펫이 그대로 쓰인다
-    assert captured[-1].applied_context == ["답변(1)"]
+    assert captured[-1].applied_context == ["[[답변(1)]]"]
     assert body["appliedContext"][0]["versionId"] == old_version_id
 
 
@@ -581,7 +666,7 @@ def test_pending_refine_result_is_not_used_as_context(
     assert captured[1].applied_context == ["답변(1)"]
 
 
-# ── BE-CHAT-004: 제목 자동 생성 ───────────────────────────────────────────
+# ── 제목 자동 생성 ───────────────────────────────────────────
 
 
 def test_first_message_generates_title(client, auth, chat, captured):
@@ -618,7 +703,7 @@ def test_conversation_continues_when_title_fails(client, auth, chat, monkeypatch
     assert body["chatTitle"] == "새 대화"
 
 
-# ── BE-AIRESP-003: 재생성 ─────────────────────────────────────────────────
+# ── 재생성 ─────────────────────────────────────────────────
 
 
 def regenerate_and_wait(client, auth, chat, block_id: str) -> dict:
@@ -829,7 +914,7 @@ def test_regenerate_rejects_user_block(client, auth, chat, captured):
 
 
 def test_regenerate_rejects_inherited_block(client, auth, chat, captured):
-    """A2: 재생성은 내용을 바꾸므로 하위 브랜치가 이어받은 답변은 그대로 막는다 (NFR-007)."""
+    """A2: 재생성은 내용을 바꾸므로 하위 브랜치가 이어받은 답변은 그대로 막는다 ."""
     sent = send_and_wait(client, auth, chat, "질문")
     assistant_id = sent["assistantBlock"]["blockId"]
     chat_id = chat["chatMeta"]["chatId"]

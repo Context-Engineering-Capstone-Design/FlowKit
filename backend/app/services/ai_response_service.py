@@ -1,7 +1,7 @@
 """고정 입력 스냅샷을 기준으로 AI 답변 작업을 생성·복구한다.
 
 답변 생성은 이 요청을 처리하는 스레드가 아니라 백그라운드 스레드에서 돈다
-(BE-AIRESP-007). 화면은 빈 답변 블록과 작업 id를 즉시 받고, 스트리밍 통로
+. 화면은 빈 답변 블록과 작업 id를 즉시 받고, 스트리밍 통로
 (streaming_service)에 붙어 조각을 받아간다.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ session_factory = SessionLocal
 # 중 취소·재접속처럼 동시성 자체를 검증하는 테스트만 이 값을 False로 되돌린다.
 run_jobs_synchronously = False
 
-# 스트리밍 중간 저장 주기 (BE-AIRESP-007 B3). 너무 잦으면 DB 쓰기 부담이 커진다.
+# 스트리밍 중간 저장 주기 . 너무 잦으면 DB 쓰기 부담이 커진다.
 _SAVE_EVERY_CHARS = 120
 _SAVE_EVERY_SECONDS = 1.5
 # 중단 요청 후 백그라운드 스레드가 정리를 마칠 때까지 기다리는 최대 시간.
@@ -79,7 +79,7 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     parent_flow, parent_snapshot = _ancestor_context_flow(db, chat) if chat.kind is ChatKind.SIDE else ([], [])
     flow = parent_flow + own_flow
     user_block = message_service.create_block(db, chat, branch, MessageRole.USER, prompt, commit=False)
-    context_service.save_log(db, chat, branch, user_block.id, context_items)
+    context_service.save_log(db, chat, branch, user_block.current_version_id, context_items)
     input_assist_service.attach_to_message(db, user_block, attachments)
     project_service.save_selected_library_context(db, project, user_block.id, library_resources)
     snapshot = _make_snapshot(prompt, flow, context_items, model.model_id, web_search_mode, attachments, reasoning_effort, parent_snapshot, project.instructions if project else "", [item.content for item in memories], [{"resourceId": str(item.id), "title": item.title, "content": item.content} for item in library_resources])
@@ -198,7 +198,7 @@ def get_owned_job(db: Session, user: User, chat: Chat, branch: Branch, job_id: u
 
 
 def cancel_job(db: Session, user: User, chat: Chat, branch: Branch, job_id: uuid.UUID) -> MessageBlock:
-    """생성을 중단한다 (BE-AIRESP-008). 이미 끝난 작업이면 그대로 현재 상태를 돌려준다."""
+    """생성을 중단한다 . 이미 끝난 작업이면 그대로 현재 상태를 돌려준다."""
     job = get_owned_job(db, user, chat, branch, job_id)
     if job.status is AiResponseJobStatus.GENERATING:
         done = streaming_service.request_cancel(job_id)
@@ -209,7 +209,7 @@ def cancel_job(db: Session, user: User, chat: Chat, branch: Branch, job_id: uuid
 
 
 def generating_job_ids_for_blocks(db: Session, block_ids: list[uuid.UUID]) -> dict[uuid.UUID, uuid.UUID]:
-    """지금 생성 중인 블록이 어느 작업에 속하는지 찾는다 (BE-AIRESP-009, 재접속).
+    """지금 생성 중인 블록이 어느 작업에 속하는지 찾는다 (, 재접속).
 
     새로고침·브랜치 재진입 때 화면이 이 값으로 스트리밍 통로에 다시 붙는다.
     끝난 블록은 더 붙을 통로가 없으므로 여기 담지 않는다.
@@ -226,7 +226,7 @@ def generating_job_ids_for_blocks(db: Session, block_ids: list[uuid.UUID]) -> di
 
 
 def cleanup_stuck_jobs(db: Session) -> int:
-    """서버가 내려갔다 올라왔을 때, 진행 중으로 남은 작업을 실패로 정리한다 (BE-AIRESP-007 B7).
+    """서버가 내려갔다 올라왔을 때, 진행 중으로 남은 작업을 실패로 정리한다 .
 
     이 프로세스의 메모리 중계(streaming_service)는 재시작과 함께 비므로,
     DB에 GENERATING으로 남은 작업은 다시는 끝나지 않는다.
@@ -360,11 +360,46 @@ def _request_from_snapshot(db, user, chat, snapshot):
     if snapshot.get("schemaVersion") != 1 or not required.issubset(snapshot): raise AiInputSnapshotIncompleteError()
     attached = input_assist_service.get_attached_for_snapshot(db, user, chat, snapshot["attachmentIds"])
     from modeling.types import AnswerRequest, ChatTurn
-    return AnswerRequest(snapshot["userPrompt"], [ChatTurn(role=x["role"], content=x["content"]) for x in snapshot["messageFlow"]], [x["content"] for x in snapshot["appliedContext"]], input_assist_service.to_modeling_attachments(attached), snapshot["webSearchMode"], snapshot["selectedModelId"], snapshot.get("reasoningEffort", "medium"), snapshot.get("projectInstructions", ""), snapshot.get("projectMemories", []), [x["content"] for x in snapshot.get("selectedLibraryResources", [])])
+    return AnswerRequest(
+        snapshot["userPrompt"],
+        [ChatTurn(role=x["role"], content=x["content"]) for x in snapshot["messageFlow"]],
+        [x.get("aiContent") or x["content"] for x in snapshot["appliedContext"]],
+        input_assist_service.to_modeling_attachments(attached),
+        snapshot["webSearchMode"],
+        snapshot["selectedModelId"],
+        snapshot.get("reasoningEffort", "medium"),
+        snapshot.get("projectInstructions", ""),
+        snapshot.get("projectMemories", []),
+        [x["content"] for x in snapshot.get("selectedLibraryResources", [])],
+    )
 
 
 def _make_snapshot(prompt, flow, context_items, model_id, web_search_mode, attachments, reasoning_effort="medium", parent_context_sources=None, project_instructions="", project_memories=None, selected_library_resources=None) -> dict:
-    return {"schemaVersion": 1, "userPrompt": prompt, "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow], "appliedContext": [{"blockId": str(x.block_id), "versionId": str(x.version_id), "content": x.content, "orderIndex": x.order_index} for x in context_items], "selectedModelId": model_id, "webSearchMode": web_search_mode, "reasoningEffort": reasoning_effort, "attachmentIds": [str(x.id) for x in attachments], "parentContextSources": parent_context_sources or [], "projectInstructions": project_instructions, "projectMemories": project_memories or [], "selectedLibraryResources": selected_library_resources or []}
+    return {
+        "schemaVersion": 1,
+        "userPrompt": prompt,
+        "messageFlow": [{"role": x.role.value, "content": x.content} for x in flow],
+        "appliedContext": [
+            {
+                "blockId": str(x.block_id),
+                "versionId": str(x.version_id),
+                "content": x.content,
+                "orderIndex": x.order_index,
+                "startOffset": x.start_offset,
+                "endOffset": x.end_offset,
+                "aiContent": x.ai_content or x.content,
+            }
+            for x in context_items
+        ],
+        "selectedModelId": model_id,
+        "webSearchMode": web_search_mode,
+        "reasoningEffort": reasoning_effort,
+        "attachmentIds": [str(x.id) for x in attachments],
+        "parentContextSources": parent_context_sources or [],
+        "projectInstructions": project_instructions,
+        "projectMemories": project_memories or [],
+        "selectedLibraryResources": selected_library_resources or [],
+    }
 
 
 def _provider_for(model_id: str | None) -> str:
@@ -378,7 +413,7 @@ def _provider_for(model_id: str | None) -> str:
 
 
 def _sources_payload(sources: list) -> list[dict] | None:
-    """검색 근거를 버전에 저장할 JSON 형태로 바꾼다. 없으면 None (AI-SEARCH-002)."""
+    """검색 근거를 버전에 저장할 JSON 형태로 바꾼다. 없으면 None ."""
     return [{"title": s.title, "url": s.url} for s in sources] or None
 
 
@@ -394,7 +429,18 @@ def _origin_job(db, assistant_id):
     return db.scalar(select(AiResponseJob).where(AiResponseJob.assistant_message_block_id == assistant_id, AiResponseJob.job_type == AiResponseJobType.GENERATE, AiResponseJob.status == AiResponseJobStatus.COMPLETED).order_by(AiResponseJob.created_at).limit(1))
 
 def _context_from_snapshot(snapshot):
-    return [context_service.ContextItem(uuid.UUID(x["blockId"]), uuid.UUID(x["versionId"]), x["content"], x["orderIndex"]) for x in snapshot["appliedContext"]]
+    return [
+        context_service.ContextItem(
+            uuid.UUID(x["blockId"]),
+            uuid.UUID(x["versionId"]),
+            x["content"],
+            x["orderIndex"],
+            start_offset=x.get("startOffset"),
+            end_offset=x.get("endOffset"),
+            ai_content=x.get("aiContent"),
+        )
+        for x in snapshot["appliedContext"]
+    ]
 
 def _classify_error(exc):
     if isinstance(exc, AiInputSnapshotIncompleteError): return exc.error_code, exc.message

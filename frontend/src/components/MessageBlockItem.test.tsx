@@ -97,7 +97,7 @@ it('이미지 첨부는 미리보기로 보여준다', () => {
   expect(screen.queryByText('screen.png')).toBeNull()
 })
 
-it('보낼 때 인용한 Context 스니펫을 사용자 메시지 위에 태그로 보여준다 (REQ-072)', () => {
+it('보낼 때 인용한 Context 스니펫을 사용자 메시지 말풍선 안에 태그로 보여준다 ', () => {
   const withContext = {
     ...block,
     appliedContext: [{ blockId: 'src-1', versionId: 'v-src', orderIndex: 0, content: '원문 인용' }],
@@ -226,7 +226,7 @@ function selectWithinContent(container: HTMLElement, startOffset: number, endOff
   fireEvent.mouseUp(root)
 }
 
-it('메시지 안 텍스트를 드래그하면 채팅에 추가·사이드 채팅에 질문 토글이 뜬다 (A1)', () => {
+it('메시지 안 텍스트를 드래그하면 채팅에 추가·사이드 채팅에 질문 토글이 뜬다 ', () => {
   const content = { ...block, role: 'assistant' as const, content: '안녕하세요' }
   const { container } = render(<MessageBlockItem block={content} />)
 
@@ -236,7 +236,7 @@ it('메시지 안 텍스트를 드래그하면 채팅에 추가·사이드 채�
   expect(screen.getByText('사이드 채팅에 질문')).toBeTruthy()
 })
 
-it('채팅에 추가를 누르면 선택 범위를 태그로 추가한다 (A3)', () => {
+it('채팅에 추가를 누르면 선택 범위를 태그로 추가한다 ', () => {
   const addContextRangeTag = vi.fn()
   useChatStore.setState({ addContextRangeTag })
   const content = { ...block, role: 'assistant' as const, content: '안녕하세요', currentVersionId: 'v9' }
@@ -251,7 +251,7 @@ it('채팅에 추가를 누르면 선택 범위를 태그로 추가한다 (A3)',
   expect(screen.queryByText('채팅에 추가')).toBeNull()
 })
 
-it('사이드 채팅에 질문을 누르면 선택 범위 태그를 담아 빈 사이드 채팅 패널을 연다 (A1)', () => {
+it('사이드 채팅에 질문을 누르면 선택 범위 태그를 담아 빈 사이드 채팅 패널을 연다 ', () => {
   const openDraftSideChatWithRange = vi.fn()
   useChatStore.setState({ openDraftSideChatWithRange })
   const content = { ...block, role: 'assistant' as const, content: '안녕하세요' }
@@ -293,7 +293,7 @@ it('이미 태그가 붙어 강조된 범위를 다시 누르면 그 태그를 �
   expect(removeContextRangeTag).toHaveBeenCalledWith('tag-1')
 })
 
-it('원문이 수정돼 버전이 바뀌면, 예전 버전을 가리키던 태그의 강조는 더는 표시하지 않는다 (D3)', () => {
+it('원문이 수정돼 버전이 바뀌면, 예전 버전을 가리키던 태그의 강조는 더는 표시하지 않는다 ', () => {
   const edited = { ...block, role: 'assistant' as const, content: '수정된 내용', currentVersionId: 'v10' }
   useChatStore.setState({
     contextRangeTags: [{
@@ -322,4 +322,54 @@ it('사용자 메시지는 오른쪽에, AI 답변은 왼쪽에 둔다', () => {
   const { container: aiEl } = render(<MessageBlockItem block={assistant} />)
   expect(aiEl.querySelector('.items-start')).not.toBeNull()
   expect(aiEl.querySelector('.rounded-2xl')).toBeNull()
+})
+
+it('전송 당시 인용한 Context 태그를 클릭하면 jumpToAppliedContext를 호출한다 (0821_10)', () => {
+  const jumpToAppliedContext = vi.fn()
+  useChatStore.setState({ jumpToAppliedContext })
+
+  const userBlockWithApplied = {
+    ...block,
+    role: 'user' as const,
+    content: '질문 내용',
+    appliedContext: [{
+      blockId: 'source-1',
+      versionId: 'v1',
+      orderIndex: 0,
+      content: '인용한 문구',
+      startOffset: 5,
+      endOffset: 11,
+    }],
+  }
+
+  render(<MessageBlockItem block={userBlockWithApplied} />)
+
+  const tagButton = screen.getByRole('button', { name: /“인용한 문구”/ })
+  fireEvent.click(tagButton)
+
+  expect(jumpToAppliedContext).toHaveBeenCalledWith(userBlockWithApplied.appliedContext[0])
+})
+
+it('highlightedRange가 일치하는 블록이면 해당 위치를 하이라이트한다 (0821_10)', () => {
+  useChatStore.setState({
+    highlightedRange: {
+      blockId: 'block-1',
+      versionId: 'v1',
+      startOffset: 0,
+      endOffset: 2,
+    },
+  })
+
+  const sourceBlock = {
+    ...block,
+    blockId: 'block-1',
+    currentVersionId: 'v1',
+    content: '안녕하세요',
+  }
+
+  const { container } = render(<MessageBlockItem block={sourceBlock} />)
+  const mark = container.querySelector('.ctx-range-mark')
+  expect(mark).not.toBeNull()
+  expect(mark?.getAttribute('data-range-ids')).toBe('inspected-context-range')
+  expect(mark?.textContent).toBe('안녕')
 })

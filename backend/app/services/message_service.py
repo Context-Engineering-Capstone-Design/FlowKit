@@ -1,4 +1,4 @@
-"""메시지 블록 서비스 (BE-MSG-001 ~ BE-MSG-008)."""
+"""메시지 블록 서비스 ."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from app.models import (
     MessageRole,
     VersionSourceType,
 )
+from app.schemas.message import ContextRangeIn
 from app.services import branch_service
 
 MAX_CONTENT_LENGTH = 100_000
@@ -29,7 +30,7 @@ MAX_CONTENT_LENGTH = 100_000
 
 @dataclass(frozen=True)
 class ActiveTurn:
-    """AI 입력으로 넘길 활성 메시지 한 줄 (BE-MSG-007)."""
+    """AI 입력으로 넘길 활성 메시지 한 줄 ."""
 
     block_id: uuid.UUID
     role: MessageRole
@@ -50,10 +51,10 @@ def create_block(
     allow_empty: bool = False,
     generation_status: BlockGenerationStatus = BlockGenerationStatus.COMPLETE,
 ) -> MessageBlock:
-    """메시지 블록과 최초 버전을 함께 만든다 (BE-MSG-001).
+    """메시지 블록과 최초 버전을 함께 만든다 .
 
     allow_empty는 스트리밍 답변 블록을 생성 시작과 동시에 만들 때만 쓴다
-    (AI-ANSWER-005). 아직 글자가 하나도 안 나온 상태라 본문이 비어 있다.
+    . 아직 글자가 하나도 안 나온 상태라 본문이 비어 있다.
     """
     text = (content or "").strip()
     if not text and not allow_empty:
@@ -92,7 +93,7 @@ def create_block(
 def save_streaming_progress(
     db: Session, version_id: uuid.UUID, content: str
 ) -> None:
-    """생성 중인 답변의 지금까지 본문을 그 자리에서 덮어쓴다 (BE-AIRESP-007).
+    """생성 중인 답변의 지금까지 본문을 그 자리에서 덮어쓴다 .
 
     새 버전을 쌓지 않는다. 아직 완성되지 않은 중간 상태라 이력에 남길 값이
     아니고, 매 저장마다 버전이 늘면 이력이 무의미해진다.
@@ -140,7 +141,7 @@ def ensure_generation_complete(block: MessageBlock) -> None:
 def get_visible_block(
     db: Session, branch: Branch, block_id: uuid.UUID
 ) -> MessageBlock:
-    """브랜치 화면에 보이는 블록을 가져온다 (BE-MSG-008).
+    """브랜치 화면에 보이는 블록을 가져온다 .
 
     참조형 브랜치라 화면에 보이는 블록이 조상 브랜치 소유일 수 있다. 읽기·선택
     검증은 '보이는지'만 따진다.
@@ -157,8 +158,8 @@ def get_editable_block(
     """이 브랜치가 직접 소유한 블록만 돌려준다.
 
     상속받은 블록은 조상 브랜치의 것이다. 그 활성 버전을 바꾸면 원본 대화까지
-    같이 바뀌므로 수정을 막는다(NFR-007). 사용자는 원본 브랜치에서 고치거나
-    수정본으로 새 브랜치를 만들어야 한다(REQ-019).
+    같이 바뀌므로 수정을 막는다. 사용자는 원본 브랜치에서 고치거나
+    수정본으로 새 브랜치를 만들어야 한다.
     """
     block = get_visible_block(db, branch, block_id)
     if block.branch_id != branch.id:
@@ -172,7 +173,7 @@ def get_editable_block(
 def validate_selection(
     db: Session, branch: Branch, block_ids: list[uuid.UUID]
 ) -> tuple[list[uuid.UUID], list[uuid.UUID]]:
-    """선택된 블록이 지금도 유효한지 확인한다 (BE-MSG-003).
+    """선택된 블록이 지금도 유효한지 확인한다 .
 
     선택 상태 자체는 화면이 들고 있으므로, 실행 요청 시점에만 확인한다.
     """
@@ -188,8 +189,9 @@ def save_edit(
     branch: Branch,
     block_id: uuid.UUID,
     edited_content: str,
+    context_ranges: list[ContextRangeIn],
 ) -> MessageBlock:
-    """수정본을 새 버전으로 저장하고 활성화한다 (BE-MSG-004).
+    """수정본을 새 버전으로 저장하고 활성화한다 .
 
     기존 버전은 지우지 않는다. 되돌리기는 활성 버전 포인터를 옮기는 방식이다.
     """
@@ -200,9 +202,26 @@ def save_edit(
         raise ValidationError("내용이 너무 깁니다.")
 
     block = get_editable_block(db, branch, block_id)
-    return add_version(
-        db, chat, block, text, source_type=VersionSourceType.USER_EDIT
+    block = add_version(
+        db, chat, block, text, source_type=VersionSourceType.USER_EDIT, commit=False
     )
+    from app.services import context_service
+
+    ranges = [
+        context_service.ContextRangeSpec(
+            block_id=item.block_id,
+            version_id=item.version_id,
+            snippet_text=item.snippet_text,
+            start_offset=item.start_offset,
+            end_offset=item.end_offset,
+        )
+        for item in context_ranges
+    ]
+    items = context_service.build_range_snapshot(db, branch, ranges, chat)
+    context_service.save_log(db, chat, branch, block.current_version_id, items)
+    db.commit()
+    db.refresh(block)
+    return block
 
 
 def add_version(
@@ -212,10 +231,11 @@ def add_version(
     content: str,
     source_type: VersionSourceType,
     search_sources: list[dict] | None = None,
+    commit: bool = True,
 ) -> MessageBlock:
     """새 버전을 추가하고 활성 버전으로 삼는다.
 
-    정제 승인(BE-REFINE-005)과 답변 재생성(BE-AIRESP-003)도 이 경로를 쓴다.
+    정제 승인과 답변 재생성도 이 경로를 쓴다.
     """
     last_no = db.scalar(
         select(MessageBlockVersion.version_no)
@@ -235,15 +255,16 @@ def add_version(
 
     block.current_version_id = version.id
     chat.last_activity_at = datetime.now(UTC)
-    db.commit()
-    db.refresh(block)
+    if commit:
+        db.commit()
+        db.refresh(block)
     return block
 
 
 def list_versions(
     db: Session, branch: Branch, block_id: uuid.UUID
 ) -> list[MessageBlockVersion]:
-    """버전 이력 조회 (BE-MSG-005). 정제 승인 후 이전 내용을 확인할 때 쓴다."""
+    """버전 이력 조회 . 정제 승인 후 이전 내용을 확인할 때 쓴다."""
     block = get_visible_block(db, branch, block_id)
     return list(
         db.scalars(
@@ -261,7 +282,7 @@ def set_active_version(
     block_id: uuid.UUID,
     target_version_id: uuid.UUID,
 ) -> MessageBlock:
-    """활성 버전을 옮긴다 (BE-MSG-006). 이력은 그대로 둔다."""
+    """활성 버전을 옮긴다 . 이력은 그대로 둔다."""
     block = get_editable_block(db, branch, block_id)
 
     version = db.get(MessageBlockVersion, target_version_id)
@@ -276,7 +297,7 @@ def set_active_version(
 
 
 def active_message_flow(db: Session, branch: Branch) -> list[ActiveTurn]:
-    """AI 입력으로 넘길 활성 메시지 흐름 (BE-MSG-007).
+    """AI 입력으로 넘길 활성 메시지 흐름 .
 
     화면이 들고 있는 값이 아니라 서버의 현재 활성 버전을 기준으로 구성한다.
     """

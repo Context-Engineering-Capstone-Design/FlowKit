@@ -28,14 +28,41 @@ function closestSelectableRoot(node: Node | null): HTMLElement | null {
 }
 
 /**
+ * anchorRoot 안에서 지정한 container와 offset 지점까지의 문자 수를 누적 계산한다.
+ */
+function getOffsetInRoot(root: Node, container: Node, offset: number): number {
+  let charCount = 0
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node === container) {
+      return charCount + offset
+    }
+    if (container.nodeType === Node.ELEMENT_NODE && container.contains(node)) {
+      let child: Node | null = node
+      while (child && child.parentNode !== container) {
+        child = child.parentNode
+      }
+      if (child) {
+        const childIndex = Array.prototype.indexOf.call(container.childNodes, child)
+        if (childIndex >= offset) {
+          return charCount
+        }
+      }
+    }
+    charCount += node.textContent?.length ?? 0
+  }
+  return charCount
+}
+
+/**
  * 지금 브라우저 선택을 읽어 한 메시지 안의 유효한 드래그 범위로 바꾼다.
  * 여러 메시지를 가로지르거나 선택 가능 영역(본문·코드·표·인용문) 밖까지
  * 걸치면 null을 돌려준다 (첨부 미리보기 등은 이 영역 밖에 둔다).
  */
 export function captureSelection(selection: Selection | null): CapturedSelection | null {
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
-  const text = selection.toString()
-  if (!text.trim()) return null
+  const rawText = selection.toString()
+  if (!rawText.trim()) return null
 
   const anchorRoot = closestSelectableRoot(selection.anchorNode)
   const focusRoot = closestSelectableRoot(selection.focusNode)
@@ -45,10 +72,25 @@ export function captureSelection(selection: Selection | null): CapturedSelection
   if (!anchorRoot.contains(range.commonAncestorContainer)) return null
 
   const flatText = getFlatText(anchorRoot)
-  const startOffset = flatText.indexOf(text)
-  if (startOffset === -1) return null
+  const startOffset = getOffsetInRoot(anchorRoot, range.startContainer, range.startOffset)
+  const endOffset = getOffsetInRoot(anchorRoot, range.endContainer, range.endOffset)
 
-  return { root: anchorRoot, text, snapshotText: flatText, startOffset, endOffset: startOffset + text.length }
+  if (startOffset < 0 || endOffset <= startOffset || endOffset > flatText.length) {
+    const fallbackStart = flatText.indexOf(rawText)
+    if (fallbackStart === -1) return null
+    return {
+      root: anchorRoot,
+      text: rawText,
+      snapshotText: flatText,
+      startOffset: fallbackStart,
+      endOffset: fallbackStart + rawText.length,
+    }
+  }
+
+  const selectedSlice = flatText.slice(startOffset, endOffset)
+  const text = selectedSlice.trim() ? selectedSlice : rawText
+
+  return { root: anchorRoot, text, snapshotText: flatText, startOffset, endOffset }
 }
 
 /** 태그 미리보기에 보일 짧은 문구 (0820_13 B1: 앞 5~10자 이하) */

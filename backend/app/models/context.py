@@ -9,7 +9,7 @@ from app.models.base import Base, TimestampMixin
 
 
 class AppliedContextLog(Base, TimestampMixin):
-    """전송 시점에 확정된 Context 사용 이력 (BE-CTXAPPLY-003).
+    """전송 시점에 확정된 Context 사용 이력 .
 
     전송 전 Context pill 선택 상태는 FE 로컬 상태이며 서버에 저장하지 않는다.
     """
@@ -23,8 +23,8 @@ class AppliedContextLog(Base, TimestampMixin):
     branch_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("branches.id", ondelete="CASCADE"), index=True
     )
-    user_message_block_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("message_blocks.id", ondelete="CASCADE"), index=True
+    message_block_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("message_block_versions.id", ondelete="CASCADE"), index=True, unique=True
     )
 
     items: Mapped[list[AppliedContextItem]] = relationship(
@@ -47,6 +47,8 @@ class AppliedContextItem(Base):
         ForeignKey("message_block_versions.id", ondelete="CASCADE")
     )
     content: Mapped[str] = mapped_column(Text)
+    start_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
     order_index: Mapped[int] = mapped_column(Integer)
 
     log: Mapped[AppliedContextLog] = relationship(back_populates="items")

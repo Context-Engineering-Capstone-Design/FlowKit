@@ -184,7 +184,7 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState().chatId).toBeNull()
   })
 
-  it('전송에 성공하면 임시 질문 블록을 실제 블록으로 바꾼다 (FE-AIRESP-001)', async () => {
+  it('전송에 성공하면 임시 질문 블록을 실제 블록으로 바꾼다 ', async () => {
     convApi.sendMessage.mockResolvedValue({
       userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
       assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답변', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
@@ -201,7 +201,7 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
   })
 
-  it('전송 응답의 인용 스니펫을 사용자 블록에 합쳐 저장한다 (REQ-072)', async () => {
+  it('전송 응답의 인용 스니펫을 사용자 블록에 합쳐 저장한다 ', async () => {
     convApi.sendMessage.mockResolvedValue({
       userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
       assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답변', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
@@ -216,7 +216,7 @@ describe('chatStore 화면 상태', () => {
     expect(userBlock?.appliedContext).toEqual([{ blockId: 'src-1', versionId: 'v-src', orderIndex: 0, content: '인용한 문장' }])
   })
 
-  it('기본 웹 검색 상태는 자동이고, 고른 상태 그대로 전송한다 (AI-SEARCH-001)', async () => {
+  it('기본 웹 검색 상태는 자동이고, 고른 상태 그대로 전송한다 ', async () => {
     convApi.sendMessage.mockResolvedValue({
       userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
       assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답변', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
@@ -243,7 +243,7 @@ describe('chatStore 화면 상태', () => {
     )
   })
 
-  it('질문이 저장되기 전에 실패하면 입력 내용을 그대로 남긴다 (FE-INPUT-006)', async () => {
+  it('질문이 저장되기 전에 실패하면 입력 내용을 그대로 남긴다 ', async () => {
     convApi.sendMessage.mockRejectedValue({
       isAxiosError: true,
       response: { data: { errorCode: 'MODEL_NOT_SUPPORTED', message: '지원하지 않는 모델입니다.' } },
@@ -287,7 +287,7 @@ describe('chatStore 화면 상태', () => {
     expect(state.failedJobsByBlockId).toEqual({ 'user-1': 'job-1' })
   })
 
-  it('이미 처리된 정제 결과를 승인·거절하면 최신 상태로 다시 맞춘다 (FE-REFINE-005)', async () => {
+  it('이미 처리된 정제 결과를 승인·거절하면 최신 상태로 다시 맞춘다 ', async () => {
     const job = { refineJobId: 'job-1', status: 'completed', instructionText: '요약', results: [] }
     convApi.approveResult.mockRejectedValue({
       isAxiosError: true,
@@ -366,7 +366,7 @@ describe('chatStore 화면 상태', () => {
     expect(attachment.localUrl).toMatch(/^blob:/)
   })
 
-  it('전송 뒤 빈 답변 블록에 스트리밍 통로로 도착한 글자를 이어 붙인다 (FE-AIRESP-005)', async () => {
+  it('전송 뒤 빈 답변 블록에 스트리밍 통로로 도착한 글자를 이어 붙인다 ', async () => {
     convApi.sendMessage.mockResolvedValue({
       userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
       assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: 'v1', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
@@ -443,7 +443,7 @@ describe('chatStore 화면 상태', () => {
     )
   })
 
-  it('중단하면 서버가 돌려준 그때까지의 본문으로 블록을 확정한다 (BE-AIRESP-008)', async () => {
+  it('중단하면 서버가 돌려준 그때까지의 본문으로 블록을 확정한다 ', async () => {
     useChatStore.setState({
       blocks: [
         { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '안', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-1' },
@@ -669,7 +669,7 @@ describe('chatStore 부모 반영', () => {
     })
   })
 
-  it('선택한 블록을 부모 채팅으로 전환하며 Context로 적용한다 (C1)', async () => {
+  it('선택한 블록을 부모 채팅으로 전환하며 Context로 적용한다 ', async () => {
     chatApi.fetchChat.mockResolvedValue({
       chatMeta: mainMeta({ chatId: 'chat-1', title: '메인' }),
       branchMeta: { branchId: 'branch-1' }, messageBlocks: [], branchList: [],
@@ -684,7 +684,7 @@ describe('chatStore 부모 반영', () => {
     expect(state.appliedBlockIds).toEqual(['b2'])
   })
 
-  it('선택한 블록을 부모 채팅 메시지로 가져온 뒤 부모 탭으로 전환한다 (C2)', async () => {
+  it('선택한 블록을 부모 채팅 메시지로 가져온 뒤 부모 탭으로 전환한다 ', async () => {
     sideChatApi.importBlocksAsMessages.mockResolvedValue({
       importedBlocks: [],
       actionMeta: { actionType: 'side_chat_import_blocks', successCode: 'SIDE_CHAT_BLOCKS_IMPORTED', message: '가져왔습니다.', affectedResourceId: 'chat-1' },
@@ -702,7 +702,7 @@ describe('chatStore 부모 반영', () => {
     expect(useChatStore.getState().chatId).toBe('chat-1')
   })
 
-  it('사이드 채팅과 같은 지점에서 부모 아래 형제 브랜치를 만든다 (C3)', async () => {
+  it('사이드 채팅과 같은 지점에서 부모 아래 형제 브랜치를 만든다 ', async () => {
     chatApi.createBranch.mockResolvedValue({
       branchId: 'sibling-branch', branchName: '형제', branchType: 'CHILD',
       parentBranchId: 'branch-1', sourceContextRefId: 'ctx-1',
@@ -723,7 +723,7 @@ describe('chatStore 부모 반영', () => {
     expect(useChatStore.getState().branchId).toBe('sibling-branch')
   })
 
-  it('부모가 없으면(메인 채팅) 반영 액션은 아무 일도 하지 않는다 (C4)', async () => {
+  it('부모가 없으면(메인 채팅) 반영 액션은 아무 일도 하지 않는다 ', async () => {
     useChatStore.setState({ parentChatId: null, parentBranchId: null, parentMessageBlockId: null })
 
     expect(await useChatStore.getState().sendSelectedToParentAsContext()).toBe(false)
@@ -761,7 +761,7 @@ describe('chatStore 드래그 범위 Context', () => {
     endOffset: 6,
   }
 
-  it('사이드 채팅에 질문을 누르면 태그가 붙은 빈 패널만 로컬로 열고, 서버에는 아무 것도 만들지 않는다 (C1)', async () => {
+  it('사이드 채팅에 질문을 누르면 태그가 붙은 빈 패널만 로컬로 열고, 서버에는 아무 것도 만들지 않는다 ', async () => {
     await useChatStore.getState().openDraftSideChatWithRange(rangeTag)
 
     expect(sideChatApi.createSideChat).not.toHaveBeenCalled()
@@ -779,7 +779,7 @@ describe('chatStore 드래그 범위 Context', () => {
     expect(state.contextRangeTags[0]).toMatchObject({ selectedText: '답변 내용' })
   })
 
-  it('첫 전송 전에 패널을 닫으면 서버 기록 없이 탭만 사라진다 (C3)', async () => {
+  it('첫 전송 전에 패널을 닫으면 서버 기록 없이 탭만 사라진다 ', async () => {
     await useChatStore.getState().openDraftSideChatWithRange(rangeTag)
     const draftId = useChatStore.getState().activeTabId!
 
@@ -790,7 +790,7 @@ describe('chatStore 드래그 범위 Context', () => {
     expect(useChatStore.getState().tabs.some((t) => t.id === draftId)).toBe(false)
   })
 
-  it('빈 사이드 채팅 패널에서 첫 메시지를 보낼 때만 서버에 사이드 채팅을 만들고, 태그를 Context로 함께 보낸다 (C2)', async () => {
+  it('빈 사이드 채팅 패널에서 첫 메시지를 보낼 때만 서버에 사이드 채팅을 만들고, 태그를 Context로 함께 보낸다 ', async () => {
     await useChatStore.getState().openDraftSideChatWithRange(rangeTag)
 
     sideChatApi.createSideChat.mockResolvedValue({
@@ -815,7 +815,7 @@ describe('chatStore 드래그 범위 Context', () => {
     expect(convApi.sendMessage).toHaveBeenCalledWith(
       'side-1', 'side-branch-1', '이 내용 관련해서 더 알려줘', [],
       expect.anything(),
-      [{ blockId: 'block-1', versionId: 'v1', snippetText: '답변 내용' }],
+      [{ blockId: 'block-1', versionId: 'v1', snippetText: '답변 내용', startOffset: 2, endOffset: 6 }],
     )
     const state = useChatStore.getState()
     expect(state.chatId).toBe('side-1')
@@ -833,7 +833,7 @@ describe('chatStore 드래그 범위 Context', () => {
     expect(useChatStore.getState().contextRangeTags).toEqual([])
   })
 
-  it('이미 열린 채팅에서 태그를 붙여 보내면 Context로 전달되고, 전송 뒤 태그를 비운다 (B3)', async () => {
+  it('이미 열린 채팅에서 태그를 붙여 보내면 Context로 전달되고, 전송 뒤 태그를 비운다 ', async () => {
     useChatStore.getState().addContextRangeTag(rangeTag)
     convApi.sendMessage.mockResolvedValue({
       userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
@@ -848,8 +848,30 @@ describe('chatStore 드래그 범위 Context', () => {
     expect(convApi.sendMessage).toHaveBeenCalledWith(
       'chat-1', 'branch-1', '이 부분 더 설명해줘', [],
       expect.anything(),
-      [{ blockId: 'block-1', versionId: 'v1', snippetText: '답변 내용' }],
+      [{ blockId: 'block-1', versionId: 'v1', snippetText: '답변 내용', startOffset: 2, endOffset: 6 }],
     )
     expect(useChatStore.getState().contextRangeTags).toEqual([])
+  })
+
+  it('전송된 인용 태그를 누르면 해당 블록과 범위를 하이라이트한다 (0821_10)', () => {
+    const item = {
+      blockId: 'block-1',
+      versionId: 'v1',
+      orderIndex: 0,
+      content: 'K',
+      startOffset: 12,
+      endOffset: 13,
+    }
+
+    useChatStore.getState().jumpToAppliedContext(item)
+
+    const state = useChatStore.getState()
+    expect(state.highlightedBlockId).toBe('block-1')
+    expect(state.highlightedRange).toEqual({
+      blockId: 'block-1',
+      versionId: 'v1',
+      startOffset: 12,
+      endOffset: 13,
+    })
   })
 })

@@ -12,6 +12,7 @@ import { withRequestTimeout } from '@/lib/requestTimeout'
 import { validateAttachment } from '@/lib/attachmentValidation'
 import type {
   AiResponseRating,
+  AppliedContextOut,
   BranchListItem,
   ChatDetail,
   ChatKind,
@@ -86,7 +87,7 @@ function syncChatStatusPolling(get: () => ChatState) {
 }
 
 // 답변 블록별로 지금 붙어 있는 스트리밍 연결. AbortController는 직렬화할 수
-// 없는 값이라 Zustand 상태 밖(모듈 스코프)에 둔다 (BE-AIRESP-007, FE-AIRESP-005).
+// 없는 값이라 Zustand 상태 밖(모듈 스코프)에 둔다 .
 const activeStreams = new Map<string, AbortController>()
 const TEMPORARY_CHAT_STORAGE_KEY = 'flowkit:temporary-chat-ids'
 
@@ -152,7 +153,7 @@ function flushDeliveryTiming(
     .catch(() => {}) // 개발·운영 조회용 신호라 실패해도 화면 흐름을 막지 않는다
 }
 
-// 목록 조회에 실패했을 때 보여줄 기본 모델 (FE-INPUT-005). 서버 목록과 어긋나면
+// 목록 조회에 실패했을 때 보여줄 기본 모델 . 서버 목록과 어긋나면
 // 전송 시점에 서버가 오류로 안내하므로 조용히 잘못된 모델로 보내지 않는다.
 const FALLBACK_MODEL: ModelOption = {
   modelId: 'gpt-5.6-terra',
@@ -196,7 +197,7 @@ export interface ChatState {
   activeTabId: string | null
   /** 현재 열린 채팅·브랜치 흐름 중, 그 지점에서 만들어진 사이드 채팅 (blockId로 묶음, B4). */
   sideChatsByBlockId: Record<string, SideChatSummary[]>
-  /** 좌측 트리 패널에 쓸, 현재 루트 메인 채팅 아래 전체 사이드 채팅 (B3). */
+  /** 좌측 트리 패널에 쓸, 현재 루트 메인 채팅 아래 전체 사이드 채팅 . */
   sideChatTree: SideChatSummary[]
   sideChatTreeRootId: string | null
   isCreatingSideChat: boolean
@@ -213,7 +214,7 @@ export interface ChatState {
   refineTargetBlockId: string | null
 
   refineJob: RefineJob | null
-  /** 블록별로 원본을 보는 중인지 정제본을 보는 중인지 (REQ-031) */
+  /** 블록별로 원본을 보는 중인지 정제본을 보는 중인지  */
   inlineView: Record<string, 'original' | 'refined'>
   /** 서버에 저장된 현재 사용자의 AI 답변 평가 상태. */
   ratings: Record<string, AiResponseRating | undefined>
@@ -226,7 +227,7 @@ export interface ChatState {
   isCreatingBranch: boolean
   deletingChatId: string | null
   error: string | null
-  /** 값이 바뀔 때마다 입력창에 포커스를 옮긴다 (REQ-004) */
+  /** 값이 바뀔 때마다 입력창에 포커스를 옮긴다  */
   focusSignal: number
 
   draftText: string
@@ -253,6 +254,8 @@ export interface ChatState {
   editingBlockId: string | null
   editingDraft: string
   editingOriginal: string
+  /** 수정 중인 메시지 버전에 붙일 범위 태그. 새 질문 태그와 분리한다. */
+  editingContextTags: ContextRangeTag[]
   isSavingEdit: boolean
   sourceNavigationError: string | null
 
@@ -265,18 +268,18 @@ export interface ChatState {
   resetSession: () => void
   openChat: (chatId: string, branchId?: string) => Promise<void>
   deleteChat: (chatId: string) => Promise<void>
-  /** 대화 이름을 사용자가 직접 입력한 값으로 바꾼다 (FE-CHAT-007). */
+  /** 대화 이름을 사용자가 직접 입력한 값으로 바꾼다 . */
   renameChat: (chatId: string, title: string) => Promise<boolean>
   switchBranch: (branchId: string) => Promise<boolean>
   toggleBlock: (blockId: string) => void
   clearSelection: () => void
   sendMessage: (prompt: string) => Promise<void>
   regenerate: (blockId: string) => Promise<void>
-  /** 스트리밍 통로에 (다시) 붙어, 도착하는 조각으로 블록을 채워간다 (FE-AIRESP-005, 006). */
+  /** 스트리밍 통로에 (다시) 붙어, 도착하는 조각으로 블록을 채워간다 (, 006). */
   attachToJob: (blockId: string, jobId: string, clickedAt?: number) => Promise<void>
   /** 열린 블록 중 아직 생성 중인 것에 자동으로 다시 붙는다 (새로고침·브랜치 재진입, C6). */
   reattachGeneratingBlocks: () => void
-  /** 생성을 중단한다. 그때까지의 본문은 남는다 (BE-AIRESP-008). */
+  /** 생성을 중단한다. 그때까지의 본문은 남는다 . */
   cancelGeneration: (blockId: string) => Promise<void>
   setFeedback: (blockId: string, rating: AiResponseRating) => Promise<void>
   loadVersions: (blockId: string) => Promise<void>
@@ -300,9 +303,12 @@ export interface ChatState {
     editedBaseContent?: string,
   ) => Promise<boolean>
   createBranchAt: (baseBlockId: string) => Promise<boolean>
-  /** Context pill 을 눌렀을 때 원본 블록 위치로 이동한다 (REQ-012) */
+  /** Context pill 을 눌렀을 때 원본 블록 위치로 이동한다  */
   jumpToSource: (item: SourceContextItem) => Promise<void>
+  /** 전송된 인용 태그를 눌렀을 때 원본 블록 위치로 이동하고 스니펫을 강조한다 (0821_10) */
+  jumpToAppliedContext: (item: AppliedContextOut) => void
   highlightedBlockId: string | null
+  highlightedRange: { blockId: string; versionId: string; startOffset: number; endOffset: number } | null
   applyContext: () => void
   clearAppliedContext: () => void
   dismissError: () => void
@@ -332,7 +338,7 @@ export interface ChatState {
   closeTab: (id: string) => Promise<void>
   /** 주어진 탭(없으면 새 임시 탭)으로 화면을 옮긴다. 이미 확인이 끝난 뒤에만 부른다. */
   switchToTabOrDraft: (tab: ChatTab | null) => Promise<void>
-  /** 현재 탭의 지점(anchor)에서 자식 사이드 채팅을 만들고 새 탭으로 연다 (B2). */
+  /** 현재 탭의 지점(anchor)에서 자식 사이드 채팅을 만들고 새 탭으로 연다 . */
   createSideChatTab: (anchorMessageBlockId?: string, title?: string, isTemporary?: boolean) => Promise<void>
   /** 지금 보이는 채팅·브랜치 기준으로 사이드 채팅 북마크·트리를 다시 불러온다. */
   loadSideChatContext: () => Promise<void>
@@ -348,6 +354,7 @@ export interface ChatState {
   addContextRangeTag: (tag: Omit<ContextRangeTag, 'id'>) => void
   /** 태그를 제거한다 — 태그의 X 버튼, 또는 메시지 안 강조 표시를 다시 눌렀을 때 쓴다. */
   removeContextRangeTag: (id: string) => void
+  removeEditingContextTag: (id: string) => void
   /** 선택 범위 태그를 포함한 빈 사이드 채팅 패널을 로컬로 연다. 첫 메시지를 보낼 때까지는
    *  서버에 아무 것도 만들지 않는다 (0820_13 C1, C2). */
   openDraftSideChatWithRange: (tag: Omit<ContextRangeTag, 'id'>) => Promise<void>
@@ -403,6 +410,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   isCreatingBranch: false,
   deletingChatId: null,
   highlightedBlockId: null,
+  highlightedRange: null,
   error: null,
   focusSignal: 0,
   draftText: '',
@@ -423,6 +431,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   editingBlockId: null,
   editingDraft: '',
   editingOriginal: '',
+  editingContextTags: [],
   isSavingEdit: false,
   sourceNavigationError: null,
 
@@ -550,6 +559,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       isCreatingBranch: false,
       deletingChatId: null,
       highlightedBlockId: null,
+      highlightedRange: null,
       error: null,
       models: [],
       selectedModelId: null,
@@ -566,6 +576,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       editingBlockId: null,
       editingDraft: '',
       editingOriginal: '',
+      editingContextTags: [],
       isSavingEdit: false,
       sourceNavigationError: null,
       chatListError: null,
@@ -807,6 +818,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         editingBlockId: null,
         editingDraft: '',
         editingOriginal: '',
+        editingContextTags: [],
         sourceNavigationError: null,
         branches: get().branches.map((b) => ({
           ...b,
@@ -852,12 +864,18 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
   addContextRangeTag(tag) {
     set((s) => ({
-      contextRangeTags: [...s.contextRangeTags, { ...tag, id: crypto.randomUUID() }],
+      ...(s.editingBlockId
+        ? { editingContextTags: [...s.editingContextTags, { ...tag, id: crypto.randomUUID() }] }
+        : { contextRangeTags: [...s.contextRangeTags, { ...tag, id: crypto.randomUUID() }] }),
     }))
   },
 
   removeContextRangeTag(id) {
     set((s) => ({ contextRangeTags: s.contextRangeTags.filter((t) => t.id !== id) }))
+  },
+
+  removeEditingContextTag(id) {
+    set((s) => ({ editingContextTags: s.editingContextTags.filter((t) => t.id !== id) }))
   },
 
   async openDraftSideChatWithRange(tag) {
@@ -913,7 +931,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       return
     }
 
-    // 응답을 기다리는 동안에도 방금 보낸 질문이 바로 보이게 임시 블록을 먼저 넣는다 (FE-AIRESP-001)
+    // 응답을 기다리는 동안에도 방금 보낸 질문이 바로 보이게 임시 블록을 먼저 넣는다
     const tempBlockId = `temp-${crypto.randomUUID()}`
     const tempBlock: MessageBlock = {
       blockId: tempBlockId,
@@ -946,11 +964,15 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         appliedBlockIds,
         { selectedModelId, webSearchMode, reasoningEffort, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []), libraryResourceIds: selectedLibraryResourceIds },
         contextRangeTags.map((tag): ContextRangeIn => ({
-          blockId: tag.messageBlockId, versionId: tag.messageVersionId, snippetText: tag.selectedText,
+          blockId: tag.messageBlockId,
+          versionId: tag.messageVersionId,
+          snippetText: tag.selectedText,
+          startOffset: tag.startOffset,
+          endOffset: tag.endOffset,
         })),
       )
       set((s) => ({
-        // 전송 응답에는 인용 스니펫 내용(appliedContext)이 userBlock과 별도로 온다 (REQ-072)
+        // 전송 응답에는 인용 스니펫 내용(appliedContext)이 userBlock과 별도로 온다
         blocks: [...dropTempBlock(s), { ...res.userBlock, appliedContext: res.appliedContext }, res.assistantBlock],
         chatTitle: res.chatTitle,
         tabs: s.tabs.map((t) => (t.chatId === chatId ? { ...t, title: res.chatTitle } : t)),
@@ -980,7 +1002,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
           await get().openChat(chatId, branchId)
           set((s) => ({ error: toErrorMessage(e), failedJobsByBlockId: detail.retryable ? { ...s.failedJobsByBlockId, [detail.userMessageBlockId]: detail.aiResponseJobId } : s.failedJobsByBlockId }))
         } else {
-          // 질문이 저장되기 전 실패이므로 입력 내용과 첨부를 그대로 남겨 다시 보낼 수 있게 한다 (FE-INPUT-006)
+          // 질문이 저장되기 전 실패이므로 입력 내용과 첨부를 그대로 남겨 다시 보낼 수 있게 한다
           set((s) => ({ error: toErrorMessage(e), blocks: dropTempBlock(s) }))
         }
       }
@@ -1170,10 +1192,17 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     if (!chatId || !branchId || !content.trim()) return false
     try {
       set({ isSavingEdit: true })
-      const block = await convApi.editBlock(chatId, branchId, blockId, content)
+      const contextRanges = get().editingContextTags.map((tag): ContextRangeIn => ({
+        blockId: tag.messageBlockId,
+        versionId: tag.messageVersionId,
+        snippetText: tag.selectedText,
+        startOffset: tag.startOffset,
+        endOffset: tag.endOffset,
+      }))
+      const block = await convApi.editBlock(chatId, branchId, blockId, content, contextRanges)
       set((s) => ({ blocks: s.blocks.map((item) => item.blockId === blockId ? { ...item, ...block } : item) }))
       await get().loadVersions(blockId)
-      set({ editingBlockId: null, editingDraft: '', editingOriginal: '' })
+      set({ editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [] })
       useNotificationStore.getState().show('메시지를 수정했습니다.', 'success')
       return true
     } catch (e) { set({ error: toErrorMessage(e) }); return false }
@@ -1183,11 +1212,22 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async startEdit(blockId, content) {
     const state = get()
     if (state.editingBlockId && state.editingBlockId !== blockId && state.editingDraft !== state.editingOriginal && !(await useConfirmStore.getState().request('다른 메시지의 수정 내용을 버릴까요?'))) return
-    set({ editingBlockId: blockId, editingDraft: content, editingOriginal: content })
+    const block = state.blocks.find((item) => item.blockId === blockId)
+    const editingContextTags = (block?.appliedContext ?? []).map((item) => ({
+      id: crypto.randomUUID(),
+      messageBlockId: item.blockId,
+      messageVersionId: item.versionId,
+      role: state.blocks.find((source) => source.blockId === item.blockId)?.role ?? 'assistant',
+      snapshotText: item.content,
+      selectedText: item.content,
+      startOffset: item.startOffset ?? 0,
+      endOffset: item.endOffset ?? item.content.length,
+    }))
+    set({ editingBlockId: blockId, editingDraft: content, editingOriginal: content, editingContextTags })
   },
 
   setEditingDraft(content) { set({ editingDraft: content }) },
-  cancelEdit() { set({ editingBlockId: null, editingDraft: '', editingOriginal: '' }) },
+  cancelEdit() { set({ editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [] }) },
 
   async runRefine(instruction) {
     const { chatId, branchId, refineTargetBlockId } = get()
@@ -1246,7 +1286,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       useNotificationStore.getState().show('정제 결과를 반영했습니다.', 'success')
     } catch (e) {
       set({ error: toErrorMessage(e) })
-      // 이미 처리된 결과 등 서버와 어긋난 상태일 수 있으므로 최신 상태로 다시 맞춘다 (FE-REFINE-005)
+      // 이미 처리된 결과 등 서버와 어긋난 상태일 수 있으므로 최신 상태로 다시 맞춘다
       await refreshRefineJob(set, chatId, branchId, refineJob.refineJobId)
     }
   },
@@ -1342,7 +1382,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       // 만든 브랜치로 바로 들어간다. 목록만 갱신하면 어디로 갔는지 알기 어렵다
       set({ branches: await chatApi.fetchBranches(chatId) })
       // 분기 전 이탈 확인을 마쳤거나 수정본이 새 브랜치에 저장됐으므로 초안을 정리한다.
-      set({ editingBlockId: null, editingDraft: '', editingOriginal: '' })
+      set({ editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [] })
       const switched = await get().switchBranch(created.branchId)
       if (!switched) return false
       useNotificationStore.getState().show('브랜치를 만들었습니다.', 'success')
@@ -1406,6 +1446,36 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     }, 2000)
   },
 
+  jumpToAppliedContext(item) {
+    set({
+      highlightedBlockId: item.blockId,
+      highlightedRange:
+        item.startOffset != null && item.endOffset != null
+          ? {
+              blockId: item.blockId,
+              versionId: item.versionId,
+              startOffset: item.startOffset,
+              endOffset: item.endOffset,
+            }
+          : null,
+    })
+
+    requestAnimationFrame(() => {
+      const target = document.getElementById(`block-${item.blockId}`)
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      } else {
+        set({ sourceNavigationError: '원본 메시지를 찾을 수 없습니다.' })
+      }
+    })
+
+    setTimeout(() => {
+      if (get().highlightedBlockId === item.blockId) {
+        set({ highlightedBlockId: null, highlightedRange: null })
+      }
+    }, 2500)
+  },
+
   setInlineView(blockId, view) {
     set((s) => ({ inlineView: { ...s.inlineView, [blockId]: view } }))
   },
@@ -1422,7 +1492,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     if (!(await confirmPendingDiscard(get()))) return
     captureActiveTabSnapshot(set, get)
     get().clearDraft()
-    set({ editingBlockId: null, editingDraft: '', editingOriginal: '' })
+    set({ editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [] })
     if (tab.chatId && tab.branchId) {
       await get().openChat(tab.chatId, tab.branchId)
       return
@@ -1452,6 +1522,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       editingBlockId: null,
       editingDraft: '',
       editingOriginal: '',
+      editingContextTags: [],
       tabs: s.tabs.filter((t) => t.id !== id),
     }))
     if (closing.isTemporary && closing.chatId) {
@@ -1486,7 +1557,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     if (!(await confirmPendingDiscard(get()))) return
     captureActiveTabSnapshot(set, get)
     get().clearDraft()
-    set({ editingBlockId: null, editingDraft: '', editingOriginal: '', isCreatingSideChat: true })
+    set({ editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [], isCreatingSideChat: true })
     try {
       const created = await sideChatApi.createSideChat(
         chatId,
@@ -1695,6 +1766,7 @@ function resetToDraftFields(
     editingBlockId: null,
     editingDraft: '',
     editingOriginal: '',
+    editingContextTags: [],
     isSavingEdit: false,
     sourceNavigationError: null,
     branchError: null,
@@ -1758,6 +1830,7 @@ function applyDetail(
     editingBlockId: null,
     editingDraft: '',
     editingOriginal: '',
+    editingContextTags: [],
     isSavingEdit: false,
     sourceNavigationError: null,
     branchError: null,
@@ -1893,7 +1966,7 @@ async function refreshFeedbacks(
   })
 }
 
-// 승인·거절이 실패하면(이미 처리된 결과 등) 서버 상태로 다시 맞춘다 (FE-REFINE-005)
+// 승인·거절이 실패하면(이미 처리된 결과 등) 서버 상태로 다시 맞춘다
 async function refreshRefineJob(
   set: (partial: Partial<ChatState>) => void,
   chatId: string,

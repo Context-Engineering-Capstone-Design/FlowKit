@@ -17,6 +17,30 @@ class CreateBlockRequest(BaseModel):
 
 class EditBlockRequest(BaseModel):
     edited_content: str = Field(..., alias="editedContent")
+    context_ranges: list[ContextRangeIn] = Field(default_factory=list, alias="contextRanges")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ContextRangeIn(BaseModel):
+    """드래그로 고른 메시지 안 부분 범위."""
+
+    block_id: uuid.UUID = Field(..., alias="blockId")
+    version_id: uuid.UUID = Field(..., alias="versionId")
+    snippet_text: str = Field(..., alias="snippetText", min_length=1)
+    start_offset: int | None = Field(None, alias="startOffset", ge=0)
+    end_offset: int | None = Field(None, alias="endOffset", ge=0)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AppliedContextOut(BaseModel):
+    block_id: uuid.UUID = Field(..., serialization_alias="blockId")
+    version_id: uuid.UUID = Field(..., serialization_alias="versionId")
+    order_index: int = Field(..., serialization_alias="orderIndex")
+    content: str
+    start_offset: int | None = Field(None, serialization_alias="startOffset")
+    end_offset: int | None = Field(None, serialization_alias="endOffset")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -58,13 +82,18 @@ class BlockResponse(BaseModel):
     search_sources: list[SearchSourceOut] = Field(
         default_factory=list, serialization_alias="searchSources"
     )
-    # 생성 중/완료/중단됨/실패 (BE-AIRESP-007~009). 사용자 블록은 항상 complete.
+    # 생성 중/완료/중단됨/실패 . 사용자 블록은 항상 complete.
     generation_status: str = Field(..., serialization_alias="generationStatus")
+    applied_context: list[AppliedContextOut] = Field(
+        default_factory=list, serialization_alias="appliedContext"
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
     @classmethod
-    def of(cls, block: MessageBlock) -> BlockResponse:
+    def of(
+        cls, block: MessageBlock, applied_context: list[AppliedContextOut] | None = None
+    ) -> BlockResponse:
         version = block.current_version
         return cls(
             block_id=block.id,
@@ -76,6 +105,7 @@ class BlockResponse(BaseModel):
             order_index=block.order_index,
             created_at=block.created_at,
             generation_status=block.generation_status.value,
+            applied_context=applied_context or [],
             attachments=[
                 AttachmentOut(
                     attachment_id=link.attachment.id,

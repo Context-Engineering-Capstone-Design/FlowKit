@@ -1,11 +1,12 @@
-"""Context 적용 서비스 (BE-CTXAPPLY-001 ~ BE-CTXAPPLY-004)."""
+"""Context 적용 서비스 ."""
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 from app.exceptions import ValidationError
 from app.models import (
@@ -26,15 +27,35 @@ class ContextItem:
     version_id: uuid.UUID
     content: str
     order_index: int
+    start_offset: int | None = None
+    end_offset: int | None = None
+    ai_content: str | None = None
 
 
 @dataclass(frozen=True)
 class ContextRangeSpec:
-    """드래그로 고른 메시지 안 부분 범위 하나 (0820_13)."""
+    """드래그로 고른 메시지 안 부분 범위 하나 (0820_13, 0821_10)."""
 
     block_id: uuid.UUID
     version_id: uuid.UUID
     snippet_text: str
+    start_offset: int | None = None
+    end_offset: int | None = None
+
+
+CONTEXT_WINDOW_CHARS = 100
+
+
+def format_context_content(content: str, start_offset: int | None, end_offset: int | None) -> str:
+    """오프셋이 있는 경우 앞뒤 최대 100자 맥락을 붙이고 선택 지점을 [[ ]]로 감싼다."""
+    if start_offset is None or end_offset is None:
+        return content
+    prefix_start = max(0, start_offset - CONTEXT_WINDOW_CHARS)
+    suffix_end = min(len(content), end_offset + CONTEXT_WINDOW_CHARS)
+    prefix = content[prefix_start:start_offset]
+    selected = content[start_offset:end_offset]
+    suffix = content[end_offset:suffix_end]
+    return f"{prefix}[[{selected}]]{suffix}"
 
 
 def build_snapshot(
@@ -43,7 +64,7 @@ def build_snapshot(
     context_block_ids: list[uuid.UUID],
     chat: Chat | None = None,
 ) -> list[ContextItem]:
-    """적용할 Context 를 서버 기준으로 확정한다 (BE-CTXAPPLY-001, 002).
+    """적용할 Context 를 서버 기준으로 확정한다 (, 002).
 
     화면이 보낸 본문을 그대로 믿지 않고, 각 블록의 현재 활성 버전을 읽어 쓴다.
     승인되지 않은 정제 결과는 활성 버전이 아니므로 자연히 제외된다.
@@ -95,6 +116,7 @@ def build_snapshot(
                 version_id=version.id,
                 content=version.content,
                 order_index=block.order_index,
+                ai_content=version.content,
             )
         )
     return items
@@ -106,12 +128,11 @@ def build_range_snapshot(
     ranges: list[ContextRangeSpec],
     chat: Chat | None = None,
 ) -> list[ContextItem]:
-    """드래그로 고른 부분 범위를 Context 로 확정한다 (0820_13).
+    """드래그로 고른 부분 범위를 Context 로 확정한다 (0820_13, 0821_10).
 
-    블록 전체가 아니라 화면이 보낸 스니펫만 AI 입력에 들어간다. 화면이 보낸
-    텍스트를 그대로 믿지 않고, 실제로 그 버전의 본문 안에 있는 부분인지
-    확인해 다른 내용을 스니펫으로 위장해 보내는 것을 막는다. 개수·글자 수
-    제한은 두지 않는다(0820_13 계획).
+    블록 전체가 아니라 화면이 보낸 스니펫 위치를 기준으로 검증한다.
+    오프셋이 주어진 경우 원본 본문의 해당 위치와 스니펫이 정확히 일치하는지 확인하며,
+    AI에게 전달할 때는 선택 지점 앞뒤 100자의 맥락을 붙여 넘긴다.
     """
     if not ranges:
         return []
@@ -137,18 +158,41 @@ def build_range_snapshot(
                 "선택한 범위의 원본 버전을 찾을 수 없습니다.",
                 detail={"blockId": str(r.block_id), "versionId": str(r.version_id)},
             )
-        snippet = r.snippet_text.strip()
-        if not snippet or snippet not in version.content:
-            raise ValidationError(
-                "선택한 범위가 원본 내용과 일치하지 않습니다.",
-                detail={"blockId": str(r.block_id)},
-            )
+
+        if r.start_offset is not None and r.end_offset is not None:
+            if (
+                r.start_offset < 0
+                or r.end_offset > len(version.content)
+                or r.start_offset > r.end_offset
+                or version.content[r.start_offset:r.end_offset] != r.snippet_text
+            ):
+                raise ValidationError(
+                    "선택한 범위가 원본 내용과 일치하지 않습니다.",
+                    detail={"blockId": str(r.block_id)},
+                )
+            start_off, end_off = r.start_offset, r.end_offset
+            snippet = r.snippet_text
+        else:
+            snippet = r.snippet_text.strip()
+            if not snippet or snippet not in version.content:
+                raise ValidationError(
+                    "선택한 범위가 원본 내용과 일치하지 않습니다.",
+                    detail={"blockId": str(r.block_id)},
+                )
+            idx = version.content.find(r.snippet_text)
+            start_off = idx if idx != -1 else None
+            end_off = idx + len(r.snippet_text) if idx != -1 else None
+
+        ai_content = format_context_content(version.content, start_off, end_off)
         items.append(
             ContextItem(
                 block_id=block.id,
                 version_id=version.id,
                 content=snippet,
                 order_index=block.order_index,
+                start_offset=start_off,
+                end_offset=end_off,
+                ai_content=ai_content,
             )
         )
     return items
@@ -158,10 +202,10 @@ def save_log(
     db: Session,
     chat: Chat,
     branch: Branch,
-    user_message_block_id: uuid.UUID,
+    message_block_version_id: uuid.UUID,
     items: list[ContextItem],
 ) -> AppliedContextLog | None:
-    """어떤 Context 가 실제로 쓰였는지 남긴다 (BE-CTXAPPLY-003).
+    """어떤 Context 가 실제로 쓰였는지 남긴다 .
 
     전송 전 선택 상태는 화면이 들고 있고 서버에 저장하지 않는다. 전송된 뒤의
     사용 이력만 남긴다.
@@ -172,7 +216,7 @@ def save_log(
     log = AppliedContextLog(
         chat_id=chat.id,
         branch_id=branch.id,
-        user_message_block_id=user_message_block_id,
+        message_block_version_id=message_block_version_id,
     )
     db.add(log)
     db.flush()
@@ -184,8 +228,36 @@ def save_log(
                 source_block_id=item.block_id,
                 version_id=item.version_id,
                 content=item.content,
+                start_offset=item.start_offset,
+                end_offset=item.end_offset,
                 order_index=order,
             )
         )
     db.flush()
     return log
+
+
+def applied_items_for_version(
+    db: Session, message_block_version_id: uuid.UUID | None
+) -> list[ContextItem]:
+    """표시 중인 사용자 메시지 버전에 저장된 인용 태그를 돌려준다."""
+    if message_block_version_id is None:
+        return []
+    log = db.scalars(
+        select(AppliedContextLog)
+        .where(AppliedContextLog.message_block_version_id == message_block_version_id)
+        .options(joinedload(AppliedContextLog.items))
+    ).unique().first()
+    if log is None:
+        return []
+    return [
+        ContextItem(
+            block_id=item.source_block_id,
+            version_id=item.version_id,
+            content=item.content,
+            order_index=item.order_index,
+            start_offset=item.start_offset,
+            end_offset=item.end_offset,
+        )
+        for item in log.items
+    ]

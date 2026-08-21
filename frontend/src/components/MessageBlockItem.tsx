@@ -49,15 +49,17 @@ export function MessageBlockItem({ block, refine }: Props) {
     (s) => s.highlightedBlockId === block.blockId,
   )
   const contextRangeTags = useChatPaneStore((s) => s.contextRangeTags)
+  const editingContextTags = useChatPaneStore((s) => s.editingContextTags)
   const addContextRangeTag = useChatPaneStore((s) => s.addContextRangeTag)
   const removeContextRangeTag = useChatPaneStore((s) => s.removeContextRangeTag)
+  const removeEditingContextTag = useChatPaneStore((s) => s.removeEditingContextTag)
   const openDraftSideChatWithRange = useChatPaneStore((s) => s.openDraftSideChatWithRange)
 
   const isUser = block.role === 'user'
   const chatId = useChatPaneStore((s) => s.chatId)
   const imageAttachments = block.attachments.filter((item) => item.mimeType.startsWith('image/'))
   const fileAttachments = block.attachments.filter((item) => !item.mimeType.startsWith('image/'))
-  // 다른(조상) 브랜치에서 이어받은 블록은 재생성하면 원본 대화가 바뀌므로 버튼을 숨긴다(NFR-007)
+  // 다른(조상) 브랜치에서 이어받은 블록은 재생성하면 원본 대화가 바뀌므로 버튼을 숨긴다
   const isOwnBranch = block.branchId === currentBranchId
   const pending = refine?.status === 'pending'
   const rejected = refine?.status === 'rejected'
@@ -77,7 +79,7 @@ export function MessageBlockItem({ block, refine }: Props) {
     }
   }, [block.blockId, block.versionNo, loadVersions, versions])
 
-  // 정제 결과가 대기 → 승인으로 바뀐 순간 잠깐 강조한다 (FE-REFINE-005)
+  // 정제 결과가 대기 → 승인으로 바뀐 순간 잠깐 강조한다
   const [flash, setFlash] = useState(false)
   const prevRefineStatus = useRef<RefineStatus | undefined>(refine?.status)
   useEffect(() => {
@@ -101,10 +103,23 @@ export function MessageBlockItem({ block, refine }: Props) {
     toggleStyle: CSSProperties
   } | null>(null)
 
+  const highlightedRange = useChatPaneStore((s) => s.highlightedRange)
+
   const rangeTagsForBlock = contextRangeTags.filter(
     (tag) => tag.messageBlockId === block.blockId && tag.messageVersionId === block.currentVersionId,
   )
   const highlightRanges = rangeTagsForBlock.map((tag) => ({ id: tag.id, start: tag.startOffset, end: tag.endOffset }))
+  if (
+    highlightedRange &&
+    highlightedRange.blockId === block.blockId &&
+    highlightedRange.versionId === block.currentVersionId
+  ) {
+    highlightRanges.push({
+      id: 'inspected-context-range',
+      start: highlightedRange.startOffset,
+      end: highlightedRange.endOffset,
+    })
+  }
 
   function dismissPendingSelection() {
     setPendingSelection(null)
@@ -180,6 +195,36 @@ export function MessageBlockItem({ block, refine }: Props) {
     dismissPendingSelection()
   }
 
+  // 인용 태그와 같은 줄 흐름으로 배치할 본문 — 전송 당시 인용한 Context가 있으면
+  // 말풍선 안에서 태그 옆에 나란히 보이게 한다 (composer의 인라인 칩 배치와 맞춘다)
+  const markdownBody = shown.trim() ? (
+    <div
+      ref={contentRef}
+      {...(eligibleForReuse ? { [SELECTABLE_ROOT_ATTR]: '' } : {})}
+      onMouseUp={eligibleForReuse ? handleContentMouseUp : undefined}
+      onClick={eligibleForReuse ? handleContentClick : undefined}
+      className={`markdown min-w-0 text-[13.5px] leading-relaxed ${isUser ? 'text-txt-0' : 'w-full text-txt-1'}`}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        // rehypeRaw 로 <br> 같은 원본 HTML을 실제 태그로 바꾸고, 그 결과를
+        // rehypeSanitize(기본 허용 목록)로 걸러 스크립트·이벤트 속성을 없앤 뒤에야
+        // rehypeHighlight 가 코드 블록에 강조 클래스를 붙인다. sanitize를 강조보다
+        // 뒤에 두면 강조가 붙인 클래스까지 함께 지워진다. 드래그로 고른 범위 강조는
+        // 이미 정제된 트리 위에 마지막으로 얹는다 (0820_13 A3, A4).
+        rehypePlugins={[
+          rehypeRaw,
+          rehypeSanitize,
+          rehypeHighlight,
+          [rehypeHighlightRanges, { ranges: highlightRanges }],
+        ]}
+        components={{ pre: CodeBlock, table: TableBlock }}
+      >
+        {displayed}
+      </ReactMarkdown>
+    </div>
+  ) : null
+
   return (
     <div
       id={`block-${block.blockId}`}
@@ -222,51 +267,30 @@ export function MessageBlockItem({ block, refine }: Props) {
           <ImagePreviewList chatId={chatId} attachments={imageAttachments} />
         )}
 
-        {isUser && block.appliedContext && block.appliedContext.length > 0 && (
-          <AppliedContextTagList items={block.appliedContext} />
-        )}
-
         {editing ? (
           <div className="w-full">
             <MessageEditForm
               draft={draft}
               busy={editBusy}
+              tags={editingContextTags}
               onDraftChange={setEditingDraft}
+              onRemoveTag={removeEditingContextTag}
               onCancel={cancelEdit}
               onSaveBranch={() => void createBranchAt(block.blockId)}
               onSave={() => saveEdit(block.blockId, draft)}
             />
           </div>
-        ) : shown.trim() ? (
-          <div
-            ref={contentRef}
-            {...(eligibleForReuse ? { [SELECTABLE_ROOT_ATTR]: '' } : {})}
-            onMouseUp={eligibleForReuse ? handleContentMouseUp : undefined}
-            onClick={eligibleForReuse ? handleContentClick : undefined}
-            className={`markdown text-[13.5px] leading-relaxed ${
-              isUser
-                ? 'w-fit max-w-full rounded-2xl bg-bg-3 px-3.5 py-2.5 text-txt-0'
-                : 'w-full text-txt-1'
-            }`}
-          >
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              // rehypeRaw 로 <br> 같은 원본 HTML을 실제 태그로 바꾸고, 그 결과를
-              // rehypeSanitize(기본 허용 목록)로 걸러 스크립트·이벤트 속성을 없앤 뒤에야
-              // rehypeHighlight 가 코드 블록에 강조 클래스를 붙인다. sanitize를 강조보다
-              // 뒤에 두면 강조가 붙인 클래스까지 함께 지워진다. 드래그로 고른 범위 강조는
-              // 이미 정제된 트리 위에 마지막으로 얹는다 (0820_13 A3, A4).
-              rehypePlugins={[
-                rehypeRaw,
-                rehypeSanitize,
-                rehypeHighlight,
-                [rehypeHighlightRanges, { ranges: highlightRanges }],
-              ]}
-              components={{ pre: CodeBlock, table: TableBlock }}
-            >
-              {displayed}
-            </ReactMarkdown>
-          </div>
+        ) : markdownBody ? (
+          isUser ? (
+            <div className="flex w-fit max-w-full flex-wrap items-baseline gap-x-1.5 gap-y-1 rounded-2xl bg-bg-3 px-3.5 py-2.5">
+              {block.appliedContext && block.appliedContext.length > 0 && (
+                <AppliedContextTagList items={block.appliedContext} />
+              )}
+              {markdownBody}
+            </div>
+          ) : (
+            markdownBody
+          )
         ) : isGenerating ? (
           <p className="animate-pulse text-[13px] text-txt-3">생각하는 중…</p>
         ) : null}
@@ -334,7 +358,7 @@ export function MessageBlockItem({ block, refine }: Props) {
   )
 }
 
-// 정제 결과 검토 줄 — 원본/정제 전환과 승인·거절 (REQ-031, REQ-036)
+// 정제 결과 검토 줄 — 원본/정제 전환과 승인·거절
 function InlineRefineBar({ result }: { result: RefineResultItem }) {
   const view = useChatPaneStore((s) => s.inlineView[result.blockId] ?? 'refined')
   const setInlineView = useChatPaneStore((s) => s.setInlineView)
@@ -485,20 +509,24 @@ function AuthenticatedImage({
   )
 }
 
-// 전송 당시 인용한 Context 스니펫 — 채팅 내역에 영구적으로 남는 읽기 전용 태그 (REQ-072)
+// 전송 당시 인용한 Context 스니펫 — 채팅 내역에 영구적으로 남는 태그. 클릭하면 원문 위치로 이동해 강조한다
 function AppliedContextTagList({ items }: { items: AppliedContextOut[] }) {
+  const jumpToAppliedContext = useChatPaneStore((s) => s.jumpToAppliedContext)
+
   return (
-    <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+    <>
       {items.map((item, index) => (
-        <span
+        <button
           key={index}
-          title={item.content}
-          className="max-w-[220px] truncate rounded-full bg-blue-dim px-2.5 py-1 text-[11px] text-blue"
+          type="button"
+          onClick={() => jumpToAppliedContext?.(item)}
+          title={`${item.content} (클릭하여 원문 보기)`}
+          className="max-w-[220px] truncate rounded-full bg-blue-dim px-2.5 py-1 text-[11px] text-blue transition hover:bg-blue/25"
         >
           “{toTagPreview(item.content)}”
-        </span>
+        </button>
       ))}
-    </div>
+    </>
   )
 }
 

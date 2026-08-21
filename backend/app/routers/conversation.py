@@ -43,7 +43,7 @@ def send_message(
     user: CurrentUser,
     db: DbSession,
 ) -> SendMessageResponse:
-    """BE-CTXAPPLY-001~003, BE-AIRESP-001, 002: 질문 저장 → 답변 생성 → 저장.
+    """, , 002: 질문 저장 → 답변 생성 → 저장.
 
     contextBlockIds 를 주면 AI 는 그 내용을 우선 기준으로 답한다.
     """
@@ -54,7 +54,11 @@ def send_message(
         payload.reasoning_effort, payload.library_resource_ids,
         context_ranges=[
             context_service.ContextRangeSpec(
-                block_id=r.block_id, version_id=r.version_id, snippet_text=r.snippet_text
+                block_id=r.block_id,
+                version_id=r.version_id,
+                snippet_text=r.snippet_text,
+                start_offset=r.start_offset,
+                end_offset=r.end_offset,
             )
             for r in payload.context_ranges
         ],
@@ -64,8 +68,12 @@ def send_message(
         assistant_block=BlockResponse.of(result.assistant_block),
         applied_context=[
             AppliedContextOut(
-                block_id=i.block_id, version_id=i.version_id, order_index=i.order_index,
+                block_id=i.block_id,
+                version_id=i.version_id,
+                order_index=i.order_index,
                 content=i.content,
+                start_offset=i.start_offset,
+                end_offset=i.end_offset,
             )
             for i in result.context_items
         ],
@@ -102,7 +110,7 @@ def regenerate(
     user: CurrentUser,
     db: DbSession,
 ) -> RegenerateResponse:
-    """BE-AIRESP-003: 답변을 다시 생성해 같은 블록의 새 버전으로 추가한다."""
+    """답변을 다시 생성해 같은 블록의 새 버전으로 추가한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     result = ai_response_service.regenerate(db, user, chat, branch, block_id)
     return RegenerateResponse(
@@ -147,10 +155,10 @@ def stream_ai_response(
     user: CurrentUser,
     db: DbSession,
 ) -> StreamingResponse:
-    """BE-AIRESP-007, 009: 생성 조각을 실시간으로 흘려보내고, 도중 붙어도 이어서 본다.
+    """, 009: 생성 조각을 실시간으로 흘려보내고, 도중 붙어도 이어서 본다.
 
     이 프로세스가 그 작업을 모르면(이미 끝났거나 서버가 재시작됐으면) DB의
-    최종 상태 한 번만 보내고 닫는다(B6).
+    최종 상태 한 번만 보내고 닫는다.
     """
     chat, branch = _load(db, user, chat_id, branch_id)
     job = ai_response_service.get_owned_job(db, user, chat, branch, job_id)
@@ -204,7 +212,7 @@ def cancel_ai_response_job(
     user: CurrentUser,
     db: DbSession,
 ) -> BlockMutationResponse:
-    """BE-AIRESP-008: 생성 중인 답변을 중단한다. 그때까지의 본문은 남긴다."""
+    """생성 중인 답변을 중단한다. 그때까지의 본문은 남긴다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     block = ai_response_service.cancel_job(db, user, chat, branch, job_id)
     return BlockMutationResponse(
@@ -226,7 +234,7 @@ def get_feedback(
     user: CurrentUser,
     db: DbSession,
 ) -> FeedbackResponse:
-    """BE-AIRESP-004: 현재 사용자의 해당 AI 답변 평가를 조회한다."""
+    """현재 사용자의 해당 AI 답변 평가를 조회한다."""
     _, branch = _load(db, user, chat_id, branch_id)
     feedback = ai_response_service.get_feedback(db, user, branch, block_id)
     return _feedback_response(block_id, feedback)
@@ -241,7 +249,7 @@ def set_feedback(
     user: CurrentUser,
     db: DbSession,
 ) -> FeedbackMutationResponse:
-    """BE-AIRESP-004: like/dislike 저장·변경 또는 null로 해제한다."""
+    """like/dislike 저장·변경 또는 null로 해제한다."""
     _, branch = _load(db, user, chat_id, branch_id)
     rating = (
         None

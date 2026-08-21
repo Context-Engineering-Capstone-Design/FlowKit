@@ -10,7 +10,7 @@ from sqlalchemy.orm import joinedload
 
 from app.deps import CurrentUser, DbSession
 from app.models import AppliedContextLog
-from app.schemas.conversation import AppliedContextOut
+from app.schemas.message import AppliedContextOut
 from app.schemas.chat import (
     BranchDetailResponse,
     BranchListItem,
@@ -35,22 +35,29 @@ from app.services import ai_response_service, branch_service, chat_service, proj
 router = APIRouter(prefix="/api/chats", tags=["Chat"])
 
 
-def _applied_context_by_block(db, user_block_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[AppliedContextOut]]:
-    """REQ-072: 사용자 블록별로 전송 당시 인용한 Context 스니펫을 일괄 조회한다."""
-    if not user_block_ids:
+def _applied_context_by_block(db, user_blocks) -> dict[uuid.UUID, list[AppliedContextOut]]:
+    """화면에 표시 중인 사용자 메시지 버전의 Context 스니펫을 일괄 조회한다."""
+    version_to_block = {
+        block.current_version_id: block.id
+        for block in user_blocks
+        if block.current_version_id is not None
+    }
+    if not version_to_block:
         return {}
     logs = db.scalars(
         select(AppliedContextLog)
-        .where(AppliedContextLog.user_message_block_id.in_(user_block_ids))
+        .where(AppliedContextLog.message_block_version_id.in_(version_to_block))
         .options(joinedload(AppliedContextLog.items))
     ).unique()
     return {
-        log.user_message_block_id: [
+        version_to_block[log.message_block_version_id]: [
             AppliedContextOut(
                 block_id=item.source_block_id,
                 version_id=item.version_id,
                 order_index=item.order_index,
                 content=item.content,
+                start_offset=item.start_offset,
+                end_offset=item.end_offset,
             )
             for item in log.items
         ]
@@ -59,10 +66,10 @@ def _applied_context_by_block(db, user_block_ids: list[uuid.UUID]) -> dict[uuid.
 
 
 def _block_list(db, blocks) -> list[MessageBlockOut]:
-    """BE-AIRESP-009: 생성 중인 블록에는 다시 붙을 작업 id를 함께 실어 보낸다."""
+    """생성 중인 블록에는 다시 붙을 작업 id를 함께 실어 보낸다."""
     generating_ids = [b.id for b in blocks if b.generation_status.value == "generating"]
     job_by_block = ai_response_service.generating_job_ids_for_blocks(db, generating_ids)
-    applied_context_by_block = _applied_context_by_block(db, [b.id for b in blocks if b.role.value == "user"])
+    applied_context_by_block = _applied_context_by_block(db, [b for b in blocks if b.role.value == "user"])
     return [
         MessageBlockOut.of(b, job_by_block.get(b.id), applied_context_by_block.get(b.id))
         for b in blocks
@@ -81,7 +88,7 @@ def _branch_list(db, chat, active_branch_id: uuid.UUID) -> list[BranchListItem]:
 
 @router.post("", response_model=CreateChatResponse, status_code=201)
 def create_chat(user: CurrentUser, db: DbSession, payload: CreateChatRequest | None = None) -> CreateChatResponse:
-    """BE-CHAT-001, 002: 새 채팅 + Main 브랜치 생성 후 초기 화면 상태를 돌려준다."""
+    """, 002: 새 채팅 + Main 브랜치 생성 후 초기 화면 상태를 돌려준다."""
     project_id = payload.project_id if payload else None
     if project_id:
         project_service.get_owned_project(db, user, project_id)
@@ -108,7 +115,7 @@ def list_chats(
     limit: int = Query(chat_service.DEFAULT_LIMIT, ge=1, le=chat_service.MAX_LIMIT),
     keyword: str | None = None,
 ) -> ChatListResponse:
-    """BE-CHAT-003, 006: 최근 대화 목록 및 제목 검색."""
+    """, 006: 최근 대화 목록 및 제목 검색."""
     chats, next_cursor = chat_service.list_chats(
         db, user, cursor=cursor, limit=limit, keyword=keyword
     )
@@ -123,7 +130,7 @@ def get_chat(
     db: DbSession,
     branch_id: uuid.UUID | None = Query(None, alias="branchId"),
 ) -> ChatDetailResponse:
-    """BE-CHAT-005: 채팅 상세. branchId 를 주지 않으면 Main 브랜치를 연다."""
+    """채팅 상세. branchId 를 주지 않으면 Main 브랜치를 연다."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
     chat_service.mark_chat_seen(db, user, chat)
     branch = (
@@ -144,7 +151,7 @@ def get_chat(
 def delete_chat(
     chat_id: uuid.UUID, user: CurrentUser, db: DbSession
 ) -> DeleteChatResponse:
-    """BE-CHAT-009: 채팅과 하위 데이터를 실제로 삭제한다."""
+    """채팅과 하위 데이터를 실제로 삭제한다."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
     chat_service.delete_chat(db, chat)
     return DeleteChatResponse(
@@ -165,7 +172,7 @@ def update_title(
     user: CurrentUser,
     db: DbSession,
 ) -> UpdateChatTitleResponse:
-    """BE-CHAT-004: AI가 생성한 제목을 검증 후 저장한다."""
+    """AI가 생성한 제목을 검증 후 저장한다."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
     updated = chat_service.update_title(db, chat, payload.generated_title)
     meta = ChatMeta.of(updated)
@@ -184,7 +191,7 @@ def update_title(
 def list_branches(
     chat_id: uuid.UUID, user: CurrentUser, db: DbSession
 ) -> list[BranchListItem]:
-    """BE-BRANCH-001: 브랜치 목록. Main 이 항상 맨 앞."""
+    """브랜치 목록. Main 이 항상 맨 앞."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
     main = branch_service.get_main_branch(db, chat)
     return _branch_list(db, chat, main.id)
@@ -194,7 +201,7 @@ def list_branches(
 def get_branch(
     chat_id: uuid.UUID, branch_id: uuid.UUID, user: CurrentUser, db: DbSession
 ) -> BranchDetailResponse:
-    """BE-BRANCH-002: 브랜치 전환. 출발 Context 와 원본 위치 정보를 함께 준다."""
+    """브랜치 전환. 출발 Context 와 원본 위치 정보를 함께 준다."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
     branch = branch_service.get_branch_with_legacy_compatibility(db, chat, branch_id)
     blocks = branch_service.resolve_blocks(db, branch)
@@ -215,7 +222,7 @@ def create_branch(
     user: CurrentUser,
     db: DbSession,
 ) -> CreateBranchResponse:
-    """BE-BRANCH-003, 004, 005: 선택 Context 기반 브랜치 생성."""
+    """, 004, 005: 선택 Context 기반 브랜치 생성."""
     chat = chat_service.get_owned_chat(db, user, chat_id)
     result = branch_service.create_branch(
         db,

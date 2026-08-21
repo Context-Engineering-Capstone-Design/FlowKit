@@ -101,7 +101,7 @@ export interface BranchListItem extends BranchMeta {
 
 export type MessageRole = 'user' | 'assistant'
 
-/** 답변 생성 진행 상태 (BE-AIRESP-007~009). 사용자 블록은 항상 complete다. */
+/** 답변 생성 진행 상태 . 사용자 블록은 항상 complete다. */
 export type GenerationStatus = 'generating' | 'complete' | 'cancelled' | 'failed'
 
 export interface MessageBlock {
@@ -119,7 +119,7 @@ export interface MessageBlock {
   generationStatus: GenerationStatus
   /** generating일 때만 값이 있다. 스트리밍 통로에 (다시) 붙을 때 쓴다. */
   generationJobId?: string | null
-  /** 이 사용자 메시지를 보낼 때 인용한 Context 스니펫 (REQ-072). 어시스턴트 블록은 항상 빈 배열. */
+  /** 이 사용자 메시지를 보낼 때 인용한 Context 스니펫 . 어시스턴트 블록은 항상 빈 배열. */
   appliedContext?: AppliedContextOut[]
 }
 
@@ -218,13 +218,17 @@ export interface AppliedContextOut {
   versionId: string
   orderIndex: number
   content: string
+  startOffset?: number | null
+  endOffset?: number | null
 }
 
-/** 드래그로 고른 메시지 안 부분 범위 하나 (0820_13). 전체 블록이 아니라 이 스니펫만 Context 로 쓴다. */
+/** 드래그로 고른 메시지 안 부분 범위 하나 (0820_13, 0821_10). 전체 블록이 아니라 이 스니펫만 Context 로 쓴다. */
 export interface ContextRangeIn {
   blockId: string
   versionId: string
   snippetText: string
+  startOffset?: number | null
+  endOffset?: number | null
 }
 
 export interface SendMessageResponse {

@@ -27,7 +27,7 @@ describe('getFlatText', () => {
 })
 
 describe('captureSelection', () => {
-  it('한 메시지 안에서 코드 경계를 걸친 드래그 선택을 읽는다 (A1, A6)', () => {
+  it('한 메시지 안에서 코드 경계를 걸친 드래그 선택을 읽는다 ', () => {
     document.body.innerHTML = `<div ${SELECTABLE_ROOT_ATTR}="" id="root"><p>안녕 <code>world</code> 끝</p></div>`
     const root = document.getElementById('root')!
     const p = root.querySelector('p')!
@@ -74,5 +74,22 @@ describe('captureSelection', () => {
     const outsideRoot = document.querySelector('#attachment')!.firstChild!
     const selection = selectText(inRoot, 0, outsideRoot, 1)
     expect(captureSelection(selection)).toBeNull()
+  })
+
+  it('같은 문구가 여러 번 나와도 실제로 드래그한 위치의 오프셋을 정확히 잡는다 (0821_10)', () => {
+    document.body.innerHTML = `<div ${SELECTABLE_ROOT_ATTR}="" id="root"><p>첫 번째 K 그리고 두 번째 K와 세 번째 K</p></div>`
+    const root = document.getElementById('root')!
+    const textNode = root.querySelector('p')!.firstChild! // 텍스트 노드
+    const fullText = textNode.textContent!
+    const secondKOffset = fullText.indexOf('두 번째 K') + '두 번째 '.length
+
+    // "두 번째 K"의 "K" 하나만 선택
+    const selection = selectText(textNode, secondKOffset, textNode, secondKOffset + 1)
+    const captured = captureSelection(selection)
+
+    expect(captured?.root).toBe(root)
+    expect(captured?.text).toBe('K')
+    expect(captured?.startOffset).toBe(secondKOffset)
+    expect(captured?.endOffset).toBe(secondKOffset + 1)
   })
 })

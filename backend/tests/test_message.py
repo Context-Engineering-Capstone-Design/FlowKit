@@ -36,7 +36,7 @@ def add_block(client, auth, chat, role: str, content: str) -> dict:
     return res.json()
 
 
-# ── BE-MSG-001: 생성 ───────────────────────────────────────────────────────
+# ── 생성 ───────────────────────────────────────────────────────
 
 
 def test_create_block_starts_at_version_one(client, auth, chat):
@@ -77,11 +77,11 @@ def test_created_block_appears_in_chat_detail(client, auth, chat):
     assert [b["content"] for b in res.json()["messageBlocks"]] == ["질문"]
 
 
-# ── BE-MSG-004, 005, 006: 수정과 버전 ──────────────────────────────────────
+# ── , 005, 006: 수정과 버전 ──────────────────────────────────────
 
 
 def test_edit_adds_version_and_keeps_original(client, auth, chat):
-    """수정해도 이전 내용은 이력에 남아야 한다 (REQ-041)."""
+    """수정해도 이전 내용은 이력에 남아야 한다 ."""
     block = add_block(client, auth, chat, "user", "원본 내용")
     url = blocks_url(chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"])
 
@@ -101,8 +101,71 @@ def test_edit_adds_version_and_keeps_original(client, auth, chat):
     assert [v["isCurrent"] for v in versions] == [False, True]
 
 
+def test_edit_saves_context_ranges_per_version(client, auth, chat):
+    source = add_block(client, auth, chat, "assistant", "인용할 원문입니다")
+    target = add_block(client, auth, chat, "user", "원래 질문")
+    url = blocks_url(chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"])
+
+    edited = client.patch(
+        f"{url}/{target['blockId']}",
+        json={
+            "editedContent": "태그를 붙인 질문",
+            "contextRanges": [{
+                "blockId": source["blockId"],
+                "versionId": source["currentVersionId"],
+                "snippetText": "인용할 원문",
+            }],
+        },
+        headers=auth,
+    ).json()
+
+    assert edited["appliedContext"] == [{
+        "blockId": source["blockId"],
+        "versionId": source["currentVersionId"],
+        "orderIndex": source["orderIndex"],
+        "content": "인용할 원문",
+        "startOffset": 0,
+        "endOffset": 6,
+    }]
+
+    latest = client.patch(
+        f"{url}/{target['blockId']}",
+        json={"editedContent": "태그를 지운 질문", "contextRanges": []},
+        headers=auth,
+    ).json()
+    assert latest["appliedContext"] == []
+
+    restored = client.patch(
+        f"{url}/{target['blockId']}/version",
+        json={"targetVersionId": edited["currentVersionId"]},
+        headers=auth,
+    ).json()
+    assert restored["appliedContext"] == edited["appliedContext"]
+
+
+def test_edit_rejects_forged_context_range(client, auth, chat):
+    source = add_block(client, auth, chat, "assistant", "실제 원문")
+    target = add_block(client, auth, chat, "user", "원래 질문")
+    url = blocks_url(chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"])
+
+    res = client.patch(
+        f"{url}/{target['blockId']}",
+        json={
+            "editedContent": "수정 질문",
+            "contextRanges": [{
+                "blockId": source["blockId"],
+                "versionId": source["currentVersionId"],
+                "snippetText": "위조된 문구",
+            }],
+        },
+        headers=auth,
+    )
+
+    assert res.status_code == 400
+
+
 def test_rollback_to_previous_version(client, auth, chat):
-    """되돌리기는 이력을 지우지 않고 활성 버전만 옮긴다 (REQ-021)."""
+    """되돌리기는 이력을 지우지 않고 활성 버전만 옮긴다 ."""
     block = add_block(client, auth, chat, "assistant", "원본 내용")
     url = blocks_url(chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"])
     original_version = block["currentVersionId"]
@@ -159,7 +222,7 @@ def test_version_from_other_block_is_rejected(client, auth, chat):
     assert res.json()["errorCode"] == "MESSAGE_BLOCK_NOT_FOUND"
 
 
-# ── BE-MSG-003: 선택 검증 ─────────────────────────────────────────────────
+# ── 선택 검증 ─────────────────────────────────────────────────
 
 
 def test_validate_selection_splits_valid_and_invalid(client, auth, chat):
@@ -225,7 +288,7 @@ def test_new_block_continues_numbering_after_inherited(client, auth, branched):
 
 
 def test_inherited_block_cannot_be_edited_from_child_branch(client, auth, branched):
-    """상속 블록을 고치면 원본 대화까지 바뀌므로 막는다 (NFR-007)."""
+    """상속 블록을 고치면 원본 대화까지 바뀌므로 막는다 ."""
     chat, blocks, child = branched
 
     res = client.patch(
@@ -264,7 +327,7 @@ def test_block_outside_branch_flow_is_not_found(client, auth, branched):
     assert res.json()["errorCode"] == "MESSAGE_BLOCK_NOT_FOUND"
 
 
-# ── BE-MSG-007: 활성 메시지 흐름 ──────────────────────────────────────────
+# ── 활성 메시지 흐름 ──────────────────────────────────────────
 
 
 def test_active_flow_uses_current_version(client, auth, chat, db_session):
