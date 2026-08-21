@@ -28,6 +28,7 @@ export function MessageBlockItem({ block, refine }: Props) {
   const pendingAi = useChatPaneStore((s) => s.pendingByBlockId[block.blockId])
   const failedJobId = useChatPaneStore((s) => s.failedJobsByBlockId[block.blockId])
   const retryAiResponseJob = useChatPaneStore((s) => s.retryAiResponseJob)
+  const isSending = useChatPaneStore((s) => s.isSending)
   const saveEdit = useChatPaneStore((s) => s.editBlock)
   const editing = useChatPaneStore((s) => s.editingBlockId === block.blockId)
   const draft = useChatPaneStore((s) => s.editingDraft)
@@ -298,7 +299,7 @@ export function MessageBlockItem({ block, refine }: Props) {
         {fileAttachments.length > 0 && <AttachmentList attachments={fileAttachments} />}
         {!isUser && block.searchSources.length > 0 && <SearchSourceList sources={block.searchSources} />}
 
-        {isUser && failedJobId && <div className="mt-2 flex items-center gap-2 text-[11px] text-red"><span>답변 생성에 실패했습니다.</span><button type="button" onClick={() => void retryAiResponseJob(failedJobId)} className="rounded border border-red/40 px-1.5 py-0.5 hover:bg-red/10">다시 시도</button></div>}
+        {isUser && failedJobId && <div className="mt-2 flex items-center gap-2 text-[11px] text-red"><span>답변 생성에 실패했습니다.</span><button type="button" disabled={isSending} onClick={() => void retryAiResponseJob(failedJobId)} className="rounded border border-red/40 px-1.5 py-0.5 hover:bg-red/10 disabled:opacity-40">다시 시도</button></div>}
         {!isUser && pendingAi && <div className="mt-2 text-[11px] text-txt-2">답변을 다시 생성하는 중…</div>}
 
         {pending && <div className="w-full"><InlineRefineBar result={refine} /></div>}

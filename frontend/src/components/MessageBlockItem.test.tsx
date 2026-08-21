@@ -135,6 +135,13 @@ it('이 브랜치가 직접 만든 답변은 재생성 버튼을 보여준다', 
   expect(screen.getByTitle('답변 다시 시도')).toBeTruthy()
 })
 
+it('답변 재시도 중에는 실패 질문의 재시도 버튼을 비활성화한다', () => {
+  useChatStore.setState({ failedJobsByBlockId: { 'block-1': 'job-1' }, isSending: true })
+  render(<MessageBlockItem block={block} />)
+
+  expect(screen.getByRole('button', { name: '다시 시도' }).hasAttribute('disabled')).toBe(true)
+})
+
 it('버전 전환 도구막대는 목차보다 앞 레이어에서 이전 버전을 고른다', () => {
   const setActiveVersion = vi.fn()
   const regenerated = {

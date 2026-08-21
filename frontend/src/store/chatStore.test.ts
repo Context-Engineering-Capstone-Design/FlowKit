@@ -1034,6 +1034,429 @@ describe('chatStore 화면 상태', () => {
     expect(block?.generationJobId).toBeNull()
   })
 
+  it('재생성 결과가 늦어도 다른 학습 노드의 같은 블록 ID를 덮지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.regenerate.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({
+      chatTitle: 'A Self-Attention 학습',
+      blocks: [{ blockId: 'answer-block', branchId: 'branch-1', role: 'assistant', content: 'A의 기존 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+    })
+
+    const regenerating = useChatStore.getState().regenerate('answer-block')
+    await vi.waitFor(() => expect(convApi.regenerate).toHaveBeenCalledWith('chat-1', 'branch-1', 'answer-block'))
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'answer-block', rating: null })
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: 'B Causal Mask 학습' }),
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'answer-block', branchId: 'branch-b', role: 'assistant', content: 'B의 기존 답변', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+
+    pending.resolve({ blockId: 'answer-block', branchId: 'branch-1', role: 'assistant', content: 'A의 재생성 답변', currentVersionId: 'v-a2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', aiResponseJobId: 'job-a' })
+    await regenerating
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', chatTitle: 'B Causal Mask 학습', isSending: false })
+    expect(state.blocks).toMatchObject([{ blockId: 'answer-block', branchId: 'branch-b', content: 'B의 기존 답변', generationStatus: 'complete' }])
+  })
+
+  it('재생성 실패가 늦어도 다른 학습 대화의 오류를 바꾸지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.regenerate.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({ blocks: [{ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: 'A 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }] })
+
+    const regenerating = useChatStore.getState().regenerate('answer-a')
+    await vi.waitFor(() => expect(convApi.regenerate).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-b', title: 'B 학습 대화' }), branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [] })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    useChatStore.setState({ error: 'B의 기존 오류' })
+
+    pending.reject(new Error('A 재생성 실패'))
+    await regenerating
+
+    expect(useChatStore.getState()).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', error: 'B의 기존 오류', isSending: false })
+  })
+
+  it('재생성 결과가 늦어도 같은 학습 대화에서 선택한 다른 노드를 덮지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.regenerate.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({ blocks: [{ blockId: 'answer-shared', branchId: 'branch-1', role: 'assistant', content: '원래 노드 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }] })
+
+    const regenerating = useChatStore.getState().regenerate('answer-shared')
+    await vi.waitFor(() => expect(convApi.regenerate).toHaveBeenCalledTimes(1))
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'answer-shared', rating: null })
+    chatApi.fetchBranch.mockResolvedValueOnce({
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'answer-shared', branchId: 'branch-b', role: 'assistant', content: '다른 노드 답변', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      sourceContextInfo: [],
+    })
+    await useChatStore.getState().switchBranch('branch-b')
+
+    pending.resolve({ blockId: 'answer-shared', branchId: 'branch-1', role: 'assistant', content: '원래 노드 재생성', currentVersionId: 'v-a2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', aiResponseJobId: 'job-shared' })
+    await regenerating
+
+    expect(useChatStore.getState().blocks).toMatchObject([{ blockId: 'answer-shared', branchId: 'branch-b', content: '다른 노드 답변', generationStatus: 'complete' }])
+  })
+
+  it('답변 재시도 결과가 늦어도 다른 학습 대화의 제목과 블록을 바꾸지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.retryAiResponseJob.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({ failedJobsByBlockId: { 'user-a': 'job-a' }, blocks: [{ blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'A 질문', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }] })
+
+    const retrying = useChatStore.getState().retryAiResponseJob('job-a')
+    await vi.waitFor(() => expect(convApi.retryAiResponseJob).toHaveBeenCalledWith('chat-1', 'branch-1', 'job-a'))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: 'B Attention Head 학습' }),
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'user-b', branchId: 'branch-b', role: 'user', content: 'B 질문', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+
+    pending.resolve({
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: 'A 재시도 답변', currentVersionId: 'v-a2', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
+      chatTitle: 'A 재시도 제목', aiResponseJobId: 'job-a-retry',
+    })
+    await retrying
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', chatTitle: 'B Attention Head 학습', isSending: false })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['user-b'])
+  })
+
+  it('답변 재시도 실패가 늦어도 다른 학습 대화의 오류를 바꾸지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.retryAiResponseJob.mockReturnValueOnce(pending.promise)
+    const retrying = useChatStore.getState().retryAiResponseJob('job-a')
+    await vi.waitFor(() => expect(convApi.retryAiResponseJob).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-b', title: 'B 학습 대화' }), branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [] })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    useChatStore.setState({ error: 'B의 기존 오류' })
+
+    pending.reject(new Error('A 재시도 실패'))
+    await retrying
+
+    expect(useChatStore.getState()).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', error: 'B의 기존 오류', isSending: false })
+  })
+
+  it('답변 재시도 완료가 늦어도 다른 학습 대화의 전송 상태를 끄지 않는다', async () => {
+    const pendingRetry = deferred<unknown>()
+    const pendingSend = deferred<unknown>()
+    convApi.retryAiResponseJob.mockReturnValueOnce(pendingRetry.promise)
+    convApi.sendMessage.mockReturnValueOnce(pendingSend.promise)
+
+    const retrying = useChatStore.getState().retryAiResponseJob('job-a')
+    await vi.waitFor(() => expect(convApi.retryAiResponseJob).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-b', title: 'B 학습 대화' }), branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [] })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    const sendingB = useChatStore.getState().sendMessage('B의 Causal Mask 질문')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+
+    pendingRetry.resolve({
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: 'A 재시도 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
+      chatTitle: 'A 재시도 제목', aiResponseJobId: 'job-a-retry',
+    })
+    await retrying
+
+    expect(useChatStore.getState()).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', chatTitle: 'B 학습 대화', isSending: true })
+    pendingSend.resolve({
+      userBlock: { blockId: 'user-b', branchId: 'branch-b', role: 'user', content: 'B의 Causal Mask 질문', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-b', branchId: 'branch-b', role: 'assistant', content: 'B 답변', currentVersionId: 'v-b', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      appliedContext: [], chatTitle: 'B 학습 대화', titleGenerated: false, aiResponseJobId: 'job-b', jobStatus: 'completed',
+    })
+    await sendingB
+  })
+
+  it('생성 중단 결과가 늦어도 다른 학습 노드의 같은 블록 ID를 덮지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.cancelAiResponseJob.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({
+      blocks: [{ blockId: 'answer-block', branchId: 'branch-1', role: 'assistant', content: 'A 생성 중 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-a' }],
+    })
+
+    const cancelling = useChatStore.getState().cancelGeneration('answer-block')
+    await vi.waitFor(() => expect(convApi.cancelAiResponseJob).toHaveBeenCalledWith('chat-1', 'branch-1', 'job-a'))
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'answer-block', rating: null })
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-1', title: '다른 A 노드' }),
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'answer-block', branchId: 'branch-b', role: 'assistant', content: 'B 노드 생성 중 답변', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-b' }],
+      branchList: [],
+    })
+    await useChatStore.getState().openChat('chat-1', 'branch-b')
+
+    pending.resolve({ blockId: 'answer-block', branchId: 'branch-1', role: 'assistant', content: 'A 중단 답변', currentVersionId: 'v-a', versionNo: 1, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'cancelled' })
+    await cancelling
+
+    expect(useChatStore.getState().blocks).toMatchObject([{ blockId: 'answer-block', branchId: 'branch-b', content: 'B 노드 생성 중 답변', generationStatus: 'generating', generationJobId: 'job-b' }])
+  })
+
+  it('생성 중단 실패가 늦어도 다른 학습 대화의 오류를 바꾸지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.cancelAiResponseJob.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({ blocks: [{ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: 'A 생성 중 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-a' }] })
+
+    const cancelling = useChatStore.getState().cancelGeneration('answer-a')
+    await vi.waitFor(() => expect(convApi.cancelAiResponseJob).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-b', title: 'B 학습 대화' }), branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [] })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    useChatStore.setState({ error: 'B의 기존 오류' })
+
+    pending.reject(new Error('A 생성 중단 실패'))
+    await cancelling
+
+    expect(useChatStore.getState()).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', error: 'B의 기존 오류', isSending: false })
+  })
+
+  it('늦은 생성 중단 응답이 같은 블록의 새 작업을 덮지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.cancelAiResponseJob.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({ blocks: [{ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: '이전 작업 본문', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-old' }] })
+
+    const cancelling = useChatStore.getState().cancelGeneration('answer-a')
+    await vi.waitFor(() => expect(convApi.cancelAiResponseJob).toHaveBeenCalledWith('chat-1', 'branch-1', 'job-old'))
+    useChatStore.setState({ blocks: [{ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: '새 작업 본문', currentVersionId: 'v-a2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-new' }] })
+
+    pending.resolve({ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: '이전 작업 중단 본문', currentVersionId: 'v-a', versionNo: 1, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'cancelled' })
+    await cancelling
+
+    expect(useChatStore.getState().blocks).toMatchObject([{ blockId: 'answer-a', content: '새 작업 본문', generationStatus: 'generating', generationJobId: 'job-new' }])
+  })
+
+  it('재생성 중 원래 학습 노드로 돌아오면 진행 상태와 결과를 이어서 표시한다', async () => {
+    const pending = deferred<unknown>()
+    convApi.regenerate.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({ blocks: [{ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: 'A 기존 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }] })
+
+    const regenerating = useChatStore.getState().regenerate('answer-a')
+    await vi.waitFor(() => expect(convApi.regenerate).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat
+      .mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-b', title: 'B 학습 대화' }), branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [] })
+      .mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-1', title: 'A Self-Attention 학습' }), branchMeta: { branchId: 'branch-1' }, messageBlocks: [{ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: 'A 기존 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }], branchList: [] })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    await useChatStore.getState().openChat('chat-1', 'branch-1')
+    expect(useChatStore.getState().isSending).toBe(true)
+
+    pending.resolve({ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: 'A 재생성 답변', currentVersionId: 'v-a2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete', aiResponseJobId: 'job-a' })
+    await regenerating
+
+    expect(useChatStore.getState().blocks).toMatchObject([{ blockId: 'answer-a', branchId: 'branch-1', content: 'A 재생성 답변', generationStatus: 'complete' }])
+    expect(useChatStore.getState().isSending).toBe(false)
+  })
+
+  it('다른 학습 대화로 이동한 뒤 재생성 응답이 와도 A 작업을 B 스트림으로 연결하지 않는다', async () => {
+    const pendingRegenerate = deferred<unknown>()
+    const pendingB = deferred<unknown>()
+    convApi.regenerate.mockReturnValueOnce(pendingRegenerate.promise)
+    convApi.sendMessage.mockReturnValueOnce(pendingB.promise)
+    useChatStore.setState({ blocks: [{ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: 'A 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }] })
+
+    const regenerating = useChatStore.getState().regenerate('answer-a')
+    await vi.waitFor(() => expect(convApi.regenerate).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: 'B Transformer 학습' }),
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'answer-b', branchId: 'branch-b', role: 'assistant', content: 'B 답변', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'answer-b', rating: null })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    const sendingB = useChatStore.getState().sendMessage('B의 Attention Head 질문')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+
+    pendingRegenerate.resolve({ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: 'A 재생성 답변', currentVersionId: 'v-a2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', aiResponseJobId: 'job-a' })
+    await regenerating
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', chatTitle: 'B Transformer 학습', isSending: true })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['answer-b', expect.any(String)])
+    expect(convApi.openAiResponseStream).not.toHaveBeenCalledWith('chat-b', 'branch-b', 'job-a', expect.anything(), expect.any(AbortSignal))
+    expect(convApi.fetchVersions).not.toHaveBeenCalledWith('chat-b', 'branch-b', 'answer-a')
+
+    pendingB.resolve({
+      userBlock: { blockId: 'user-b', branchId: 'branch-b', role: 'user', content: 'B의 Attention Head 질문', currentVersionId: 'v-b', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-b', branchId: 'branch-b', role: 'assistant', content: 'B 답변', currentVersionId: 'v-b', orderIndex: 2, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      appliedContext: [], chatTitle: 'B Transformer 학습', titleGenerated: false, aiResponseJobId: 'job-b', jobStatus: 'completed',
+    })
+    await sendingB
+  })
+
+  it('재생성 재진입 조회의 스트림 본문과 작업 ID를 빈 초기 응답이 지우지 않는다', async () => {
+    const pendingRegenerate = deferred<unknown>()
+    const stream = deferred<unknown>()
+    let handlers!: Parameters<typeof convApi.openAiResponseStream>[3]
+    convApi.regenerate.mockReturnValueOnce(pendingRegenerate.promise)
+    convApi.openAiResponseStream.mockImplementation(async (_chatId: string, _branchId: string, _jobId: string, nextHandlers: typeof handlers) => {
+      handlers = nextHandlers
+      await stream.promise
+    })
+    useChatStore.setState({ blocks: [{ blockId: 'answer-reentry', branchId: 'branch-1', role: 'assistant', content: 'A 기존 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }] })
+
+    const regenerating = useChatStore.getState().regenerate('answer-reentry')
+    await vi.waitFor(() => expect(convApi.regenerate).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat
+      .mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-b', title: 'B 학습 대화' }), branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [] })
+      .mockResolvedValueOnce({
+        chatMeta: mainMeta({ chatId: 'chat-1', title: 'A Self-Attention 학습' }),
+        branchMeta: { branchId: 'branch-1' },
+        messageBlocks: [{ blockId: 'answer-reentry', branchId: 'branch-1', role: 'assistant', content: '복귀한 본문', currentVersionId: 'v-a2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-reentry' }],
+        branchList: [],
+      })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    await useChatStore.getState().openChat('chat-1', 'branch-1')
+    await vi.waitFor(() => expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(1))
+    handlers.onText?.(' 추가')
+
+    pendingRegenerate.resolve({ blockId: 'answer-reentry', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: 'v-a2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', aiResponseJobId: 'job-reentry' })
+    await regenerating
+
+    expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(1)
+    expect(useChatStore.getState().blocks).toMatchObject([{ blockId: 'answer-reentry', content: '복귀한 본문 추가', generationStatus: 'generating', generationJobId: 'job-reentry' }])
+    stream.resolve(undefined)
+  })
+
+  it('재생성 재진입 뒤 완료된 최신 답변을 늦은 빈 초기 응답이 되돌리지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.regenerate.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({
+      blocks: [{ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: '기존 Self-Attention 답변', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+    })
+
+    const regenerating = useChatStore.getState().regenerate('answer-a')
+    await vi.waitFor(() => expect(convApi.regenerate).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat
+      .mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-b', title: 'B Attention 학습' }), branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [] })
+      .mockResolvedValueOnce({
+        chatMeta: mainMeta({ chatId: 'chat-1', title: 'Self-Attention 재생성 학습' }),
+        branchMeta: { branchId: 'branch-1' },
+        messageBlocks: [{ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: '완료된 최신 Self-Attention 답변', currentVersionId: 'v-a2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+        branchList: [],
+      })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'answer-a', rating: null })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    await useChatStore.getState().openChat('chat-1', 'branch-1')
+
+    pending.resolve({ blockId: 'answer-a', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: 'v-a2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', aiResponseJobId: 'job-a' })
+    await regenerating
+
+    expect(useChatStore.getState().blocks).toMatchObject([{ blockId: 'answer-a', content: '완료된 최신 Self-Attention 답변', currentVersionId: 'v-a2', generationStatus: 'complete' }])
+    expect(convApi.openAiResponseStream).not.toHaveBeenCalled()
+  })
+
+  it('답변 재시도는 같은 학습 대화에서 한 번만 시작하고 새 답변에 작업 ID를 남긴다', async () => {
+    const pending = deferred<unknown>()
+    convApi.retryAiResponseJob.mockReturnValueOnce(pending.promise)
+
+    const first = useChatStore.getState().retryAiResponseJob('job-a')
+    const second = useChatStore.getState().retryAiResponseJob('job-a')
+    await vi.waitFor(() => expect(convApi.retryAiResponseJob).toHaveBeenCalledTimes(1))
+    pending.resolve({
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
+      chatTitle: '재시도 학습', aiResponseJobId: 'job-a-retry',
+    })
+    await Promise.all([first, second])
+
+    expect(useChatStore.getState().blocks).toMatchObject([{ blockId: 'assistant-a', generationJobId: 'job-a-retry', generationStatus: 'generating' }])
+  })
+
+  it('재시도 재진입 뒤 완료된 최신 답변을 늦은 빈 초기 응답이 되돌리지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.retryAiResponseJob.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({
+      failedJobsByBlockId: { 'user-a': 'job-a' },
+      blocks: [{ blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'Multi-Head Attention 질문', currentVersionId: 'v-user', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+    })
+
+    const retrying = useChatStore.getState().retryAiResponseJob('job-a')
+    await vi.waitFor(() => expect(convApi.retryAiResponseJob).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat
+      .mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-b', title: 'B Positional Encoding 학습' }), branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [] })
+      .mockResolvedValueOnce({
+        chatMeta: mainMeta({ chatId: 'chat-1', title: 'Multi-Head Attention 재시도 학습' }),
+        branchMeta: { branchId: 'branch-1' },
+        messageBlocks: [
+          { blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'Multi-Head Attention 질문', currentVersionId: 'v-user', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+          { blockId: 'assistant-a2', branchId: 'branch-1', role: 'assistant', content: '완료된 최신 Multi-Head Attention 답변', currentVersionId: 'v-a2', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+        ],
+        branchList: [],
+      })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'assistant-a2', rating: null })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    await useChatStore.getState().openChat('chat-1', 'branch-1')
+
+    pending.resolve({
+      assistantBlock: { blockId: 'assistant-a2', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: 'v-a2', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
+      chatTitle: 'Multi-Head Attention 재시도 학습', aiResponseJobId: 'job-a-retry',
+    })
+    await retrying
+
+    expect(useChatStore.getState().blocks.find((block) => block.blockId === 'assistant-a2')).toMatchObject({ content: '완료된 최신 Multi-Head Attention 답변', currentVersionId: 'v-a2', generationStatus: 'complete' })
+    expect(convApi.openAiResponseStream).not.toHaveBeenCalled()
+  })
+
+  it('백그라운드 재시도 완료 뒤 늦은 재진입 조회는 최신 학습 답변을 다시 읽는다', async () => {
+    const pendingRetry = deferred<unknown>()
+    const staleA = deferred<unknown>()
+    convApi.retryAiResponseJob.mockReturnValueOnce(pendingRetry.promise)
+    const retrying = useChatStore.getState().retryAiResponseJob('job-a')
+    await vi.waitFor(() => expect(convApi.retryAiResponseJob).toHaveBeenCalledTimes(1))
+
+    chatApi.fetchChat.mockResolvedValueOnce({ chatMeta: mainMeta({ chatId: 'chat-b', title: 'B 학습 대화' }), branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [] })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    chatApi.fetchChat
+      .mockReturnValueOnce(staleA.promise)
+      .mockResolvedValueOnce({
+        chatMeta: mainMeta({ chatId: 'chat-1', title: 'A 재시도 학습' }),
+        branchMeta: { branchId: 'branch-1' },
+        messageBlocks: [
+          { blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'A 질문', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+          { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: '재시도된 최신 답변', currentVersionId: 'v-a2', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+        ],
+        branchList: [],
+      })
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'assistant-a', rating: null })
+    const openingA = useChatStore.getState().openChat('chat-1', 'branch-1')
+    await vi.waitFor(() => expect(chatApi.fetchChat).toHaveBeenCalledTimes(2))
+
+    pendingRetry.resolve({
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: 'v-a2', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
+      chatTitle: 'A 재시도 학습', aiResponseJobId: 'job-a-retry',
+    })
+    await retrying
+    staleA.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-1', title: '오래된 A 제목' }),
+      branchMeta: { branchId: 'branch-1' },
+      messageBlocks: [{ blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'A 질문', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await openingA
+
+    expect(chatApi.fetchChat).toHaveBeenCalledTimes(3)
+    expect(useChatStore.getState()).toMatchObject({ chatId: 'chat-1', branchId: 'branch-1', chatTitle: 'A 재시도 학습' })
+    expect(useChatStore.getState().blocks.map((block) => block.blockId)).toEqual(['user-a', 'assistant-a'])
+  })
+
+  it('중단 뒤 늦은 이전 스트림 완료가 취소된 답변을 되돌리지 않는다', async () => {
+    const stream = deferred<unknown>()
+    let handlers!: Parameters<typeof convApi.openAiResponseStream>[3]
+    convApi.openAiResponseStream.mockImplementation(async (_chatId: string, _branchId: string, _jobId: string, nextHandlers: typeof handlers) => {
+      handlers = nextHandlers
+      await stream.promise
+    })
+    useChatStore.setState({ blocks: [{ blockId: 'answer-cancel', branchId: 'branch-1', role: 'assistant', content: '생성 중 본문', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-cancel' }] })
+    const attaching = useChatStore.getState().attachToJob('answer-cancel', 'job-cancel')
+    await vi.waitFor(() => expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(1))
+    convApi.cancelAiResponseJob.mockResolvedValueOnce({ blockId: 'answer-cancel', branchId: 'branch-1', role: 'assistant', content: '중단된 본문', currentVersionId: 'v-a', versionNo: 1, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'cancelled' })
+
+    await useChatStore.getState().cancelGeneration('answer-cancel')
+    handlers.onDone?.({ status: 'completed', content: '이전 완료 본문', sources: [], error: null })
+    stream.resolve(undefined)
+    await attaching
+
+    expect(useChatStore.getState().blocks).toMatchObject([{ blockId: 'answer-cancel', content: '중단된 본문', generationStatus: 'cancelled', generationJobId: null }])
+  })
+
   it('대화를 열 때 아직 생성 중인 블록이 있으면 자동으로 다시 붙는다 (문서 C6)', async () => {
     chatApi.fetchChat.mockResolvedValue({
       chatMeta: { chatId: 'chat-1', title: '대화' },

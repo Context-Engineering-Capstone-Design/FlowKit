@@ -114,7 +114,7 @@ function syncChatStatusPolling(get: () => ChatState) {
 
 // 답변 블록별로 지금 붙어 있는 스트리밍 연결. AbortController는 직렬화할 수
 // 없는 값이라 Zustand 상태 밖(모듈 스코프)에 둔다 .
-const activeStreams = new Map<string, AbortController>()
+const activeStreams = new Map<string, { controller: AbortController; jobId: string }>()
 const TEMPORARY_CHAT_STORAGE_KEY = 'flowkit:temporary-chat-ids'
 
 /** 어느 패널에서 파생해도 새 사이드 대화는 우측 패널로 보낸다. */
@@ -140,9 +140,16 @@ function forgetTemporaryChat(chatId: string) {
   try { sessionStorage.setItem(TEMPORARY_CHAT_STORAGE_KEY, JSON.stringify(temporaryChatIds().filter((id) => id !== chatId))) } catch {}
 }
 
-function stopStream(blockId: string) {
-  activeStreams.get(blockId)?.abort()
-  activeStreams.delete(blockId)
+function streamKey(chatId: string, branchId: string, blockId: string) {
+  return `${chatId}:${branchId}:${blockId}`
+}
+
+function stopStream(chatId: string, branchId: string, blockId: string, expectedJobId?: string) {
+  const key = streamKey(chatId, branchId, blockId)
+  const active = activeStreams.get(key)
+  if (!active || (expectedJobId && active.jobId !== expectedJobId)) return
+  active.controller.abort()
+  activeStreams.delete(key)
 }
 
 // 0820_06 마일스톤 C: 작업별 화면 전달 시간 측정값. 질문·답변 본문은 담지
@@ -402,8 +409,9 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   let viewRequestId = 0
   // 실제 화면이 바뀐 순간에만 증가한다. 전환 조회가 실패하면 기존 화면의 비동기 작업은 계속 유효하다.
   let committedViewEpoch = 0
-  let latestExistingSendSequence = 0
-  const sendStateByTarget = new Map<string, { sequence: number; pending: boolean }>()
+  let latestTargetActivitySequence = 0
+  let latestTargetActivityRevision = 0
+  const targetActivityByKey = new Map<string, { sequence: number; pending: boolean; revision: number }>()
   const pendingChatCreationsByDraftId = new Map<string, Promise<ChatDetail>>()
   let pendingOpenChat: { chatId: string; requestId: number } | null = null
 
@@ -416,12 +424,37 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     return ++committedViewEpoch
   }
 
-  function sendTargetKey(chatId: string, branchId: string) {
+  function targetKey(chatId: string, branchId: string) {
     return `${chatId}:${branchId}`
   }
 
-  function isSendPending(chatId: string, branchId: string) {
-    return sendStateByTarget.get(sendTargetKey(chatId, branchId))?.pending === true
+  function startTargetActivity(chatId: string, branchId: string) {
+    const activity = { chatId, branchId, key: targetKey(chatId, branchId), sequence: ++latestTargetActivitySequence }
+    targetActivityByKey.set(activity.key, { sequence: activity.sequence, pending: true, revision: ++latestTargetActivityRevision })
+    return activity
+  }
+
+  function isTargetActivityPending(chatId: string, branchId: string) {
+    return targetActivityByKey.get(targetKey(chatId, branchId))?.pending === true
+  }
+
+  function hasTargetActivitySequence(state: ChatState, activity: { chatId: string; branchId: string; key: string; sequence: number }) {
+    const current = targetActivityByKey.get(activity.key)
+    return state.chatId === activity.chatId &&
+      state.branchId === activity.branchId &&
+      current?.sequence === activity.sequence
+  }
+
+  function ownsTargetActivity(state: ChatState, activity: { chatId: string; branchId: string; key: string; sequence: number }) {
+    return hasTargetActivitySequence(state, activity) && targetActivityByKey.get(activity.key)?.pending === true
+  }
+
+  function finishTargetActivity(activity: { key: string; sequence: number }) {
+    const current = targetActivityByKey.get(activity.key)
+    if (current?.sequence === activity.sequence) {
+      current.pending = false
+      current.revision = ++latestTargetActivityRevision
+    }
   }
 
   return create<ChatState>((set, get) => ({
@@ -790,14 +823,16 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async openChat(chatId, branchId) {
     const beforeOpen = get()
     const requestedBranchId = branchId ?? (beforeOpen.chatId === chatId ? beforeOpen.branchId : null)
-    if (beforeOpen.chatId === chatId && requestedBranchId === beforeOpen.branchId && requestedBranchId && isSendPending(chatId, requestedBranchId)) {
+    if (beforeOpen.chatId === chatId && requestedBranchId === beforeOpen.branchId && requestedBranchId && isTargetActivityPending(chatId, requestedBranchId)) {
       beginViewRequest()
       return
     }
     if (beforeOpen.chatId !== chatId && !(await confirmPendingDiscard(get()))) return
-    const requestSendSequence = requestedBranchId
-      ? sendStateByTarget.get(sendTargetKey(chatId, requestedBranchId))?.sequence ?? 0
-      : 0
+    const requestActivity = requestedBranchId
+      ? targetActivityByKey.get(targetKey(chatId, requestedBranchId))
+      : undefined
+    const requestActivitySequence = requestActivity?.sequence ?? 0
+    const requestActivityRevision = requestActivity?.revision ?? 0
     const requestId = beginViewRequest()
     pendingOpenChat = { chatId, requestId }
     try {
@@ -805,21 +840,28 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         captureActiveTabSnapshot(set, get)
         get().clearDraft()
       }
-      const detail = await chatApi.fetchChat(chatId, branchId)
+      let detail = await chatApi.fetchChat(chatId, branchId)
       if (requestId !== viewRequestId) return
+      let activityState = targetActivityByKey.get(targetKey(detail.chatMeta.chatId, detail.branchMeta.branchId))
+      // 조회를 시작한 뒤 백그라운드 작업이 끝났으면 첫 응답은 이전 스냅샷일 수 있다.
+      // 완료된 작업의 서버 상태를 한 번 더 읽어, 재진입 시 결과가 사라지지 않게 한다.
+      if (activityState && !activityState.pending && activityState.revision !== requestActivityRevision) {
+        detail = await chatApi.fetchChat(chatId, branchId)
+        if (requestId !== viewRequestId) return
+        activityState = targetActivityByKey.get(targetKey(detail.chatMeta.chatId, detail.branchMeta.branchId))
+      }
       const current = get()
-      const sendState = sendStateByTarget.get(sendTargetKey(detail.chatMeta.chatId, detail.branchMeta.branchId))
       if (
         current.chatId === detail.chatMeta.chatId &&
         current.branchId === detail.branchMeta.branchId &&
-        (sendState?.pending || (sendState?.sequence ?? 0) > requestSendSequence)
+        (activityState?.pending || (activityState?.sequence ?? 0) > requestActivitySequence)
       ) {
         if (pendingOpenChat?.requestId === requestId) pendingOpenChat = null
         return
       }
       commitViewChange()
       applyDetail(set, detail)
-      set({ isSending: isSendPending(detail.chatMeta.chatId, detail.branchMeta.branchId) })
+      set({ isSending: isTargetActivityPending(detail.chatMeta.chatId, detail.branchMeta.branchId) })
       upsertTab(set, get, detail.chatMeta, detail.branchMeta.branchId)
       if (pendingOpenChat?.requestId === requestId) pendingOpenChat = null
       get().reattachGeneratingBlocks()
@@ -904,23 +946,31 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async switchBranch(branchId) {
     const { chatId } = get()
     if (!chatId) return false
-    if (get().branchId === branchId && isSendPending(chatId, branchId)) {
+    if (get().branchId === branchId && isTargetActivityPending(chatId, branchId)) {
       beginViewRequest()
       return true
     }
     if (get().branchId !== branchId && !(await confirmPendingDiscard(get()))) return false
     if (get().chatId !== chatId) return false
-    const requestSendSequence = sendStateByTarget.get(sendTargetKey(chatId, branchId))?.sequence ?? 0
+    const requestActivity = targetActivityByKey.get(targetKey(chatId, branchId))
+    const requestActivitySequence = requestActivity?.sequence ?? 0
+    const requestActivityRevision = requestActivity?.revision ?? 0
     const requestId = beginViewRequest()
     try {
       if (get().branchId !== branchId) get().clearDraft()
-      const detail = await chatApi.fetchBranch(chatId, branchId)
+      let detail = await chatApi.fetchBranch(chatId, branchId)
       if (requestId !== viewRequestId || get().chatId !== chatId) return false
-      const loadedBranchId = detail.branchMeta.branchId
-      const sendState = sendStateByTarget.get(sendTargetKey(chatId, loadedBranchId))
+      let loadedBranchId = detail.branchMeta.branchId
+      let activityState = targetActivityByKey.get(targetKey(chatId, loadedBranchId))
+      if (activityState && !activityState.pending && activityState.revision !== requestActivityRevision) {
+        detail = await chatApi.fetchBranch(chatId, branchId)
+        if (requestId !== viewRequestId || get().chatId !== chatId) return false
+        loadedBranchId = detail.branchMeta.branchId
+        activityState = targetActivityByKey.get(targetKey(chatId, loadedBranchId))
+      }
       if (
         get().branchId === loadedBranchId &&
-        (sendState?.pending || (sendState?.sequence ?? 0) > requestSendSequence)
+        (activityState?.pending || (activityState?.sequence ?? 0) > requestActivitySequence)
       ) return true
       commitViewChange()
       set({
@@ -937,7 +987,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         ratings: {},
         versionsByBlock: {},
         contextInstruction: '',
-        isSending: isSendPending(chatId, loadedBranchId),
+        isSending: isTargetActivityPending(chatId, loadedBranchId),
         appliedContextLabel: null,
         lastRefineInstruction: null,
         refineFailed: false,
@@ -1084,21 +1134,10 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       return
     }
 
-    const sendTarget = {
-      chatId,
-      branchId,
-      key: sendTargetKey(chatId, branchId),
-      sequence: ++latestExistingSendSequence,
-    }
-    sendStateByTarget.set(sendTarget.key, { sequence: sendTarget.sequence, pending: true })
+    const sendTarget = startTargetActivity(chatId, branchId)
     const ownsReenteredTarget = () => {
       if (ownsView()) return false
-      const current = get()
-      const sendState = sendStateByTarget.get(sendTarget.key)
-      return current.chatId === sendTarget.chatId &&
-        current.branchId === sendTarget.branchId &&
-        sendState?.sequence === sendTarget.sequence &&
-        sendState.pending
+      return ownsTargetActivity(get(), sendTarget)
     }
 
     // 응답을 기다리는 동안에도 방금 보낸 질문이 바로 보이게 임시 블록을 먼저 넣는다
@@ -1206,85 +1245,187 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         }
       }
     } finally {
-      if (ownsView() || ownsReenteredTarget()) set({ isSending: false })
-      const sendState = sendStateByTarget.get(sendTarget.key)
-      if (sendState?.sequence === sendTarget.sequence) sendState.pending = false
+      const completesCurrentTarget = ownsTargetActivity(get(), sendTarget)
+      if (ownsView() || completesCurrentTarget) set({ isSending: false })
+      finishTargetActivity(sendTarget)
     }
   },
 
   async regenerate(blockId) {
     const clickedAt = Date.now() // 0820_06 C1
     const { chatId, branchId } = get()
-    if (!chatId || !branchId) return
+    if (!chatId || !branchId || get().isSending) return
+    const activity = startTargetActivity(chatId, branchId)
+    const ownsActivity = () => ownsTargetActivity(get(), activity)
     set((s) => ({ isSending: true, pendingByBlockId: { ...s.pendingByBlockId, [blockId]: true } }))
     try {
       const block = await convApi.regenerate(chatId, branchId, blockId)
+      if (!ownsActivity()) return
       useNotificationStore.getState().dismissBanner('api-key-required')
+      const currentBlock = get().blocks.find((item) => item.blockId === blockId && item.branchId === branchId)
+      if (
+        block.generationStatus === 'generating' &&
+        currentBlock?.currentVersionId === block.currentVersionId &&
+        currentBlock.generationStatus !== 'generating'
+      ) {
+        scheduleChatsRefresh(get)
+        return
+      }
       set((s) => ({
         blocks: s.blocks.map((b) =>
-          b.blockId === blockId ? { ...b, ...block } : b,
+          b.blockId === blockId && b.branchId === branchId
+            ? {
+                ...b,
+                ...block,
+                content: b.generationJobId === block.aiResponseJobId && b.generationStatus === 'generating' ? b.content : block.content,
+                searchSources: b.generationJobId === block.aiResponseJobId && b.generationStatus === 'generating' ? b.searchSources : block.searchSources,
+                generationJobId: block.aiResponseJobId,
+              }
+            : b,
         ),
       }))
       void get().attachToJob(blockId, block.aiResponseJobId, clickedAt)
-      await get().loadVersions(blockId)
+      void Promise.resolve(convApi.fetchVersions(chatId, branchId, blockId))
+        .then((versions) => {
+          if (hasTargetActivitySequence(get(), activity)) {
+            set((s) => ({ versionsByBlock: { ...s.versionsByBlock, [blockId]: versions } }))
+          }
+        })
+        .catch((e) => {
+          if (hasTargetActivitySequence(get(), activity)) set({ error: toErrorMessage(e) })
+        })
     } catch (e) {
+      if (!ownsActivity()) return
       if (openApiKeyWhenMissing(e)) set({ error: null })
       else set({ error: toErrorMessage(e) })
     } finally {
-      set((s) => { const pendingByBlockId = { ...s.pendingByBlockId }; delete pendingByBlockId[blockId]; return { isSending: false, pendingByBlockId } })
+      const completesCurrentTarget = ownsActivity()
+      finishTargetActivity(activity)
+      if (completesCurrentTarget) {
+        set((s) => {
+          const pendingByBlockId = { ...s.pendingByBlockId }
+          delete pendingByBlockId[blockId]
+          return { isSending: false, pendingByBlockId }
+        })
+      }
     }
   },
 
   async retryAiResponseJob(jobId) {
     const clickedAt = Date.now() // 0820_06 C1
     const { chatId, branchId } = get()
-    if (!chatId || !branchId) return
+    if (!chatId || !branchId || get().isSending) return
+    const activity = startTargetActivity(chatId, branchId)
+    const ownsActivity = () => ownsTargetActivity(get(), activity)
     set({ isSending: true, error: null })
     try {
       const result = await convApi.retryAiResponseJob(chatId, branchId, jobId)
-      set((s) => ({ blocks: [...s.blocks, result.assistantBlock], chatTitle: result.chatTitle,
-        failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([, id]) => id !== jobId)) }))
+      if (!ownsActivity()) {
+        scheduleChatsRefresh(get)
+        return
+      }
+      const currentBlock = get().blocks.find((block) => (
+        block.blockId === result.assistantBlock.blockId && block.branchId === branchId
+      ))
+      if (
+        result.assistantBlock.generationStatus === 'generating' &&
+        currentBlock?.currentVersionId === result.assistantBlock.currentVersionId &&
+        currentBlock.generationStatus !== 'generating'
+      ) {
+        scheduleChatsRefresh(get)
+        return
+      }
+      set((s) => {
+        const existing = s.blocks.find((block) => block.blockId === result.assistantBlock.blockId && block.branchId === branchId)
+        const assistantBlock = {
+          ...result.assistantBlock,
+          content: existing?.generationJobId === result.aiResponseJobId && existing.generationStatus === 'generating'
+            ? existing.content
+            : result.assistantBlock.content,
+          searchSources: existing?.generationJobId === result.aiResponseJobId && existing.generationStatus === 'generating'
+            ? existing.searchSources
+            : result.assistantBlock.searchSources,
+          generationJobId: result.aiResponseJobId,
+        }
+        return {
+          blocks: existing
+            ? s.blocks.map((block) => block.blockId === result.assistantBlock.blockId && block.branchId === branchId ? { ...block, ...assistantBlock } : block)
+            : [...s.blocks, assistantBlock],
+          chatTitle: result.chatTitle,
+          failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([, id]) => id !== jobId)),
+        }
+      })
       void get().attachToJob(result.assistantBlock.blockId, result.aiResponseJobId, clickedAt)
       scheduleChatsRefresh(get)
-    } catch (e) { set({ error: toErrorMessage(e) }) }
-    finally { set({ isSending: false }) }
+    } catch (e) {
+      if (ownsActivity()) set({ error: toErrorMessage(e) })
+    } finally {
+      const completesCurrentTarget = ownsActivity()
+      finishTargetActivity(activity)
+      if (completesCurrentTarget) set({ isSending: false })
+    }
   },
 
   async attachToJob(blockId, jobId, clickedAt) {
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
-    const ownsStreamView = () => get().chatId === chatId && get().branchId === branchId
-    stopStream(blockId)
+    const key = streamKey(chatId, branchId, blockId)
+    const currentBlock = get().blocks.find((block) => block.blockId === blockId && block.branchId === branchId)
+    if (activeStreams.get(key)?.jobId === jobId && currentBlock?.generationJobId === jobId) return
     const controller = new AbortController()
-    activeStreams.set(blockId, controller)
+    const ownsStreamBlock = () => {
+      const current = get()
+      if (activeStreams.get(key)?.controller !== controller || current.chatId !== chatId || current.branchId !== branchId) return false
+      return current.blocks.some((block) => block.blockId === blockId && block.branchId === branchId && block.generationJobId === jobId)
+    }
+    stopStream(chatId, branchId, blockId)
+    set((s) => ({
+      blocks: s.blocks.map((block) => (
+        block.blockId === blockId && block.branchId === branchId
+          ? { ...block, generationJobId: jobId }
+        : block
+      )),
+    }))
+    activeStreams.set(key, { controller, jobId })
     beginDelivery(jobId, clickedAt)
     let firstChunkSeen = false
 
     const handlers: convApi.AiStreamHandlers = {
       onOpen: () => {
+        if (activeStreams.get(key)?.controller !== controller) return
         const draft = deliveryDrafts.get(jobId)
         if (draft && draft.streamConnectedAt === undefined) draft.streamConnectedAt = Date.now()
       },
       onText: (delta) => {
-        if (!ownsStreamView()) return
+        if (!ownsStreamBlock()) return
         if (!firstChunkSeen) {
           firstChunkSeen = true
           const draft = deliveryDrafts.get(jobId)
           if (draft) draft.firstChunkShownAt = Date.now()
         }
         set((s) => ({
-          blocks: s.blocks.map((b) => b.blockId === blockId ? { ...b, content: b.content + delta } : b),
+          blocks: s.blocks.map((b) => (
+            b.blockId === blockId && b.branchId === branchId && b.generationJobId === jobId
+              ? { ...b, content: b.content + delta }
+              : b
+          )),
         }))
       },
       onSources: (sources: SearchSource[]) => {
-        if (!ownsStreamView()) return
-        set((s) => ({ blocks: s.blocks.map((b) => b.blockId === blockId ? { ...b, searchSources: sources } : b) }))
+        if (!ownsStreamBlock()) return
+        set((s) => ({
+          blocks: s.blocks.map((b) => (
+            b.blockId === blockId && b.branchId === branchId && b.generationJobId === jobId
+              ? { ...b, searchSources: sources }
+              : b
+          )),
+        }))
       },
       onDone: (payload) => {
-        if (ownsStreamView()) {
+        if (ownsStreamBlock()) {
           set((s) => ({
             blocks: s.blocks.map((b) =>
-              b.blockId === blockId
+              b.blockId === blockId && b.branchId === branchId && b.generationJobId === jobId
                 ? {
                     ...b,
                     content: payload.content,
@@ -1310,17 +1451,20 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       if (controller.signal.aborted) return
       await reconnectStreamWithBackoff(chatId, branchId, jobId, handlers, controller.signal)
     } finally {
-      if (activeStreams.get(blockId) === controller) activeStreams.delete(blockId)
+      if (activeStreams.get(key)?.controller === controller) activeStreams.delete(key)
     }
   },
 
   reattachGeneratingBlocks() {
-    for (const block of get().blocks) {
+    const { chatId, branchId, blocks } = get()
+    if (!chatId || !branchId) return
+    for (const block of blocks) {
       // 이미 이 블록에 붙어 있는 스트림이 있으면 다시 붙지 않는다 — 이 창 자신이
       // 방금 보낸 요청이면 attachToJob이 이미 실행 중이다 (0821_05, 다른 창의
       // chat_activity 신호로 다시 불려도 중복 연결하지 않기 위함).
-      if (block.generationStatus === 'generating' && block.generationJobId && !activeStreams.has(block.blockId)) {
-        void get().attachToJob(block.blockId, block.generationJobId)
+      if (block.generationStatus === 'generating' && block.generationJobId) {
+        const active = activeStreams.get(streamKey(chatId, branchId, block.blockId))
+        if (active?.jobId !== block.generationJobId) void get().attachToJob(block.blockId, block.generationJobId)
       }
     }
   },
@@ -1328,18 +1472,33 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async cancelGeneration(blockId) {
     const { chatId, branchId, blocks } = get()
     const jobId = blocks.find((b) => b.blockId === blockId)?.generationJobId
-    if (!chatId || !branchId || !jobId) return
+    if (!chatId || !branchId || !jobId || get().isSending) return
+    const activity = startTargetActivity(chatId, branchId)
+    const ownsActivity = () => ownsTargetActivity(get(), activity)
+    set((s) => ({ isSending: true, pendingByBlockId: { ...s.pendingByBlockId, [blockId]: true } }))
     try {
       const updated = await convApi.cancelAiResponseJob(chatId, branchId, jobId)
-      stopStream(blockId)
-      set((s) => ({
-        blocks: s.blocks.map((b) => (b.blockId === blockId ? { ...b, ...updated, generationJobId: null } : b)),
-      }))
-      // 스트림이 중단으로 끊기면 onDone이 못 올 수 있어 여기서도 남긴다 —
-      // 이미 onDone이 먼저 보냈다면 flushDeliveryTiming이 조용히 넘어간다.
       flushDeliveryTiming(chatId, branchId, jobId, 'cancelled')
+      stopStream(chatId, branchId, blockId, jobId)
+      const ownsOriginalJob = ownsActivity() && get().blocks.some((block) => (
+        block.blockId === blockId && block.branchId === branchId && block.generationJobId === jobId
+      ))
+      if (!ownsOriginalJob) return
+      set((s) => ({
+        blocks: s.blocks.map((b) => (b.blockId === blockId && b.branchId === branchId ? { ...b, ...updated, generationJobId: null } : b)),
+      }))
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      if (ownsActivity()) set({ error: toErrorMessage(e) })
+    } finally {
+      const completesCurrentTarget = ownsActivity()
+      finishTargetActivity(activity)
+      if (completesCurrentTarget) {
+        set((s) => {
+          const pendingByBlockId = { ...s.pendingByBlockId }
+          delete pendingByBlockId[blockId]
+          return { isSending: false, pendingByBlockId }
+        })
+      }
     }
   },
 
