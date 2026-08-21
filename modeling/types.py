@@ -16,7 +16,7 @@ WebSearchMode = Literal["off", "auto", "always"]
 
 @dataclass(frozen=True)
 class ModelInfo:
-    """고를 수 있는 모델 하나 (AI-CORE-001).
+    """고를 수 있는 모델 하나 .
 
     지원 여부를 함께 담는다. 검색이나 첨부를 지원하지 않는 모델을 골랐을 때
     호출을 보내고 나서 실패하는 대신, 보내기 전에 막기 위해서다.
@@ -34,7 +34,7 @@ class ModelInfo:
 
 @dataclass(frozen=True)
 class Attachment:
-    """질문에 딸려 온 파일 하나 (AI-ATTACH-001, 002).
+    """질문에 딸려 온 파일 하나 (, 002).
 
     content 는 파일 원본 바이트다. 이미지는 그대로 모델에 싣고, 문서는 글자를
     뽑아 질문에 붙인다. 어느 쪽인지는 file_type 으로 가른다.
@@ -48,7 +48,7 @@ class Attachment:
 
 @dataclass(frozen=True)
 class SearchSource:
-    """웹 검색으로 답할 때 모델이 참고한 자료 (AI-SEARCH-002)."""
+    """웹 검색으로 답할 때 모델이 참고한 자료 ."""
 
     title: str
     url: str
@@ -56,7 +56,7 @@ class SearchSource:
 
 @dataclass(frozen=True)
 class TokenUsage:
-    """공급자가 응답에 실어 준 토큰 사용량 (AI-ANSWER-006).
+    """공급자가 응답에 실어 준 토큰 사용량 .
 
     질문·답변 원문은 담지 않는다. 공급자가 사용량을 안 주면 이 값 자체를
     만들지 않는다 — 0으로 채워 넣지 않는다.
@@ -96,7 +96,7 @@ class AnswerRequest:
     일반 대화처럼 message_flow 만 참고한다.
 
     뒤쪽 네 항목은 나중에 더한 것이라 기본값이 있다. 첨부와 검색을 쓰지 않는
-    기존 호출은 그대로 둔다(AI-ATTACH-003).
+    기존 호출은 그대로 둔다.
     """
 
     user_prompt: str
@@ -113,13 +113,13 @@ class AnswerRequest:
 
 @dataclass(frozen=True)
 class AnswerResult:
-    """답변 생성 결과 (AI-ANSWER-003).
+    """답변 생성 결과 .
 
     search_sources 는 웹 검색으로 답한 경우에만 채워진다. 검색을 켰더라도
     모델이 검색을 쓰지 않았으면 비어 있다.
 
     web_search_invoked 는 공급자가 실제로 검색 도구를 실행했다는 신호
-    (AI-SEARCH-003)다. search_sources 가 비어 있어도 실제로는 검색했을 수
+    다. search_sources 가 비어 있어도 실제로는 검색했을 수
     있고, 반대로 이 값이 False 인데 인용만 남는 경우는 없다고 본다. usage
     는 공급자가 사용량을 안 주면 None 이다 — 0으로 추정하지 않는다.
     """
@@ -132,7 +132,7 @@ class AnswerResult:
 
 @dataclass(frozen=True)
 class AnswerChunk:
-    """스트리밍 답변 조각 (AI-ANSWER-005).
+    """스트리밍 답변 조각 .
 
     type 마다 쓰는 필드가 다르다. text는 delta에 이번에 새로 생긴 글자만
     담는다(누적본이 아니다). sources는 찾은 근거, done은 최종 결과
@@ -148,7 +148,7 @@ class AnswerChunk:
 
 @dataclass(frozen=True)
 class ConnectionResult:
-    """API 키 연결 확인 결과 (AI-CORE-006).
+    """API 키 연결 확인 결과 .
 
     실패도 정상적인 결과라서 예외가 아니라 값으로 돌려준다.
     """

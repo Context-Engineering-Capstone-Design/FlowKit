@@ -54,7 +54,7 @@ DB 모델을 참조하지 않고 위 데이터 구조로만 주고받는다. 그
 
 ## 모델
 
-쓸 수 있는 모델은 `config.py` 의 `MODELS` 에 정의한다. 현재는 Sol(`gpt-5.6-sol`) · Terra(`gpt-5.6-terra`, 기본) · Luna(`gpt-5.6-luna`) 세 가지다.
+쓸 수 있는 모델은 `config.py` 의 `MODELS` 에 정의한다. 현재는 Sol(`gpt-5.6-sol`) · Terra(`gpt-5.6-terra`) · Luna(`gpt-5.6-luna`, 기본) 세 가지다.
 
 목록에 모델을 더할 때는 실제 키로 호출해 보고 검색·첨부 지원 여부까지 확인한 뒤 넣는다. 확인하지 않은 모델을 넣으면 사용자가 고른 뒤에야 실패한다.
 
@@ -73,12 +73,12 @@ for m in client.models.list():
 
 | 기능 | 함수 | 관련 명세 |
 | --- | --- | --- |
-| 블록별 정제 | `refine_blocks(targets, instruction, api_key=..., model_id=...)` | AI-REFINE-002 |
-| 채팅 제목 생성 | `generate_title(user_prompt, api_key=...)` | AI-TITLE-001 |
-| 답변 생성 | `generate_answer(request, api_key=...)` | AI-ANSWER-003 |
-| 모델 목록 조회 | `available_models()` | AI-CORE-001 |
-| 모델 선택값 확정 | `resolve_model(model_id)` | AI-CORE-002 |
-| API 키 연결 확인 | `check_connection(api_key)` | AI-CORE-006 |
+| 블록별 정제 | `refine_blocks(targets, instruction, api_key=..., model_id=...)` |  |
+| 채팅 제목 생성 | `generate_title(user_prompt, api_key=...)` |  |
+| 답변 생성 | `generate_answer(request, api_key=...)` |  |
+| 모델 목록 조회 | `available_models()` |  |
+| 모델 선택값 확정 | `resolve_model(model_id)` |  |
+| API 키 연결 확인 | `check_connection(api_key)` |  |
 
 ### API 키는 요청마다 받는다
 

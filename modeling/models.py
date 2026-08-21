@@ -1,4 +1,4 @@
-"""모델 목록 조회와 선택값 확정 (AI-CORE-001, AI-CORE-002)."""
+"""모델 목록 조회와 선택값 확정 ."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ class UnsupportedModelError(ValueError):
 
 
 def available_models() -> list[ModelInfo]:
-    """고를 수 있는 모델 목록 (AI-CORE-001)."""
+    """고를 수 있는 모델 목록 ."""
     return list(MODELS)
 
 
@@ -20,7 +20,7 @@ def default_model() -> ModelInfo:
 
 
 def resolve_model(model_id: str | None = None) -> ModelInfo:
-    """모델 선택값을 확정한다 (AI-CORE-002).
+    """모델 선택값을 확정한다 .
 
     없는 모델을 골랐을 때 조용히 기본 모델로 넘어가지 않는다. 사용자는 고른
     모델로 답을 받았다고 믿는데 실제로는 다른 모델이 답하기 때문이다.

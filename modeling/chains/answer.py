@@ -1,4 +1,4 @@
-"""답변 생성 체인 (AI-ANSWER-001~004)."""
+"""답변 생성 체인 ."""
 
 from __future__ import annotations
 
@@ -16,11 +16,11 @@ from modeling.types import AnswerChunk, AnswerRequest, AnswerResult, SearchSourc
 
 
 class EmptyAnswerError(ValueError):
-    """모델이 빈 응답을 돌려줬을 때 (AI-ANSWER-003)."""
+    """모델이 빈 응답을 돌려줬을 때 ."""
 
 
 def build_messages(request: AnswerRequest) -> list[BaseMessage]:
-    """모델에 넣을 메시지를 만든다 (AI-ANSWER-001, 002).
+    """모델에 넣을 메시지를 만든다 (, 002).
 
     적용된 Context 가 있으면 시스템 메시지에 함께 실어, 이전 대화보다 그쪽을
     우선 보게 한다.
@@ -49,7 +49,7 @@ def build_messages(request: AnswerRequest) -> list[BaseMessage]:
 
 
 def _build_question(request: AnswerRequest) -> HumanMessage:
-    """질문 메시지를 만든다. 첨부가 있으면 함께 싣는다 (AI-ATTACH-001~003)."""
+    """질문 메시지를 만든다. 첨부가 있으면 함께 싣는다 ."""
     if not request.attachments:
         return HumanMessage(content=request.user_prompt)
 
@@ -86,10 +86,10 @@ def generate_answer(
     model: BaseChatModel | None = None,
     api_key: str | None = None,
 ) -> AnswerResult:
-    """답변을 만든다 (AI-ANSWER-003, 004).
+    """답변을 만든다 (, 004).
 
     재생성도 이 함수를 그대로 쓴다. 백엔드가 원래 입력 스냅샷을 복원해 넘기면
-    같은 조건으로 다시 생성된다(AI-ANSWER-004).
+    같은 조건으로 다시 생성된다.
     """
     if not request.user_prompt.strip():
         raise ValueError("질문이 비어 있습니다.")
@@ -114,7 +114,7 @@ def generate_answer_stream(
     model: BaseChatModel | None = None,
     api_key: str | None = None,
 ) -> Iterator[AnswerChunk]:
-    """답변을 조각으로 흘려보낸다 (AI-ANSWER-005).
+    """답변을 조각으로 흘려보낸다 .
 
     입력·모델 선택은 generate_answer와 같다. 다른 점은 본문을 한 번에
     돌려주지 않고, 모델이 만들어내는 대로 text 조각을 하나씩 내보낸다는
@@ -188,7 +188,7 @@ def _text_of(response) -> str:
 
 
 def extract_sources(response) -> list[SearchSource]:
-    """검색으로 답한 경우 참고 자료를 꺼낸다 (AI-SEARCH-002).
+    """검색으로 답한 경우 참고 자료를 꺼낸다 .
 
     근거가 없다고 해서 실패로 보지 않는다. 검색을 켜도 모델이 검색을 쓰지 않고
     답할 수 있다.
@@ -218,7 +218,7 @@ def extract_sources(response) -> list[SearchSource]:
 
 
 def web_search_invoked(response) -> bool:
-    """공급자가 실제로 검색 도구를 실행했다는 신호가 있는지 본다 (AI-SEARCH-003).
+    """공급자가 실제로 검색 도구를 실행했다는 신호가 있는지 본다 .
 
     OpenAI Responses API 는 검색 도구가 실제로 돌면 본문 블록과 별도로
     `web_search_call` 타입 블록을 응답에 함께 싣는다. 인용(url_citation)이

@@ -1,4 +1,4 @@
-"""LLM 클라이언트 생성 (AI-CORE-003, AI-CORE-004, AI-CORE-006).
+"""LLM 클라이언트 생성 .
 
 체인은 이 함수로 받은 모델을 쓰되, 인자로 다른 모델을 넣을 수도 있다.
 테스트에서는 가짜 모델을 넣어 API 키 없이 검증한다.
@@ -21,12 +21,12 @@ from modeling.types import ConnectionResult
 from modeling.types import ReasoningEffort
 from modeling.types import WebSearchMode
 
-# OpenAI Responses API 의 내장 웹 검색 도구 (AI-SEARCH-001). 별도 검색 서비스를 부르지 않는다.
+# OpenAI Responses API 의 내장 웹 검색 도구 . 별도 검색 서비스를 부르지 않는다.
 _SEARCH_TOOL = {"type": "web_search"}
 
 
 class MissingApiKeyError(RuntimeError):
-    """이번 요청에 쓸 API 키가 없을 때. 백엔드는 REQ-062 안내로 바꿔 보여준다."""
+    """이번 요청에 쓸 API 키가 없을 때. 백엔드는  안내로 바꿔 보여준다."""
 
 
 class WebSearchNotSupportedError(ValueError):
@@ -50,7 +50,7 @@ def configure(api_key: str) -> None:
 
 
 def resolve_api_key(api_key: str | None = None) -> str:
-    """이번 요청에 쓸 키를 정한다 (AI-CORE-004).
+    """이번 요청에 쓸 키를 정한다 .
 
     요청에 실려 온 사용자 키를 먼저 쓴다. 없으면 예비 키를, 그것도 없으면
     환경변수를 본다. 셋 다 없으면 모델을 부르지 않고 오류를 낸다.
@@ -68,7 +68,7 @@ def get_chat_model(
     web_search_mode: WebSearchMode = "off",
     reasoning_effort: ReasoningEffort = DEFAULT_REASONING_EFFORT,
 ) -> BaseChatModel:
-    """모델 클라이언트를 만든다 (AI-CORE-003, AI-SEARCH-001).
+    """모델 클라이언트를 만든다 .
 
     키·모델·옵션을 모두 재사용 기준으로 삼는다. 모델 이름만 기준으로 삼으면
     검색 도구가 붙은 클라이언트가 다른 요청에도 쓰이고, 한 사용자의 키가 다른
@@ -91,7 +91,7 @@ def get_chat_model(
         output_version="responses/v1",
         reasoning={"effort": reasoning_effort},
     )
-    # off: 도구를 붙이지 않아 검색 자체가 불가능하다(AI-SEARCH-001).
+    # off: 도구를 붙이지 않아 검색 자체가 불가능하다.
     # auto: 도구는 붙이되 실제로 쓸지는 모델이 질문을 보고 판단한다.
     # always: 도구를 붙이고 tool_choice로 반드시 쓰도록 강제한다.
     if web_search_mode == "auto":
@@ -104,7 +104,7 @@ def get_chat_model(
 def check_connection(
     api_key: str | None = None, model_id: str | None = None
 ) -> ConnectionResult:
-    """등록한 키로 모델을 부를 수 있는지 확인한다 (AI-CORE-006).
+    """등록한 키로 모델을 부를 수 있는지 확인한다 .
 
     연결 확인은 실패가 정상적인 결과다. 예외를 던지지 않고 값으로 돌려준다.
     대화 내용은 넣지 않고, 가장 짧은 요청 하나만 보낸다.

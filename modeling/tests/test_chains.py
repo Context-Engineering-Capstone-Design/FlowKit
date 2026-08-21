@@ -202,7 +202,7 @@ def test_generate_answer_rejects_empty_response():
         generate_answer(request, model=fake_model("   "))
 
 
-# ── 스트리밍 답변 (AI-ANSWER-005) ────────────────────────────────────────────
+# ── 스트리밍 답변  ────────────────────────────────────────────
 
 
 class SlowModel(BaseChatModel):
@@ -246,7 +246,7 @@ def test_generate_answer_stream_emits_error_on_empty_response():
 
 
 def test_generate_answer_stream_stops_pulling_when_consumer_stops():
-    """받는 쪽이 멈추면 그 뒤 토큰은 모델에서 당겨오지 않아야 한다 (A3)."""
+    """받는 쪽이 멈추면 그 뒤 토큰은 모델에서 당겨오지 않아야 한다 ."""
     model = SlowModel(pulled=[])
     gen = generate_answer_stream(AnswerRequest("질문", [], []), model=model)
 

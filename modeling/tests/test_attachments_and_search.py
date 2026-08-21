@@ -1,4 +1,4 @@
-"""첨부 입력과 웹 검색 테스트 (AI-ATTACH-001~003, AI-SEARCH-002).
+"""첨부 입력과 웹 검색 테스트 .
 
 실제 API 를 부르지 않는다.
 """
@@ -30,7 +30,7 @@ def image_file(name: str = "사진.png") -> Attachment:
 
 
 def test_request_without_attachments_is_unchanged():
-    """첨부를 도입해도 첨부 없이 묻는 기존 흐름이 달라지면 안 된다 (AI-ATTACH-003)."""
+    """첨부를 도입해도 첨부 없이 묻는 기존 흐름이 달라지면 안 된다 ."""
     plain = build_messages(AnswerRequest("질문", [], []))
     assert plain[-1].content == "질문"
 
@@ -39,7 +39,7 @@ def test_request_without_attachments_is_unchanged():
 
 
 def test_image_is_sent_as_is_not_as_text():
-    """이미지를 글자로 바꾸면 모델이 그림을 볼 수 없다 (AI-ATTACH-001)."""
+    """이미지를 글자로 바꾸면 모델이 그림을 볼 수 없다 ."""
     request = AnswerRequest("이 사진 설명해줘", [], [], attachments=[image_file()])
     content = build_messages(request)[-1].content
 
@@ -69,7 +69,7 @@ def test_empty_image_is_rejected():
 
 
 def test_document_text_is_prepended_with_file_name():
-    """어느 파일에서 나온 내용인지 알 수 있어야 한다 (AI-ATTACH-002)."""
+    """어느 파일에서 나온 내용인지 알 수 있어야 한다 ."""
     request = AnswerRequest(
         "요약해줘", [], [], attachments=[text_file("보고서.txt", "본문 내용")]
     )
@@ -176,7 +176,7 @@ def test_duplicate_urls_are_deduplicated():
 
 
 def test_missing_annotations_is_not_a_failure():
-    """검색을 켜도 모델이 검색을 쓰지 않을 수 있다 (AI-SEARCH-002)."""
+    """검색을 켜도 모델이 검색을 쓰지 않을 수 있다 ."""
     assert extract_sources(AIMessage(content="답변")) == []
 
 
@@ -187,7 +187,7 @@ def test_annotation_without_url_is_skipped():
     assert extract_sources(response) == []
 
 
-# ── 웹 검색 실제 실행 신호 (AI-SEARCH-003, 0820_06 B4·B5) ──────────────────────
+# ── 웹 검색 실제 실행 신호 (, 0820_06 B4·B5) ──────────────────────
 
 
 def test_web_search_invoked_true_when_provider_reports_a_search_call():

@@ -1,4 +1,4 @@
-"""첨부 파일을 모델 입력으로 바꾼다 (AI-ATTACH-001, 002, 003).
+"""첨부 파일을 모델 입력으로 바꾼다 (, 002, 003).
 
 이미지는 글자로 바꾸지 않고 그대로 싣는다. 문서는 글자를 뽑아 질문 앞에 붙인다.
 """
@@ -33,7 +33,7 @@ def split(attachments: list[Attachment]) -> tuple[list[Attachment], list[Attachm
 
 
 def image_blocks(images: list[Attachment]) -> list[dict]:
-    """이미지를 모델이 읽는 형태로 바꾼다 (AI-ATTACH-001)."""
+    """이미지를 모델이 읽는 형태로 바꾼다 ."""
     blocks = []
     for image in images:
         if not image.content:
@@ -49,7 +49,7 @@ def image_blocks(images: list[Attachment]) -> list[dict]:
 
 
 def document_text(documents: list[Attachment]) -> str:
-    """문서에서 글자를 뽑아 하나로 합친다 (AI-ATTACH-002).
+    """문서에서 글자를 뽑아 하나로 합친다 .
 
     어느 파일에서 나온 내용인지 알 수 있게 파일 이름을 함께 넣는다.
     """

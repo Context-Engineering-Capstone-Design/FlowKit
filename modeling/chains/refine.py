@@ -1,4 +1,4 @@
-"""블록별 정제 체인 (AI-REFINE-001~004)."""
+"""블록별 정제 체인 ."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ _ROLE_LABEL = {"user": "사용자 질문", "assistant": "AI 답변"}
 
 
 class EmptyRefineResultError(ValueError):
-    """모델이 특정 블록에 빈 정제 결과를 돌려줬을 때 (AI-REFINE-004)."""
+    """모델이 특정 블록에 빈 정제 결과를 돌려줬을 때 ."""
 
 
 def build_refine_chain(model: BaseChatModel):
@@ -32,7 +32,7 @@ def refine_blocks(
     api_key: str | None = None,
     model_id: str | None = None,
 ) -> list[RefineResult]:
-    """선택된 블록을 하나씩 정제한다 (AI-REFINE-002).
+    """선택된 블록을 하나씩 정제한다 .
 
     한 번의 호출로 여러 블록을 처리하면 응답에서 블록 경계를 다시 갈라야 하고,
     그 과정에서 결과가 밀리거나 누락되면 엉뚱한 블록에 반영된다. 블록마다 따로

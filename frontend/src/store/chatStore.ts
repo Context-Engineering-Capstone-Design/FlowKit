@@ -156,8 +156,8 @@ function flushDeliveryTiming(
 // 목록 조회에 실패했을 때 보여줄 기본 모델 . 서버 목록과 어긋나면
 // 전송 시점에 서버가 오류로 안내하므로 조용히 잘못된 모델로 보내지 않는다.
 const FALLBACK_MODEL: ModelOption = {
-  modelId: 'gpt-5.6-terra',
-  displayName: 'Terra',
+  modelId: 'gpt-5.6-luna',
+  displayName: 'Luna',
   provider: 'openai',
   supportsWebSearch: true,
   supportsAttachment: true,

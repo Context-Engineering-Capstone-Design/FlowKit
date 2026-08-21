@@ -1,4 +1,4 @@
-"""채팅 제목 생성 체인 (AI-TITLE-001~003)."""
+"""채팅 제목 생성 체인 ."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def generate_title(
     api_key: str | None = None,
     model_id: str | None = None,
 ) -> str:
-    """첫 사용자 질문으로 대화 제목을 짓는다 (AI-TITLE-001).
+    """첫 사용자 질문으로 대화 제목을 짓는다 .
 
     백엔드는 줄바꿈이 섞이거나 너무 긴 제목을 거부하므로 여기서 미리 다듬는다.
     """
@@ -40,7 +40,7 @@ def generate_title(
 
 
 def _clean(raw: str) -> str:
-    """모델이 낸 제목을 저장할 수 있는 형태로 다듬는다 (AI-TITLE-002)."""
+    """모델이 낸 제목을 저장할 수 있는 형태로 다듬는다 ."""
     text = " ".join(raw.split())
     text = text.strip().strip('"').strip("'").rstrip(".")
     if len(text) > MAX_TITLE_LENGTH:

@@ -1,4 +1,4 @@
-"""모델 목록·선택값·API 키 처리 테스트 (AI-CORE-001~004, 006).
+"""모델 목록·선택값·API 키 처리 테스트 (, 006).
 
 실제 API 를 부르지 않는다.
 """
@@ -29,6 +29,7 @@ def test_model_list_has_exactly_one_default():
     """기본 모델이 없거나 둘이면 선택값 없이 들어온 요청을 처리할 수 없다."""
     defaults = [m for m in available_models() if m.is_default]
     assert len(defaults) == 1
+    assert defaults[0].model_id == "gpt-5.6-luna"
 
 
 def test_resolve_model_without_selection_uses_default():
@@ -71,7 +72,7 @@ def test_blank_key_is_treated_as_missing():
 
 
 def test_client_cache_separates_key_and_options(monkeypatch):
-    """키·모델·검색 옵션이 다르면 서로 다른 클라이언트여야 한다 (AI-CORE-003).
+    """키·모델·검색 옵션이 다르면 서로 다른 클라이언트여야 한다 .
 
     모델 이름만 기준으로 재사용하면 한 사용자의 키가 다른 사용자 요청에 쓰이고,
     검색을 켠 클라이언트가 검색을 끈 요청에도 쓰인다.
@@ -111,7 +112,7 @@ def test_client_cache_separates_key_and_options(monkeypatch):
 
 
 def test_off_mode_does_not_attach_search_tool(monkeypatch):
-    """웹 검색을 끄면 도구를 붙이지 않아 모델이 검색을 쓸 수 없다 (AI-SEARCH-001)."""
+    """웹 검색을 끄면 도구를 붙이지 않아 모델이 검색을 쓸 수 없다 ."""
     built: list[tuple] = []
 
     class FakeClient:
@@ -157,7 +158,7 @@ def test_client_uses_requested_reasoning_effort(monkeypatch):
 
 
 def test_connection_check_without_key_returns_failure():
-    """연결 확인은 실패도 결과값으로 돌려준다 (AI-CORE-006)."""
+    """연결 확인은 실패도 결과값으로 돌려준다 ."""
     result = check_connection(None)
     assert result.success is False
     assert result.reason

@@ -33,8 +33,9 @@ def message_url(chat: dict) -> str:
 def test_models_are_from_modeling_settings(client):
     response = client.get("/api/models")
     assert response.status_code == 200
-    assert response.json()[0]["modelId"] == "gpt-5.6-terra"
-    assert response.json()[0]["isDefault"] is True
+    defaults = [model for model in response.json() if model["isDefault"]]
+    assert len(defaults) == 1
+    assert defaults[0]["modelId"] == "gpt-5.6-luna"
 
 
 def test_upload_delete_and_send_attachment(client, auth, chat, monkeypatch):

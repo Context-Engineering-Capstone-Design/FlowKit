@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from modeling.types import ModelInfo
 
-# 쓸 수 있는 모델 목록 (AI-CORE-001).
+# 쓸 수 있는 모델 목록 .
 #
 # 목록에 모델을 더할 때는 실제 키로 호출해 보고, 검색·첨부 지원 여부까지
 # 확인한 뒤 넣는다. 확인하지 않은 모델을 넣으면 사용자가 고른 뒤에야 실패한다.
@@ -15,9 +15,9 @@ MODELS: tuple[ModelInfo, ...] = (
         provider="openai",
         supports_web_search=True,
         supports_attachment=True,
-        is_default=True,
-        description="일반 채팅에 쓰는 균형 잡힌 기본 모델",
-        tags=("기본", "균형"),
+        is_default=False,
+        description="일반 채팅에 쓰는 균형 잡힌 모델",
+        tags=("균형",),
     ),
     ModelInfo(
         model_id="gpt-5.6-sol",
@@ -35,9 +35,9 @@ MODELS: tuple[ModelInfo, ...] = (
         provider="openai",
         supports_web_search=True,
         supports_attachment=True,
-        is_default=False,
+        is_default=True,
         description="가볍고 빠르게 답하는 저비용 모델",
-        tags=("빠름", "저비용"),
+        tags=("기본", "빠름", "저비용"),
     ),
 )
 
@@ -55,5 +55,5 @@ MAX_TITLE_LENGTH = 40
 
 REQUEST_TIMEOUT_SECONDS = 60
 
-# 연결 확인은 사용자가 버튼을 누르고 기다리는 동작이라 짧게 끊는다 (AI-CORE-006).
+# 연결 확인은 사용자가 버튼을 누르고 기다리는 동작이라 짧게 끊는다 .
 CONNECTION_CHECK_TIMEOUT_SECONDS = 15
