@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { ApiKeyModal } from '@/components/ApiKeyModal'
 import { ChatPane } from '@/components/ChatPane'
 import { LoginScreen } from '@/components/LoginScreen'
@@ -68,6 +69,8 @@ function Workspace() {
   const [sideStore, setSideStore] = useState<typeof useChatStore | null>(null)
   const sideStoreRef = useRef<typeof useChatStore | null>(null)
   const [sideWidth, setSideWidth] = useState(() => Number(sessionStorage.getItem('flowkit_side_panel_width')) || 520)
+  // lg 미만에서 사이드 패널을 메인 대신 전체화면으로 보여줄지. lg 이상에서는 쓰지 않는다.
+  const [sidePanelFocused, setSidePanelFocused] = useState(false)
   const openDefaultChat = useChatStore((s) => s.openDefaultChat)
   // Vite가 상태 모듈을 교체하는 순간에도 이전 Store 모양 때문에 작업 화면 전체가
   // 무너지지 않도록, 아직 없는 초안 필드는 빈 값으로 읽는다.
@@ -95,10 +98,11 @@ function Workspace() {
     setSidePanelOpener(async (chatId, branchId) => {
       let store = sideStoreRef.current
       if (!store) {
-        store = createChatStore({ onEmptyTabs: () => { sideStoreRef.current = null; setSideStore(null) } })
+        store = createChatStore({ onEmptyTabs: () => { sideStoreRef.current = null; setSideStore(null); setSidePanelFocused(false) } })
         sideStoreRef.current = store
         setSideStore(() => store)
       }
+      setSidePanelFocused(true)
       await store.getState().openChat(chatId, branchId)
     })
     return () => setSidePanelOpener(null)
@@ -166,7 +170,22 @@ function Workspace() {
       <div className="flex min-w-0 flex-1">
         <ChatPane store={useChatStore} sidebarOpen={sidebarOpen} onOpenSidebar={openSidebar} />
         {sideStore && (
-          <div style={{ width: sideWidth }} className="relative hidden min-w-[360px] shrink-0 lg:flex">
+          // lg 미만에서는 sidePanelFocused일 때만 메인 대신 전체화면으로 보여준다.
+          // lg 이상에서는 항상 메인 옆에 나란히, 폭은 sideWidth로 조절한다.
+          <div
+            style={{ width: sideWidth }}
+            className={`relative min-w-0 shrink-0 flex-col lg:static lg:z-auto lg:flex lg:min-w-[360px] lg:flex-row ${
+              sidePanelFocused ? 'fixed inset-0 z-50 flex max-lg:!w-full' : 'hidden'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => setSidePanelFocused(false)}
+              className="flex shrink-0 items-center gap-1.5 border-b border-line px-3 py-2.5 text-left text-[12.5px] font-medium text-txt-1 lg:hidden"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              메인으로
+            </button>
             <div
               aria-label="사이드 패널 너비 조절"
               onPointerDown={() => {
@@ -175,7 +194,7 @@ function Workspace() {
                 window.addEventListener('pointermove', move)
                 window.addEventListener('pointerup', end)
               }}
-              className="absolute inset-y-0 left-0 z-20 w-1 cursor-col-resize hover:bg-blue"
+              className="absolute inset-y-0 left-0 z-20 hidden w-1 cursor-col-resize hover:bg-blue lg:block"
             />
             <ChatPane store={sideStore} sidebarOpen={sidebarOpen} onOpenSidebar={openSidebar} />
           </div>
