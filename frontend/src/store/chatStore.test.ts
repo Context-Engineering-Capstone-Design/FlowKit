@@ -567,6 +567,41 @@ describe('chatStore 탭 상태', () => {
     expect(useChatStore.getState().tabs).toHaveLength(1)
   })
 
+  it('늦게 끝난 이전 대화 열기 요청이 마지막으로 고른 대화를 덮지 않는다', async () => {
+    const first = deferred<any>()
+    const second = deferred<any>()
+    chatApi.fetchChat.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'feedback', rating: null })
+
+    const firstOpen = useChatStore.getState().openChat('chat-a', 'branch-a')
+    await vi.waitFor(() => expect(chatApi.fetchChat).toHaveBeenCalledTimes(1))
+    const secondOpen = useChatStore.getState().openChat('chat-b', 'branch-b')
+    await vi.waitFor(() => expect(chatApi.fetchChat).toHaveBeenCalledTimes(2))
+
+    second.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: '마지막 대화' }),
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'block-b', branchId: 'branch-b', role: 'user', content: 'B', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await secondOpen
+    first.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-a', title: '이전 대화' }),
+      branchMeta: { branchId: 'branch-a' },
+      messageBlocks: [{ blockId: 'block-a', branchId: 'branch-a', role: 'user', content: 'A', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await firstOpen
+
+    expect(useChatStore.getState()).toMatchObject({
+      chatId: 'chat-b',
+      branchId: 'branch-b',
+      activeTabId: 'chat-b',
+      chatTitle: '마지막 대화',
+    })
+    expect(useChatStore.getState().blocks.map((block) => block.blockId)).toEqual(['block-b'])
+  })
+
   it('활성 탭을 닫으면 옆 탭으로 전환한다', async () => {
     useChatStore.setState({
       tabs: [

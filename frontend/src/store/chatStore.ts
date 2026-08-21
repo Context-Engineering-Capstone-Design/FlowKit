@@ -398,6 +398,7 @@ export interface ChatStoreOptions {
 /** 패널마다 완전히 독립된 대화 상태를 만든다. */
 export function createChatStore(options: ChatStoreOptions = {}) {
   let sideChatContextRequestId = 0
+  let openChatRequestId = 0
 
   return create<ChatState>((set, get) => ({
   chats: [],
@@ -738,13 +739,16 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async openChat(chatId, branchId) {
+    const requestId = ++openChatRequestId
     if (get().chatId !== chatId && !(await confirmPendingDiscard(get()))) return
+    if (requestId !== openChatRequestId) return
     try {
       if (get().chatId !== chatId) {
         captureActiveTabSnapshot(set, get)
         get().clearDraft()
       }
       const detail = await chatApi.fetchChat(chatId, branchId)
+      if (requestId !== openChatRequestId) return
       applyDetail(set, detail)
       upsertTab(set, get, detail.chatMeta, detail.branchMeta.branchId)
       get().reattachGeneratingBlocks()
@@ -754,8 +758,10 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         detail.chatMeta.chatId,
         detail.branchMeta.branchId,
         detail.messageBlocks,
+        () => requestId === openChatRequestId,
       )
     } catch (e) {
+      if (requestId !== openChatRequestId) return
       if (errorCode(e) === 'CHAT_ACCESS_DENIED' || errorCode(e) === 'CHAT_NOT_FOUND') {
         set((s) => ({ chats: s.chats.filter((item) => item.chatId !== chatId), error: toErrorMessage(e) }))
       } else {
@@ -1985,6 +1991,7 @@ async function refreshFeedbacks(
   chatId: string,
   branchId: string,
   blocks: MessageBlock[],
+  shouldApply: () => boolean = () => true,
 ) {
   const assistantBlocks = blocks.filter((block) => block.role === 'assistant')
   const results = await Promise.all(
@@ -1992,6 +1999,7 @@ async function refreshFeedbacks(
       convApi.fetchFeedback(chatId, branchId, block.blockId),
     ),
   )
+  if (!shouldApply()) return
   set({
     ratings: Object.fromEntries(
       results.flatMap((result) =>

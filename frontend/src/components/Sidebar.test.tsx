@@ -35,6 +35,33 @@ it('좌측 패널에 Project 폴더와 소속 대화를 표시한다', async () 
   expect(openChat).toHaveBeenCalledWith('chat-1')
 })
 
+it('Project 대화만 검색돼도 폴더를 펼쳐 결과를 보여주고 빈 결과로 표시하지 않는다', async () => {
+  vi.mocked(projectApi.fetchProjects).mockResolvedValue([{ projectId: 'project-1', name: 'Transformer 학습', chatCount: 1 }])
+  useChatStore.setState({
+    chats: [{ chatId: 'chat-1', title: 'FlashAttention 메모리 최적화', projectId: 'project-1' }],
+    chatId: null,
+    branches: [],
+    nextCursor: null,
+    isLoadingChats: false,
+    chatListError: null,
+    deletingChatId: null,
+    loadChats: vi.fn().mockResolvedValue(undefined),
+  })
+
+  render(<Sidebar onClose={() => undefined} />)
+
+  await screen.findByRole('button', { name: 'Transformer 학습' })
+  expect(screen.queryByRole('button', { name: 'FlashAttention 메모리 최적화' })).toBeNull()
+
+  fireEvent.change(screen.getByPlaceholderText('채팅 검색'), { target: { value: 'FlashAttention' } })
+
+  expect(screen.getByRole('button', { name: 'FlashAttention 메모리 최적화' })).not.toBeNull()
+  expect(screen.queryByText('검색 결과가 없습니다')).toBeNull()
+
+  fireEvent.change(screen.getByPlaceholderText('채팅 검색'), { target: { value: '' } })
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'FlashAttention 메모리 최적화' })).toBeNull())
+})
+
 it('Project 이름 변경 아이콘으로 이름을 바로 고친다', async () => {
   vi.mocked(projectApi.fetchProjects).mockResolvedValue([{ projectId: 'project-1', name: '졸업 프로젝트', chatCount: 3 }])
   vi.mocked(projectApi.fetchProject).mockResolvedValue({

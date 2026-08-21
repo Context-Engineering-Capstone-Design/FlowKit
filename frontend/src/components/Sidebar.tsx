@@ -225,6 +225,7 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         <ProjectListSection
           refreshKey={projectListRefreshKey}
+          searchKeyword={searchKeyword}
           dropTarget={dropTarget}
           onNewChat={(projectId) => void newChat(projectId)}
           onAllowDrop={allowChatDrop}
@@ -245,7 +246,7 @@ export function Sidebar({
             <button type="button" onClick={() => void loadChats(searchKeyword || undefined)} className="mt-1 underline">다시 시도</button>
           </div>
         )}
-        {recentChats.length === 0 && !isLoadingChats && (
+        {chats.length === 0 && !isLoadingChats && (
           <p className="px-2 py-1 text-[12px] text-txt-3">{keyword ? '검색 결과가 없습니다' : '대화가 없습니다'}</p>
         )}
         {visibleRecentChats.map((c) => (
@@ -346,6 +347,7 @@ export function Sidebar({
 // 좌측 패널에서 Project 이름을 확인하고 바로 고치는 목록
 function ProjectListSection({
   refreshKey,
+  searchKeyword,
   dropTarget,
   onNewChat,
   onAllowDrop,
@@ -353,6 +355,7 @@ function ProjectListSection({
   onClearDropTarget,
 }: {
   refreshKey: number
+  searchKeyword: string
   dropTarget: string | null
   onNewChat: (projectId: string) => void
   onAllowDrop: (event: DragEvent, target: string) => void
@@ -422,8 +425,8 @@ function ProjectListSection({
       {error && <p className="px-2 py-1 text-[12px] text-red">Project를 불러오지 못했습니다</p>}
       {!isLoading && !error && projects.length === 0 && <p className="px-2 py-1 text-[12px] text-txt-3">Project가 없습니다</p>}
       {projects.map((project) => {
-        const expanded = expandedProjectIds.includes(project.projectId)
         const projectChats = chats.filter((chat) => chat.projectId === project.projectId)
+        const expanded = expandedProjectIds.includes(project.projectId) || Boolean(searchKeyword && projectChats.length > 0)
         const isEditing = editingProjectId === project.projectId
         const isDropTarget = dropTarget === project.projectId
         return <div key={project.projectId}>
