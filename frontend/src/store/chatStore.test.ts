@@ -326,6 +326,36 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
   })
 
+  it('새 대화(채팅 없음)에서 파일을 붙이면 첫 메시지 전송과 같은 방식으로 대화를 먼저 만든다', async () => {
+    chatApi.createChat.mockResolvedValue({
+      chatMeta: { chatId: 'chat-new', title: '새 대화' },
+      branchMeta: { branchId: 'branch-new' },
+      messageBlocks: [],
+      branchList: [],
+    })
+    chatApi.fetchChats.mockResolvedValue({ chats: [], nextCursor: null })
+    useChatStore.setState({ chatId: null, branchId: null, draftAttachments: [] })
+
+    const image = new File(['fake-bytes'], 'photo.png', { type: 'image/png' })
+    await useChatStore.getState().addFiles([image])
+
+    expect(chatApi.createChat).toHaveBeenCalledOnce()
+    expect(useChatStore.getState().chatId).toBe('chat-new')
+    const [attachment] = useChatStore.getState().draftAttachments
+    expect(attachment.fileName).toBe('photo.png')
+    // 이미지는 실제 미리보기를 볼 수 있게 로컬 blob 주소를 즉시 받는다 (클립보드 붙여넣기 요건)
+    expect(attachment.localUrl).toMatch(/^blob:/)
+  })
+
+  it('클립보드에서 붙여넣은 이미지도 파일 첨부와 같은 경로로 처리해 미리보기 주소를 받는다', async () => {
+    const image = new File(['fake-bytes'], 'clipboard.png', { type: 'image/png' })
+    await useChatStore.getState().addFiles([image])
+
+    const [attachment] = useChatStore.getState().draftAttachments
+    expect(attachment.mimeType).toBe('image/png')
+    expect(attachment.localUrl).toMatch(/^blob:/)
+  })
+
   it('전송 뒤 빈 답변 블록에 스트리밍 통로로 도착한 글자를 이어 붙인다 (FE-AIRESP-005)', async () => {
     convApi.sendMessage.mockResolvedValue({
       userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: null, orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },

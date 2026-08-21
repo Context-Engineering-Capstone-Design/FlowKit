@@ -618,8 +618,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setSelectedLibraryResourceIds(resourceIds) { set({ selectedLibraryResourceIds: resourceIds }) },
 
   async addFiles(files) {
-    const { chatId } = get()
-    if (!chatId) return
     const rejected = files
       .map((file) => ({ file, reason: validateAttachment(file) }))
       .filter((item): item is { file: File; reason: string } => Boolean(item.reason))
@@ -631,6 +629,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     const validFiles = files.filter((file) => !validateAttachment(file))
     if (!validFiles.length) return
+    // 새 대화에서 붙여넣기·드래그로 첫 파일을 올리는 경우, 첫 메시지 전송과 같은 방식으로
+    // 채팅을 먼저 만든다. 잘못된 파일만 왔을 때는 채팅을 만들지 않는다(위에서 이미 걸러졌다).
+    // 이미 채팅이 있으면 await 을 타지 않는다.
+    if (!get().chatId && !(await ensureChat(set, get))) return
     const entries = validFiles.map((file) => ({
       localId: crypto.randomUUID(), attachmentId: null, file, fileName: file.name,
       mimeType: file.type, localUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
@@ -870,46 +872,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (get().isSending) return // 새 채팅 생성이 끝나기 전 두 번째 전송이 겹치면 서로 다른 채팅이 만들어진다
     set({ isSending: true })
     const clickedAt = Date.now() // 0820_06 C1: 전송 클릭 시각(네트워크 요청 전에 잰다)
+    // 대화는 화면을 열 때가 아니라 사용자가 첫 메시지를 보낼 때 만든다 (새로고침마다 빈 대화가 쌓이는 문제 방지).
+    // 이미 채팅이 있으면 await 을 타지 않아, 아래 임시 질문 블록이 여전히 동기적으로 바로 보인다.
     let { chatId, branchId } = get()
     if (!chatId || !branchId) {
-      // 대화는 화면을 열 때가 아니라 사용자가 첫 메시지를 보낼 때 만든다 (새로고침마다 빈 대화가 쌓이는 문제 방지)
-      const draftId = get().activeTabId
-      const draftAnchor = get().tabs.find((t) => t.id === draftId)?.draftSideChatAnchor
-      try {
-        if (draftAnchor) {
-          // 사이드 채팅에 질문(0820_13 C1, C2): 패널을 여는 시점이 아니라 첫 전송에서만 서버에 만든다
-          const created = await sideChatApi.createSideChat(draftAnchor.parentChatId, draftAnchor.parentBranchId, {
-            anchorMessageBlockId: draftAnchor.anchorMessageBlockId,
-          })
-          chatId = created.chatMeta.chatId
-          branchId = created.branchMeta.branchId
-          set((s) => ({
-            chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
-            chatKind: created.chatMeta.kind,
-            parentChatId: created.chatMeta.parentChatId,
-            parentBranchId: created.chatMeta.parentBranchId,
-            parentMessageBlockId: created.chatMeta.parentMessageBlockId,
-            rootChatId: created.chatMeta.rootChatId,
-            rootBranchId: created.chatMeta.rootBranchId,
-            tabs: promoteDraftTab(s.tabs, draftId, created.chatMeta, created.branchMeta.branchId),
-            activeTabId: chatId,
-          }))
-          void get().loadSideChatContext()
-        } else {
-          const created = await chatApi.createChat()
-          chatId = created.chatMeta.chatId
-          branchId = created.branchMeta.branchId
-          set((s) => ({
-            chatId, projectId: created.chatMeta.projectId ?? null, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
-            tabs: promoteDraftTab(s.tabs, draftId, created.chatMeta, created.branchMeta.branchId),
-            activeTabId: chatId,
-          }))
-          void get().loadChats()
-        }
-      } catch (e) {
-        set({ error: toErrorMessage(e), isSending: false })
-        return
-      }
+      const ensured = await ensureChat(set, get)
+      if (!ensured) { set({ isSending: false }); return }
+      chatId = ensured.chatId
+      branchId = ensured.branchId
     }
     const { appliedBlockIds, contextRangeTags, selectedModelId, webSearchMode, reasoningEffort, draftAttachments, selectedLibraryResourceIds } = get()
     if (draftAttachments.some((item) => item.status === 'uploading')) {
@@ -1728,6 +1698,56 @@ function promoteDraftTab(
   }
   const index = draftId ? tabs.findIndex((t) => t.id === draftId) : -1
   return index === -1 ? [...tabs, tab] : tabs.map((t, i) => (i === index ? tab : t))
+}
+
+/** 아직 채팅이 없으면(새 대화 draft 상태) 만들고, 있으면 그대로 돌려준다.
+ *  sendMessage 첫 전송과 addFiles 의 첫 첨부가 똑같은 생성 흐름을 타야
+ *  사이드 채팅 앵커·탭 승격이 어긋나지 않는다. 실패하면 error 를 세팅하고 null 을 돌려준다. */
+async function ensureChat(
+  set: (partial: Partial<ChatState>) => void,
+  get: () => ChatState,
+): Promise<{ chatId: string; branchId: string } | null> {
+  const existing = get()
+  if (existing.chatId && existing.branchId) return { chatId: existing.chatId, branchId: existing.branchId }
+
+  const draftId = get().activeTabId
+  const draftAnchor = get().tabs.find((t) => t.id === draftId)?.draftSideChatAnchor
+  try {
+    if (draftAnchor) {
+      // 사이드 채팅에 질문(0820_13 C1, C2): 패널을 여는 시점이 아니라 첫 전송에서만 서버에 만든다
+      const created = await sideChatApi.createSideChat(draftAnchor.parentChatId, draftAnchor.parentBranchId, {
+        anchorMessageBlockId: draftAnchor.anchorMessageBlockId,
+      })
+      const chatId = created.chatMeta.chatId
+      const branchId = created.branchMeta.branchId
+      set({
+        chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
+        chatKind: created.chatMeta.kind,
+        parentChatId: created.chatMeta.parentChatId,
+        parentBranchId: created.chatMeta.parentBranchId,
+        parentMessageBlockId: created.chatMeta.parentMessageBlockId,
+        rootChatId: created.chatMeta.rootChatId,
+        rootBranchId: created.chatMeta.rootBranchId,
+        tabs: promoteDraftTab(get().tabs, draftId, created.chatMeta, created.branchMeta.branchId),
+        activeTabId: chatId,
+      })
+      void get().loadSideChatContext()
+      return { chatId, branchId }
+    }
+    const created = await chatApi.createChat()
+    const chatId = created.chatMeta.chatId
+    const branchId = created.branchMeta.branchId
+    set({
+      chatId, projectId: created.chatMeta.projectId ?? null, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
+      tabs: promoteDraftTab(get().tabs, draftId, created.chatMeta, created.branchMeta.branchId),
+      activeTabId: chatId,
+    })
+    void get().loadChats()
+    return { chatId, branchId }
+  } catch (e) {
+    set({ error: toErrorMessage(e) })
+    return null
+  }
 }
 
 /** 지금 활성 탭이 실제 채팅이면, 떠나기 전에 최신 브랜치·제목을 캐시에 남긴다. */
