@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import UTC, datetime
 
@@ -16,6 +17,8 @@ from app.exceptions import (
 )
 from app.models import ApiKeyConnectionStatus, User, UserApiKey
 from app.services.api_key_crypto import decrypt_api_key, encrypt_api_key
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_PROVIDER = "openai"
 MIN_API_KEY_LENGTH = 16
@@ -102,6 +105,9 @@ def check_api_key_connection(
         record.connection_status = ApiKeyConnectionStatus.CONNECTED
         record.connection_message = "연결에 성공했습니다."
     else:
+        # 사용자에게는 안전한 요약 메시지만 보여주지만, 원인 파악을 위해
+        # 원본 오류는 서버 로그에 남긴다 — 키 값 자체는 포함되지 않는다.
+        logger.error("openai connection check failed: %s", result.reason)
         record.connection_status = ApiKeyConnectionStatus.FAILED
         record.connection_message = _safe_connection_message(result.reason)
     db.commit()

@@ -5,6 +5,7 @@
 (streaming_service)에 붙어 조각을 받아간다.
 """
 from __future__ import annotations
+import logging
 import threading
 import time
 import uuid
@@ -17,6 +18,8 @@ from app.exceptions import AiInputSnapshotIncompleteError, AiInputSnapshotNotFou
 from app.models import AiResponseFeedback, AiResponseJob, AiResponseJobStatus, AiResponseJobType, AiResponseRating, Branch, BlockGenerationStatus, Chat, ChatKind, MessageBlock, MessageRole, Project, ProjectMemory, User, VersionSourceType
 from app.services import ai_execution_service, chat_service, context_service, input_assist_service, message_service, project_service, realtime_service, streaming_service, user_setting_service
 from modeling import EmptyAnswerError
+
+logger = logging.getLogger(__name__)
 
 # 백그라운드 스레드가 새 DB 세션을 열 때 쓰는 팩토리. 요청 스레드는 DbSession
 # 의존성(get_db)을 쓰지만, 생성 스레드는 요청이 끝난 뒤에도 계속 돌아 별도
@@ -444,6 +447,9 @@ def _context_from_snapshot(snapshot):
 
 def _classify_error(exc):
     if isinstance(exc, AiInputSnapshotIncompleteError): return exc.error_code, exc.message
+    # 사용자에게는 안전한 요약 메시지만 보여주지만, 원인 파악을 위해
+    # 원본 예외는 서버 로그에 남긴다 — 키 값 자체는 여기 담기지 않는다.
+    logger.error("ai generation failed: %r", exc, exc_info=exc)
     text = f"{exc.__class__.__name__} {exc}".lower()
     if "timeout" in text: return "AI_TIMEOUT", "AI 응답 시간이 초과되었습니다."
     if "rate" in text or "quota" in text: return "AI_RATE_LIMITED", "AI 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
