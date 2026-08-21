@@ -397,6 +397,8 @@ export interface ChatStoreOptions {
 
 /** 패널마다 완전히 독립된 대화 상태를 만든다. */
 export function createChatStore(options: ChatStoreOptions = {}) {
+  let sideChatContextRequestId = 0
+
   return create<ChatState>((set, get) => ({
   chats: [],
   nextCursor: null,
@@ -1613,6 +1615,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async loadSideChatContext() {
     const { chatId, branchId } = get()
     if (!chatId) return
+    const requestId = ++sideChatContextRequestId
     try {
       const tree = await sideChatApi.fetchSideChatTree(chatId)
       const byBlock: Record<string, SideChatSummary[]> = {}
@@ -1623,8 +1626,8 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         if (!sourceMessageBlockId) continue
         ;(byBlock[sourceMessageBlockId] ??= []).push(child)
       }
-      // 요청이 진행되는 동안 사용자가 다른 탭으로 옮겼을 수 있으니 다시 확인한다
-      if (get().chatId !== chatId) return
+      // 이전 요청이나 다른 분기 결과가 현재 대화 구조를 덮지 않게 한다.
+      if (requestId !== sideChatContextRequestId || get().chatId !== chatId || get().branchId !== branchId) return
       set({ sideChatsByBlockId: byBlock, sideChatTree: tree.chats, sideChatTreeRootId: tree.rootChatId })
     } catch {
       // 트리 조회 실패는 화면을 막을 만한 문제가 아니다 — 다음 조회 때 다시 시도된다

@@ -41,6 +41,13 @@ vi.mock('@/api/sideChat', () => sideChatApi)
 
 import { createChatStore, setSidePanelOpener, useChatStore } from '@/store/chatStore'
 import { useConfirmStore } from '@/store/confirmStore'
+import type { SideChatTreeResponse } from '@/types/api'
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
 
 describe('chatStore 화면 상태', () => {
   beforeEach(() => {
@@ -707,6 +714,51 @@ describe('chatStore 탭 상태', () => {
     await useChatStore.getState().loadSideChatContext()
 
     expect(useChatStore.getState().sideChatsByBlockId['side-b-block'].map((c) => c.chatId)).toEqual(['branch-4'])
+  })
+
+  it('늦게 끝난 이전 대화 구조 요청이 현재 분기 목록을 덮지 않는다', async () => {
+    const previous = deferred<SideChatTreeResponse>()
+    const current = deferred<SideChatTreeResponse>()
+    sideChatApi.fetchSideChatTree.mockReturnValueOnce(previous.promise).mockReturnValueOnce(current.promise)
+
+    const previousLoad = useChatStore.getState().loadSideChatContext()
+    useChatStore.setState({ branchId: 'branch-2' })
+    const currentLoad = useChatStore.getState().loadSideChatContext()
+    current.resolve({
+      rootChatId: 'chat-1',
+      chats: [{ chatId: 'current-side', title: '현재 분기', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-2', parentMessageBlockId: 'current-block', rootChatId: 'chat-1' }],
+    })
+    await currentLoad
+    previous.resolve({
+      rootChatId: 'chat-1',
+      chats: [{ chatId: 'previous-side', title: '이전 분기', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-1', parentMessageBlockId: 'previous-block', rootChatId: 'chat-1' }],
+    })
+    await previousLoad
+
+    expect(useChatStore.getState().sideChatsByBlockId['current-block'].map((chat) => chat.chatId)).toEqual(['current-side'])
+    expect(useChatStore.getState().sideChatsByBlockId['previous-block']).toBeUndefined()
+  })
+
+  it('같은 분기에서도 최신 대화 구조 요청만 반영한다', async () => {
+    const previous = deferred<SideChatTreeResponse>()
+    const current = deferred<SideChatTreeResponse>()
+    sideChatApi.fetchSideChatTree.mockReturnValueOnce(previous.promise).mockReturnValueOnce(current.promise)
+
+    const previousLoad = useChatStore.getState().loadSideChatContext()
+    const currentLoad = useChatStore.getState().loadSideChatContext()
+    current.resolve({
+      rootChatId: 'chat-1',
+      chats: [{ chatId: 'new-side', title: '새 목록', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-1', parentMessageBlockId: 'new-block', rootChatId: 'chat-1' }],
+    })
+    await currentLoad
+    previous.resolve({
+      rootChatId: 'chat-1',
+      chats: [{ chatId: 'old-side', title: '이전 목록', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-1', parentMessageBlockId: 'old-block', rootChatId: 'chat-1' }],
+    })
+    await previousLoad
+
+    expect(useChatStore.getState().sideChatsByBlockId['new-block'].map((chat) => chat.chatId)).toEqual(['new-side'])
+    expect(useChatStore.getState().sideChatsByBlockId['old-block']).toBeUndefined()
   })
 })
 
