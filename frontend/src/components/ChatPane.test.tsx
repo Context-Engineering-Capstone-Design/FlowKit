@@ -57,6 +57,26 @@ it('선택 여부와 관계없이 모든 탭이 존재하는 패널을 가리킨
   expectTabPanels()
 })
 
+it('탭이 하나라 탭 바가 없을 때도 현재 대화 이름으로 패널을 라벨한다', () => {
+  const store = createChatStore()
+  store.setState({
+    tabs: [{ id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: 'Self-Attention 학습', kind: 'MAIN', parentChatId: null }],
+    activeTabId: 'chat-1',
+  })
+
+  render(<ChatPane store={store} sidebarOpen onOpenSidebar={() => undefined} />)
+
+  const panel = screen.getByRole('tabpanel', { name: 'Self-Attention 학습' })
+  expect(panel.getAttribute('aria-labelledby')).toBeNull()
+  expect(panel.getAttribute('aria-label')).toBe('Self-Attention 학습')
+})
+
+it('명시한 패널 ID로 Context 제어 버튼을 안정적으로 식별한다', () => {
+  render(<ChatPane store={createPaneStore()} sidebarOpen onOpenSidebar={() => undefined} paneId="main-chat-pane" />)
+
+  expect(screen.getByRole('button', { name: 'Context 편집' }).getAttribute('id')).toBe('main-chat-pane-context-editor-button')
+})
+
 it('메인과 사이드 패널이 같은 대화를 열어도 탭 ID가 겹치지 않는다', () => {
   render(
     <>

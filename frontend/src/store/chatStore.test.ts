@@ -154,6 +154,72 @@ describe('chatStore 화면 상태', () => {
     expect(useChatStore.getState()).toMatchObject({ branchId: 'branch-2', contextInstruction: '', editingBlockId: null })
   })
 
+  it('늦게 끝난 이전 브랜치 전환이 마지막 선택을 덮지 않는다', async () => {
+    const first = deferred<unknown>()
+    const second = deferred<unknown>()
+    chatApi.fetchBranch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    useChatStore.setState({
+      branches: [
+        { branchId: 'branch-1', branchName: 'Main', branchType: 'MAIN', parentBranchId: null, isActive: true },
+        { branchId: 'branch-2', branchName: '첫 분기', branchType: 'CHILD', parentBranchId: 'branch-1', isActive: false },
+        { branchId: 'branch-3', branchName: '둘째 분기', branchType: 'CHILD', parentBranchId: 'branch-1', isActive: false },
+      ],
+    })
+
+    const firstSwitch = useChatStore.getState().switchBranch('branch-2')
+    await vi.waitFor(() => expect(chatApi.fetchBranch).toHaveBeenCalledTimes(1))
+    const secondSwitch = useChatStore.getState().switchBranch('branch-3')
+    await vi.waitFor(() => expect(chatApi.fetchBranch).toHaveBeenCalledTimes(2))
+
+    second.resolve({
+      branchMeta: { branchId: 'branch-3' },
+      messageBlocks: [{ blockId: 'block-3', branchId: 'branch-3', role: 'user', content: 'C', currentVersionId: 'v-3', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      sourceContextInfo: [],
+    })
+    await secondSwitch
+    first.resolve({
+      branchMeta: { branchId: 'branch-2' },
+      messageBlocks: [{ blockId: 'block-2', branchId: 'branch-2', role: 'user', content: 'B', currentVersionId: 'v-2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      sourceContextInfo: [],
+    })
+    await firstSwitch
+
+    const state = useChatStore.getState()
+    expect(state.branchId).toBe('branch-3')
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['block-3'])
+    expect(state.tabs[0].branchId).toBe('branch-3')
+    expect(state.branches.find((branch) => branch.isActive)?.branchId).toBe('branch-3')
+  })
+
+  it('이전 브랜치의 늦은 평가 조회가 현재 브랜치 평가를 덮지 않는다', async () => {
+    const firstFeedback = deferred<unknown>()
+    const secondFeedback = deferred<unknown>()
+    chatApi.fetchBranch
+      .mockResolvedValueOnce({
+        branchMeta: { branchId: 'branch-2' },
+        messageBlocks: [{ blockId: 'assistant-2', branchId: 'branch-2', role: 'assistant', content: 'B', currentVersionId: 'v-2', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+        sourceContextInfo: [],
+      })
+      .mockResolvedValueOnce({
+        branchMeta: { branchId: 'branch-3' },
+        messageBlocks: [{ blockId: 'assistant-3', branchId: 'branch-3', role: 'assistant', content: 'C', currentVersionId: 'v-3', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+        sourceContextInfo: [],
+      })
+    convApi.fetchFeedback.mockReturnValueOnce(firstFeedback.promise).mockReturnValueOnce(secondFeedback.promise)
+
+    const firstSwitch = useChatStore.getState().switchBranch('branch-2')
+    await vi.waitFor(() => expect(convApi.fetchFeedback).toHaveBeenCalledTimes(1))
+    const secondSwitch = useChatStore.getState().switchBranch('branch-3')
+    await vi.waitFor(() => expect(convApi.fetchFeedback).toHaveBeenCalledTimes(2))
+
+    secondFeedback.resolve({ aiMessageBlockId: 'assistant-3', rating: 'like' })
+    await secondSwitch
+    firstFeedback.resolve({ aiMessageBlockId: 'assistant-2', rating: 'dislike' })
+    await firstSwitch
+
+    expect(useChatStore.getState().ratings).toEqual({ 'assistant-3': 'like' })
+  })
+
   it('확인을 취소하면 대화를 삭제하지 않는다', async () => {
     const request = vi.fn().mockResolvedValue(false)
     useConfirmStore.setState({ request })
@@ -568,8 +634,8 @@ describe('chatStore 탭 상태', () => {
   })
 
   it('늦게 끝난 이전 대화 열기 요청이 마지막으로 고른 대화를 덮지 않는다', async () => {
-    const first = deferred<any>()
-    const second = deferred<any>()
+    const first = deferred<unknown>()
+    const second = deferred<unknown>()
     chatApi.fetchChat.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
     convApi.fetchFeedback.mockResolvedValue({ aiMessageBlockId: 'feedback', rating: null })
 
@@ -600,6 +666,63 @@ describe('chatStore 탭 상태', () => {
       chatTitle: '마지막 대화',
     })
     expect(useChatStore.getState().blocks.map((block) => block.blockId)).toEqual(['block-b'])
+  })
+
+  it('대화를 여는 중 새 초안으로 전환하면 늦은 응답을 무시한다', async () => {
+    const pending = deferred<unknown>()
+    chatApi.fetchChat.mockReturnValueOnce(pending.promise)
+
+    const opening = useChatStore.getState().openChat('chat-a', 'branch-a')
+    await vi.waitFor(() => expect(chatApi.fetchChat).toHaveBeenCalledTimes(1))
+    await useChatStore.getState().newChat()
+    const draftTabId = useChatStore.getState().activeTabId
+
+    pending.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-a', title: '늦은 대화' }),
+      branchMeta: { branchId: 'branch-a' },
+      messageBlocks: [{ blockId: 'block-a', branchId: 'branch-a', role: 'user', content: 'A', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await opening
+
+    expect(useChatStore.getState()).toMatchObject({
+      chatId: null,
+      chatTitle: '',
+      branchId: null,
+      activeTabId: draftTabId,
+      blocks: [],
+    })
+  })
+
+  it('대화를 여는 중 기존 초안 탭으로 전환하면 늦은 응답을 무시한다', async () => {
+    const pending = deferred<unknown>()
+    chatApi.fetchChat.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({
+      tabs: [
+        { id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '대화', kind: 'MAIN', parentChatId: null },
+        { id: 'draft-1', chatId: null, branchId: null, title: '새 대화', kind: 'MAIN', parentChatId: null },
+      ],
+    })
+
+    const opening = useChatStore.getState().openChat('chat-a', 'branch-a')
+    await vi.waitFor(() => expect(chatApi.fetchChat).toHaveBeenCalledTimes(1))
+    await useChatStore.getState().switchTab('draft-1')
+
+    pending.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-a', title: '늦은 대화' }),
+      branchMeta: { branchId: 'branch-a' },
+      messageBlocks: [{ blockId: 'block-a', branchId: 'branch-a', role: 'user', content: 'A', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await opening
+
+    expect(useChatStore.getState()).toMatchObject({
+      chatId: null,
+      chatTitle: '',
+      branchId: null,
+      activeTabId: 'draft-1',
+      blocks: [],
+    })
   })
 
   it('활성 탭을 닫으면 옆 탭으로 전환한다', async () => {
@@ -636,6 +759,35 @@ describe('chatStore 탭 상태', () => {
     expect(state.tabs.map((t) => t.id)).toEqual(['chat-1'])
     expect(state.activeTabId).toBe('chat-1')
     expect(chatApi.fetchChat).not.toHaveBeenCalled()
+  })
+
+  it('열리는 중인 배경 탭을 닫으면 늦은 응답을 무시한다', async () => {
+    const pending = deferred<unknown>()
+    chatApi.fetchChat.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({
+      tabs: [
+        { id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '현재 대화', kind: 'MAIN', parentChatId: null },
+        { id: 'chat-a', chatId: 'chat-a', branchId: 'branch-a', title: '열리는 대화', kind: 'MAIN', parentChatId: null },
+      ],
+    })
+
+    const opening = useChatStore.getState().openChat('chat-a', 'branch-a')
+    await vi.waitFor(() => expect(chatApi.fetchChat).toHaveBeenCalledTimes(1))
+    await useChatStore.getState().closeTab('chat-a')
+
+    pending.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-a', title: '늦은 대화' }),
+      branchMeta: { branchId: 'branch-a' },
+      messageBlocks: [{ blockId: 'block-a', branchId: 'branch-a', role: 'user', content: 'Self-Attention', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await opening
+
+    const state = useChatStore.getState()
+    expect(state.tabs.map((tab) => tab.id)).toEqual(['chat-1'])
+    expect(state.activeTabId).toBe('chat-1')
+    expect(state.chatId).toBe('chat-1')
+    expect(state.blocks).toEqual([])
   })
 
   it('사이드 채팅을 만들면 새 탭으로 즉시 전환된다 (0820_08 B2)', async () => {

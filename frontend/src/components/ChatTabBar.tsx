@@ -10,6 +10,7 @@ export function ChatTabBar({
   paneId = 'chat-pane',
   contextTabId = 'context-tab',
   contextPanelId = 'context-tab-panel',
+  fallbackFocusId,
 }: {
   contextOpen?: boolean
   onOpenContext?: () => void
@@ -17,12 +18,16 @@ export function ChatTabBar({
   paneId?: string
   contextTabId?: string
   contextPanelId?: string
+  /** 마지막 탭을 닫아 탭 바가 사라질 때 초점을 돌려둘 현재 패널의 제어 버튼 ID */
+  fallbackFocusId?: string
 }) {
   const tabs = useChatPaneStore((s) => s.tabs)
   const activeTabId = useChatPaneStore((s) => s.activeTabId)
   const switchTab = useChatPaneStore((s) => s.switchTab)
   const closeTab = useChatPaneStore((s) => s.closeTab)
   const tabButtonRefs = useRef(new Map<string, HTMLButtonElement>())
+  const closeButtonRefs = useRef(new Map<string, HTMLButtonElement>())
+  const tabInteractionId = useRef(0)
   const [focusedTabKey, setFocusedTabKey] = useState<string | null>(null)
 
   const tabKeys = [...tabs.map((tab) => tab.id), ...(contextOpen ? ['context'] : [])]
@@ -39,6 +44,24 @@ export function ChatTabBar({
     else tabButtonRefs.current.delete(key)
   }
 
+  function registerCloseButton(key: string, element: HTMLButtonElement | null) {
+    if (element) closeButtonRefs.current.set(key, element)
+    else closeButtonRefs.current.delete(key)
+  }
+
+  function beginTabInteraction() {
+    tabInteractionId.current += 1
+    return tabInteractionId.current
+  }
+
+  function keepsAnotherControlFocused(target: HTMLElement | null) {
+    const focused = document.activeElement
+    return focused instanceof HTMLElement
+      && focused !== document.body
+      && focused.isConnected
+      && focused !== target
+  }
+
   function moveTabFocus(event: KeyboardEvent<HTMLButtonElement>, key: string) {
     const currentIndex = tabKeys.indexOf(key)
     if (currentIndex === -1) return
@@ -49,26 +72,61 @@ export function ChatTabBar({
     if (event.key === 'End') targetIndex = tabKeys.length - 1
     if (targetIndex === null) return
     event.preventDefault()
+    beginTabInteraction()
     const targetKey = tabKeys[targetIndex]
     setFocusedTabKey(targetKey)
     tabButtonRefs.current.get(targetKey)?.focus()
   }
 
   async function selectChatTab(tabId: string) {
+    const interactionId = beginTabInteraction()
     setFocusedTabKey(tabId)
     if (contextOpen) onCloseContext()
     await switchTab(tabId)
-    requestAnimationFrame(() => tabButtonRefs.current.get(tabId)?.focus())
+    requestAnimationFrame(() => {
+      if (interactionId !== tabInteractionId.current) return
+      const target = tabButtonRefs.current.get(tabId) ?? null
+      if (keepsAnotherControlFocused(target)) return
+      target?.focus()
+    })
   }
 
   async function closeChatTab(tabId: string) {
+    const interactionId = beginTabInteraction()
+    const closingIndex = tabs.findIndex((tab) => tab.id === tabId)
+    const fallbackTabId = tabs[closingIndex + 1]?.id ?? tabs[closingIndex - 1]?.id ?? null
     await closeTab(tabId)
-    if (!contextOpen) return
-    setFocusedTabKey('context')
-    requestAnimationFrame(() => tabButtonRefs.current.get('context')?.focus())
+    requestAnimationFrame(() => {
+      if (interactionId !== tabInteractionId.current) return
+      // 초안 버리기를 취소하면 닫힌 탭이 그대로 남는다. 이때는 사용자가 있던 X에 둔다.
+      if (tabButtonRefs.current.has(tabId)) {
+        closeButtonRefs.current.get(tabId)?.focus()
+        return
+      }
+      // 비동기 전환 중 다른 탭·Context·입력창을 고른 사용자의 초점을 빼앗지 않는다.
+      const targetKey = contextOpen ? 'context' : fallbackTabId
+      if (!targetKey) return
+      setFocusedTabKey(targetKey)
+      const target = tabButtonRefs.current.get(targetKey)
+        ?? (fallbackFocusId ? document.getElementById(fallbackFocusId) : null)
+      if (keepsAnotherControlFocused(target)) return
+      target?.focus()
+    })
   }
 
-  if (tabs.length + (contextOpen ? 1 : 0) < 2) return null
+  function openContextTab() {
+    beginTabInteraction()
+    onOpenContext()
+  }
+
+  function closeContextTab() {
+    beginTabInteraction()
+    onCloseContext()
+  }
+
+  // Context 편집 중에는 채팅 탭이 모두 사라져도 Context 탭을 남긴다.
+  // 패널의 aria-labelledby와 닫기 버튼의 초점 대상이 끊기면 안 된다.
+  if (!contextOpen && tabs.length < 2) return null
 
   return (
     <div
@@ -94,7 +152,7 @@ export function ChatTabBar({
               aria-controls={chatPanelId(tab.id)}
               tabIndex={focusableTabKey === tab.id ? 0 : -1}
               onClick={() => void selectChatTab(tab.id)}
-              onFocus={() => setFocusedTabKey(tab.id)}
+              onFocus={() => { beginTabInteraction(); setFocusedTabKey(tab.id) }}
               onKeyDown={(event) => moveTabFocus(event, tab.id)}
               className="flex min-w-0 max-w-[160px] items-center gap-1.5 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue"
             >
@@ -107,6 +165,7 @@ export function ChatTabBar({
               {tab.isTemporary && <Clock3 aria-label="Temporary Chat" className="h-3 w-3 shrink-0 text-amber" />}
             </button>
             <button
+              ref={(element) => registerCloseButton(tab.id, element)}
               type="button"
               onClick={() => void closeChatTab(tab.id)}
               title="탭 닫기"
@@ -128,15 +187,15 @@ export function ChatTabBar({
             aria-selected
             aria-controls={contextPanelId}
             tabIndex={focusableTabKey === 'context' ? 0 : -1}
-            onClick={onOpenContext}
-            onFocus={() => setFocusedTabKey('context')}
+            onClick={openContextTab}
+            onFocus={() => { beginTabInteraction(); setFocusedTabKey('context') }}
             onKeyDown={(event) => moveTabFocus(event, 'context')}
             className="flex items-center gap-1.5 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue"
           >
             <SlidersHorizontal className="h-3 w-3 text-blue" />
             <span>Context 편집</span>
           </button>
-          <button type="button" onClick={onCloseContext} title="Context 편집 닫기" aria-label="Context 편집 닫기" className="rounded p-0.5 text-txt-3 hover:bg-bg-4 hover:text-txt-0"><X className="h-3 w-3" /></button>
+          <button type="button" onClick={closeContextTab} title="Context 편집 닫기" aria-label="Context 편집 닫기" className="rounded p-0.5 text-txt-3 hover:bg-bg-4 hover:text-txt-0"><X className="h-3 w-3" /></button>
         </div>
       )}
     </div>

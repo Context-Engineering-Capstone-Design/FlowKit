@@ -6,22 +6,25 @@ import { ContextPanel } from '@/components/ContextPanel'
 import type { useChatStore } from '@/store/chatStore'
 
 // 메인·사이드가 같은 기능을 독립적으로 갖는 하나의 대화 패널
-export function ChatPane({ store, sidebarOpen, onOpenSidebar }: { store: typeof useChatStore; sidebarOpen: boolean; onOpenSidebar: () => void }) {
-  return <ChatPaneStoreProvider store={store}><ChatPaneBody sidebarOpen={sidebarOpen} onOpenSidebar={onOpenSidebar} /></ChatPaneStoreProvider>
+export function ChatPane({ store, sidebarOpen, onOpenSidebar, paneId: providedPaneId }: { store: typeof useChatStore; sidebarOpen: boolean; onOpenSidebar: () => void; paneId?: string }) {
+  return <ChatPaneStoreProvider store={store}><ChatPaneBody sidebarOpen={sidebarOpen} onOpenSidebar={onOpenSidebar} providedPaneId={providedPaneId} /></ChatPaneStoreProvider>
 }
 
-function ChatPaneBody({ sidebarOpen, onOpenSidebar }: { sidebarOpen: boolean; onOpenSidebar: () => void }) {
+function ChatPaneBody({ sidebarOpen, onOpenSidebar, providedPaneId }: { sidebarOpen: boolean; onOpenSidebar: () => void; providedPaneId?: string }) {
   const contextSignal = useChatPaneStore((s) => s.contextPanelSignal)
   const applyContext = useChatPaneStore((s) => s.applyContext)
   const tabs = useChatPaneStore((s) => s.tabs)
   const activeTabId = useChatPaneStore((s) => s.activeTabId)
   const [contextOpen, setContextOpen] = useState(false)
   const wasContextOpen = useRef(false)
-  const paneId = useId()
+  const generatedPaneId = useId()
+  const paneId = providedPaneId ?? generatedPaneId
   const contextTabId = `${paneId}-context-tab`
   const contextPanelId = `${paneId}-context-tab-panel`
   const contextEditorButtonId = `${paneId}-context-editor-button`
   const activeChatTabId = activeTabId ? `${paneId}-chat-tab-${activeTabId}` : null
+  const activeTabTitle = tabs.find((tab) => tab.id === activeTabId)?.title ?? '새 대화'
+  const hasVisibleChatTab = tabs.length >= 2
   const chatTabId = (tabId: string) => `${paneId}-chat-tab-${tabId}`
   const chatPanelId = (tabId: string) => `${paneId}-chat-tab-panel-${tabId}`
 
@@ -42,7 +45,7 @@ function ChatPaneBody({ sidebarOpen, onOpenSidebar }: { sidebarOpen: boolean; on
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-line last:border-l">
-      <ChatTabBar contextOpen={contextOpen} onOpenContext={() => setContextOpen(true)} onCloseContext={() => setContextOpen(false)} paneId={paneId} contextTabId={contextTabId} contextPanelId={contextPanelId} />
+      <ChatTabBar contextOpen={contextOpen} onOpenContext={() => setContextOpen(true)} onCloseContext={() => setContextOpen(false)} paneId={paneId} contextTabId={contextTabId} contextPanelId={contextPanelId} fallbackFocusId={contextEditorButtonId} />
       {tabs
         .filter((tab) => contextOpen || tab.id !== activeTabId)
         .map((tab) => <div key={tab.id} role="tabpanel" id={chatPanelId(tab.id)} aria-labelledby={chatTabId(tab.id)} hidden />)}
@@ -54,7 +57,9 @@ function ChatPaneBody({ sidebarOpen, onOpenSidebar }: { sidebarOpen: boolean; on
         <div
           role="tabpanel"
           id={chatPanelId(activeTabId ?? 'draft')}
-          {...(activeTabId ? { 'aria-labelledby': chatTabId(activeTabId) } : { 'aria-label': '새 대화' })}
+          {...(activeTabId && hasVisibleChatTab
+            ? { 'aria-labelledby': chatTabId(activeTabId) }
+            : { 'aria-label': activeTabTitle })}
           className="flex min-h-0 flex-1"
         >
           <ChatArea onOpenContextEditor={() => setContextOpen(true)} contextEditorButtonId={contextEditorButtonId} sidebarOpen={sidebarOpen} onOpenSidebar={onOpenSidebar} />

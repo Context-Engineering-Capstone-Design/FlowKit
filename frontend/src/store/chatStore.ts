@@ -398,7 +398,15 @@ export interface ChatStoreOptions {
 /** 패널마다 완전히 독립된 대화 상태를 만든다. */
 export function createChatStore(options: ChatStoreOptions = {}) {
   let sideChatContextRequestId = 0
-  let openChatRequestId = 0
+  // 대화·브랜치·초안 화면을 바꾸는 요청은 같은 세대 번호를 쓴다.
+  // 늦게 끝난 이전 요청이 마지막으로 고른 화면을 다시 덮지 못하게 한다.
+  let viewRequestId = 0
+  let pendingOpenChat: { chatId: string; requestId: number } | null = null
+
+  function beginViewRequest() {
+    pendingOpenChat = null
+    return ++viewRequestId
+  }
 
   return create<ChatState>((set, get) => ({
   chats: [],
@@ -533,14 +541,19 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
   async newChat(projectId) {
     if (!(await confirmPendingDiscard(get()))) return
+    const requestId = beginViewRequest()
     if (projectId) {
       try {
         const created = await chatApi.createChat(projectId)
+        if (requestId !== viewRequestId) return
         captureActiveTabSnapshot(set, get)
         applyDetail(set, created)
         upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
         scheduleChatsRefresh(get)
-      } catch (e) { set({ error: toErrorMessage(e) }) }
+      } catch (e) {
+        if (requestId !== viewRequestId) return
+        set({ error: toErrorMessage(e) })
+      }
       return
     }
     captureActiveTabSnapshot(set, get)
@@ -556,10 +569,12 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       try { sessionStorage.removeItem(TEMPORARY_CHAT_STORAGE_KEY) } catch {}
     }
     if (get().tabs.length > 0) return
+    beginViewRequest()
     resetToDraft(set, get, newDraftId())
   },
 
   resetSession() {
+    beginViewRequest()
     get().clearDraft()
     set({
       chats: [],
@@ -739,18 +754,19 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async openChat(chatId, branchId) {
-    const requestId = ++openChatRequestId
     if (get().chatId !== chatId && !(await confirmPendingDiscard(get()))) return
-    if (requestId !== openChatRequestId) return
+    const requestId = beginViewRequest()
+    pendingOpenChat = { chatId, requestId }
     try {
       if (get().chatId !== chatId) {
         captureActiveTabSnapshot(set, get)
         get().clearDraft()
       }
       const detail = await chatApi.fetchChat(chatId, branchId)
-      if (requestId !== openChatRequestId) return
+      if (requestId !== viewRequestId) return
       applyDetail(set, detail)
       upsertTab(set, get, detail.chatMeta, detail.branchMeta.branchId)
+      if (pendingOpenChat?.requestId === requestId) pendingOpenChat = null
       get().reattachGeneratingBlocks()
       void get().loadSideChatContext()
       await refreshFeedbacks(
@@ -758,10 +774,11 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         detail.chatMeta.chatId,
         detail.branchMeta.branchId,
         detail.messageBlocks,
-        () => requestId === openChatRequestId,
+        () => requestId === viewRequestId,
       )
     } catch (e) {
-      if (requestId !== openChatRequestId) return
+      if (requestId !== viewRequestId) return
+      if (pendingOpenChat?.requestId === requestId) pendingOpenChat = null
       if (errorCode(e) === 'CHAT_ACCESS_DENIED' || errorCode(e) === 'CHAT_NOT_FOUND') {
         set((s) => ({ chats: s.chats.filter((item) => item.chatId !== chatId), error: toErrorMessage(e) }))
       } else {
@@ -833,11 +850,15 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     const { chatId } = get()
     if (!chatId) return false
     if (get().branchId !== branchId && !(await confirmPendingDiscard(get()))) return false
+    if (get().chatId !== chatId) return false
+    const requestId = beginViewRequest()
     try {
       if (get().branchId !== branchId) get().clearDraft()
       const detail = await chatApi.fetchBranch(chatId, branchId)
+      if (requestId !== viewRequestId || get().chatId !== chatId) return false
+      const loadedBranchId = detail.branchMeta.branchId
       set({
-        branchId: detail.branchMeta.branchId,
+        branchId: loadedBranchId,
         blocks: detail.messageBlocks,
         sourceContext: detail.sourceContextInfo,
         // 브랜치가 바뀌면 이전 브랜치의 선택은 의미가 없다
@@ -866,9 +887,16 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       })
       get().reattachGeneratingBlocks()
       void get().loadSideChatContext()
-      await refreshFeedbacks(set, chatId, branchId, detail.messageBlocks)
+      await refreshFeedbacks(
+        set,
+        chatId,
+        branchId,
+        detail.messageBlocks,
+        () => requestId === viewRequestId && get().chatId === chatId && get().branchId === loadedBranchId,
+      )
       return true
     } catch (e) {
+      if (requestId !== viewRequestId || get().chatId !== chatId) return false
       set({ error: toErrorMessage(e) })
       return false
     }
@@ -920,6 +948,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
     if (!(await confirmPendingDiscard(get()))) return
+    beginViewRequest()
     captureActiveTabSnapshot(set, get)
     const draftId = newDraftId()
     resetToDraftFields(set, get)
@@ -1536,6 +1565,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       await get().openChat(tab.chatId, tab.branchId)
       return
     }
+    beginViewRequest()
     resetToDraftFields(set, get)
     set({ activeTabId: id })
   },
@@ -1547,6 +1577,9 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
     const closing = tabs[index]
     if (id !== activeTabId) {
+      if (closing.chatId && pendingOpenChat?.chatId === closing.chatId && pendingOpenChat.requestId === viewRequestId) {
+        beginViewRequest()
+      }
       set((s) => ({ tabs: s.tabs.filter((t) => t.id !== id) }))
       if (closing.isTemporary && closing.chatId) {
         forgetTemporaryChat(closing.chatId)
@@ -1570,6 +1603,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     }
     const remaining = get().tabs
     if (remaining.length === 0 && options.onEmptyTabs) {
+      beginViewRequest()
       options.onEmptyTabs()
       return
     }
@@ -1583,10 +1617,12 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       return
     }
     if (tab) {
+      beginViewRequest()
       resetToDraftFields(set, get)
       set({ activeTabId: tab.id })
       return
     }
+    beginViewRequest()
     resetToDraft(set, get, newDraftId())
   },
 

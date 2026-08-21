@@ -15,6 +15,9 @@ import { useAuthStore } from '@/store/authStore'
 import { connectRealtime, createChatStore, disconnectRealtime, setSidePanelOpener, useChatStore } from '@/store/chatStore'
 import { useNotificationStore } from '@/store/notificationStore'
 
+const MAIN_PANE_ID = 'main-chat-pane'
+const MAIN_CONTEXT_EDITOR_BUTTON_ID = `${MAIN_PANE_ID}-context-editor-button`
+
 // 앱 최상단 틀 — 로그인 여부에 따라 로그인 화면 또는 3단 작업 화면을 보여준다
 export default function App() {
   const user = useAuthStore((s) => s.user)
@@ -107,7 +110,14 @@ function Workspace() {
     setSidePanelOpener(async (chatId, branchId) => {
       let store = sideStoreRef.current
       if (!store) {
-        store = createChatStore({ onEmptyTabs: () => { sideStoreRef.current = null; setSideStore(null); setSidePanelFocused(false) } })
+        store = createChatStore({
+          onEmptyTabs: () => {
+            sideStoreRef.current = null
+            setSideStore(null)
+            setSidePanelFocused(false)
+            requestAnimationFrame(() => document.getElementById(MAIN_CONTEXT_EDITOR_BUTTON_ID)?.focus())
+          },
+        })
         sideStoreRef.current = store
         setSideStore(() => store)
       }
@@ -177,7 +187,7 @@ function Workspace() {
         onPeekLeave={() => setSidebarPeeking(false)}
       />
       <div className="flex min-w-0 flex-1">
-        <ChatPane store={useChatStore} sidebarOpen={sidebarOpen} onOpenSidebar={openSidebar} />
+        <ChatPane store={useChatStore} sidebarOpen={sidebarOpen} onOpenSidebar={openSidebar} paneId={MAIN_PANE_ID} />
         {sideStore && (
           // lg 미만에서는 sidePanelFocused일 때만 메인 대신 전체화면으로 보여준다.
           // lg 이상에서는 항상 메인 옆에 나란히, 폭은 sideWidth로 조절한다.
@@ -205,7 +215,7 @@ function Workspace() {
               }}
               className="absolute inset-y-0 left-0 z-20 hidden w-1 cursor-col-resize hover:bg-blue lg:block"
             />
-            <ChatPane store={sideStore} sidebarOpen={sidebarOpen} onOpenSidebar={openSidebar} />
+            <ChatPane store={sideStore} sidebarOpen={sidebarOpen} onOpenSidebar={openSidebar} paneId="side-chat-pane" />
           </div>
         )}
       </div>
