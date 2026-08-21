@@ -16,6 +16,7 @@ import type { ProjectLibraryResource } from '@/types/api'
 
 interface Props {
   onOpenContextEditor?: () => void
+  contextEditorButtonId?: string
   sidebarOpen: boolean
   onOpenSidebar: () => void
   /** 이전 호출부 호환용. Context 편집 탭 구조에서는 쓰지 않는다. */
@@ -24,7 +25,7 @@ interface Props {
 }
 
 // 중앙 채팅 영역 — 메시지 블록 목록과 입력창
-export function ChatArea({ onOpenContextEditor = () => {}, sidebarOpen, onOpenSidebar }: Props) {
+export function ChatArea({ onOpenContextEditor = () => {}, contextEditorButtonId, sidebarOpen, onOpenSidebar }: Props) {
   const chatTitle = useChatPaneStore((s) => s.chatTitle)
   const chatId = useChatPaneStore((s) => s.chatId)
   const blocks = useChatPaneStore((s) => s.blocks)
@@ -187,6 +188,7 @@ export function ChatArea({ onOpenContextEditor = () => {}, sidebarOpen, onOpenSi
         </div>
         <div className="flex items-center gap-1.5">
         <button
+          id={contextEditorButtonId}
           type="button"
           onClick={onOpenContextEditor}
           title="Context 편집"
