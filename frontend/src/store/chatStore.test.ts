@@ -687,6 +687,27 @@ describe('chatStore 탭 상태', () => {
     expect(state.sideChatsByBlockId['block-1'].map((c) => c.chatId)).toEqual(['side-1'])
     expect(state.sideChatTreeRootId).toBe('chat-1')
   })
+
+  it('중첩 사이드 대화에서 만든 분기를 원본 메시지 위치에 붙인다', async () => {
+    useChatStore.setState({ chatId: 'side-b', branchId: 'side-b-branch' })
+    sideChatApi.fetchSideChatTree.mockResolvedValue({
+      rootChatId: 'chat-1',
+      chats: [
+        { chatId: 'chat-1', title: '메인', kind: 'MAIN', parentChatId: null, parentBranchId: null, parentMessageBlockId: null, rootChatId: null },
+        { chatId: 'side-a', title: '사이드 A', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-1', parentMessageBlockId: 'root-block', rootChatId: 'chat-1' },
+        { chatId: 'side-b', title: '사이드 B', kind: 'SIDE', parentChatId: 'side-a', parentBranchId: 'side-a-branch', parentMessageBlockId: 'a-block', rootChatId: 'chat-1' },
+        {
+          chatId: 'branch-4', title: '분기 4', kind: 'SIDE', parentChatId: 'side-a',
+          parentBranchId: 'side-b-branch', parentMessageBlockId: 'side-b-block', rootChatId: 'chat-1',
+          forkedFromChatId: 'side-b', forkedFromMessageBlockId: 'side-b-block',
+        },
+      ],
+    })
+
+    await useChatStore.getState().loadSideChatContext()
+
+    expect(useChatStore.getState().sideChatsByBlockId['side-b-block'].map((c) => c.chatId)).toEqual(['branch-4'])
+  })
 })
 
 // 0820_08 마일스톤 C: 사이드 채팅 결과의 선택적 메인 반영

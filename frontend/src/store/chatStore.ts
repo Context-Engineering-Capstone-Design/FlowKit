@@ -1617,9 +1617,11 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       const tree = await sideChatApi.fetchSideChatTree(chatId)
       const byBlock: Record<string, SideChatSummary[]> = {}
       for (const child of tree.chats) {
-        if (child.parentChatId !== chatId || child.parentBranchId !== branchId) continue
-        if (!child.parentMessageBlockId) continue
-        ;(byBlock[child.parentMessageBlockId] ??= []).push(child)
+        const sourceChatId = child.forkedFromChatId ?? child.parentChatId
+        const sourceMessageBlockId = child.forkedFromMessageBlockId ?? child.parentMessageBlockId
+        if (sourceChatId !== chatId || child.parentBranchId !== branchId) continue
+        if (!sourceMessageBlockId) continue
+        ;(byBlock[sourceMessageBlockId] ??= []).push(child)
       }
       // 요청이 진행되는 동안 사용자가 다른 탭으로 옮겼을 수 있으니 다시 확인한다
       if (get().chatId !== chatId) return
