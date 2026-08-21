@@ -11,7 +11,7 @@ import { reportClientError } from '@/lib/errorReporting'
 import { handleAuthExpired } from '@/lib/authExpiration'
 import { AUTH_EXPIRED_EVENT } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
-import { createChatStore, setSidePanelOpener, useChatStore } from '@/store/chatStore'
+import { connectRealtime, createChatStore, disconnectRealtime, setSidePanelOpener, useChatStore } from '@/store/chatStore'
 import { useNotificationStore } from '@/store/notificationStore'
 
 // 앱 최상단 틀 — 로그인 여부에 따라 로그인 화면 또는 3단 작업 화면을 보여준다
@@ -80,6 +80,13 @@ function Workspace() {
   useEffect(() => {
     void openDefaultChat()
   }, [openDefaultChat])
+
+  // 0821_05: 로그인해 있는 동안(=Workspace가 떠 있는 동안) 다른 창의 변화를
+  // 받는 실시간 채널을 열어 둔다. 로그아웃하면 Workspace가 사라지며 닫힌다.
+  useEffect(() => {
+    connectRealtime()
+    return () => disconnectRealtime()
+  }, [])
 
 
   useEffect(() => {

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.exceptions import AiInputSnapshotIncompleteError, AiInputSnapshotNotFoundError, AiJobNotFoundError, AiJobNotRetryableError, AppError, ValidationError
 from app.models import AiResponseFeedback, AiResponseJob, AiResponseJobStatus, AiResponseJobType, AiResponseRating, Branch, BlockGenerationStatus, Chat, ChatKind, MessageBlock, MessageRole, Project, ProjectMemory, User, VersionSourceType
-from app.services import ai_execution_service, chat_service, context_service, input_assist_service, message_service, project_service, streaming_service, user_setting_service
+from app.services import ai_execution_service, chat_service, context_service, input_assist_service, message_service, project_service, realtime_service, streaming_service, user_setting_service
 from modeling import EmptyAnswerError
 
 # 백그라운드 스레드가 새 DB 세션을 열 때 쓰는 팩토리. 요청 스레드는 DbSession
@@ -264,6 +264,7 @@ def _run_generation_job(job_id, block_id, version_id, chat_id, user_id, snapshot
     db = session_factory()
     try:
         job = db.get(AiResponseJob, job_id)
+        branch_id = job.branch_id
         job.generation_started_at = datetime.now(UTC)
         chat = db.get(Chat, chat_id)
         block = db.get(MessageBlock, block_id)
@@ -350,6 +351,8 @@ def _run_generation_job(job_id, block_id, version_id, chat_id, user_id, snapshot
 
     error_out = {"errorCode": error_code, "message": error_message} if error_code else None
     streaming_service.publish_done(job_id, job_status.value, final_text, sources_payload or [], error_out)
+    realtime_service.publish_chat_activity(user_id, chat_id, branch_id)
+    realtime_service.publish_chats_changed(user_id)
 
 
 def _request_from_snapshot(db, user, chat, snapshot):
@@ -380,7 +383,12 @@ def _sources_payload(sources: list) -> list[dict] | None:
 
 
 def _new_job(user, chat, branch, user_block_id, kind, snapshot, source=None):
-    return AiResponseJob(user_id=user.id, chat_id=chat.id, branch_id=branch.id, user_message_block_id=user_block_id, source_job_id=source, job_type=kind, status=AiResponseJobStatus.REQUESTED, input_snapshot=snapshot)
+    # id를 미리 만들어 직접 넣는다 — mapped_column(default=uuid.uuid4)는 flush 시점에야
+    # 채워지므로, 커밋 전인 여기서 job.id를 그냥 읽으면 아직 None이다.
+    job_id = uuid.uuid4()
+    job = AiResponseJob(id=job_id, user_id=user.id, chat_id=chat.id, branch_id=branch.id, user_message_block_id=user_block_id, source_job_id=source, job_type=kind, status=AiResponseJobStatus.REQUESTED, input_snapshot=snapshot)
+    realtime_service.publish_chat_activity(user.id, chat.id, branch.id, job_id)
+    return job
 
 def _origin_job(db, assistant_id):
     return db.scalar(select(AiResponseJob).where(AiResponseJob.assistant_message_block_id == assistant_id, AiResponseJob.job_type == AiResponseJobType.GENERATE, AiResponseJob.status == AiResponseJobStatus.COMPLETED).order_by(AiResponseJob.created_at).limit(1))

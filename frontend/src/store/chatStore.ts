@@ -3,6 +3,7 @@ import * as chatApi from '@/api/chat'
 import { errorCode, errorDetail, toErrorMessage } from '@/api/client'
 import * as convApi from '@/api/conversation'
 import * as inputAssistApi from '@/api/inputAssist'
+import * as realtimeApi from '@/api/realtime'
 import * as sideChatApi from '@/api/sideChat'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useNotificationStore } from '@/store/notificationStore'
@@ -70,10 +71,14 @@ let latestChatListRequestId: string | null = null
 let latestChatMoreRequestId: string | null = null
 let chatStatusPoll: ReturnType<typeof setInterval> | null = null
 
+// 0821_05: 실시간 이벤트 채널이 주 경로다. 이 폴링은 연결이 끊겼다가 재연결
+// 전까지 이벤트를 놓쳤을 때만 의미가 있는 안전망이라 간격을 크게 늘렸다.
+const CHAT_STATUS_POLL_INTERVAL_MS = 60_000
+
 function syncChatStatusPolling(get: () => ChatState) {
   const shouldPoll = get().chats.some((chat) => chat.isGenerating)
   if (shouldPoll && chatStatusPoll === null) {
-    chatStatusPoll = setInterval(() => void get().loadChats(get().chatListKeyword || undefined), 2500)
+    chatStatusPoll = setInterval(() => void get().loadChats(get().chatListKeyword || undefined), CHAT_STATUS_POLL_INTERVAL_MS)
   } else if (!shouldPoll && chatStatusPoll !== null) {
     clearInterval(chatStatusPoll)
     chatStatusPoll = null
@@ -1083,7 +1088,10 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
   reattachGeneratingBlocks() {
     for (const block of get().blocks) {
-      if (block.generationStatus === 'generating' && block.generationJobId) {
+      // 이미 이 블록에 붙어 있는 스트림이 있으면 다시 붙지 않는다 — 이 창 자신이
+      // 방금 보낸 요청이면 attachToJob이 이미 실행 중이다 (0821_05, 다른 창의
+      // chat_activity 신호로 다시 불려도 중복 연결하지 않기 위함).
+      if (block.generationStatus === 'generating' && block.generationJobId && !activeStreams.has(block.blockId)) {
         void get().attachToJob(block.blockId, block.generationJobId)
       }
     }
@@ -1577,6 +1585,75 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
 /** 좌측 사이드바와 전역 메뉴가 쓰는 기본(메인) 패널 상태. */
 export const useChatStore = createChatStore()
+
+// 0821_05: 같은 계정의 다른 창에서 생긴 변화를 받는 실시간 채널. 로그인 하나당
+// 연결 하나만 유지한다 — 여러 패널이 있어도 채널은 공유한다.
+let realtimeController: AbortController | null = null
+let realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null
+const REALTIME_RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 16000, 30000]
+
+/** 로그인한 동안 계속 열어 둔다. 끊기면 지수 백오프로 다시 연결한다. */
+export function connectRealtime() {
+  if (realtimeController) return
+  realtimeController = new AbortController()
+  void runRealtimeLoop(realtimeController.signal, 0)
+}
+
+/** 로그아웃 시 연결을 닫는다. */
+export function disconnectRealtime() {
+  realtimeController?.abort()
+  realtimeController = null
+  if (realtimeReconnectTimer) {
+    clearTimeout(realtimeReconnectTimer)
+    realtimeReconnectTimer = null
+  }
+}
+
+async function runRealtimeLoop(signal: AbortSignal, attempt: number): Promise<void> {
+  if (signal.aborted) return
+  let connectedThisAttempt = false
+  try {
+    await realtimeApi.openRealtimeStream(
+      {
+        onOpen: () => { connectedThisAttempt = true },
+        onChatsChanged: handleRealtimeChatsChanged,
+        onChatActivity: (data) => void handleRealtimeChatActivity(data),
+      },
+      signal,
+    )
+  } catch {
+    // 연결 실패·중간 끊김 모두 아래 재연결 로직을 탄다
+  }
+  if (signal.aborted) return
+  // 재연결 직후에는 끊긴 동안 놓쳤을 변화를 보정하기 위해 목록을 강제로 다시 불러온다.
+  handleRealtimeChatsChanged()
+  const nextAttempt = connectedThisAttempt ? 0 : attempt + 1
+  const delay = REALTIME_RECONNECT_DELAYS_MS[Math.min(attempt, REALTIME_RECONNECT_DELAYS_MS.length - 1)]
+  realtimeReconnectTimer = setTimeout(() => {
+    realtimeReconnectTimer = null
+    void runRealtimeLoop(signal, nextAttempt)
+  }, delay)
+}
+
+function handleRealtimeChatsChanged() {
+  const state = useChatStore.getState()
+  void state.loadChats(state.chatListKeyword || undefined)
+}
+
+/** 지금 열려 있는 대화와 같은 chatId·branchId일 때만 조용히 다시 불러오고, 생성 중인 블록에 다시 붙는다. */
+async function handleRealtimeChatActivity(data: realtimeApi.RealtimeChatActivity) {
+  const before = useChatStore.getState()
+  if (before.chatId !== data.chatId || before.branchId !== data.branchId) return
+  try {
+    const detail = await chatApi.fetchChat(data.chatId, data.branchId)
+    const current = useChatStore.getState()
+    if (current.chatId !== data.chatId || current.branchId !== data.branchId) return
+    useChatStore.setState({ blocks: detail.messageBlocks, chatTitle: detail.chatMeta.title })
+  } catch {
+    return // 조회 실패는 조용히 넘어간다 — 다음 이벤트나 안전망 폴링이 보정한다
+  }
+  useChatStore.getState().reattachGeneratingBlocks()
+}
 
 /** 대화 관련 필드만 빈 상태로 되돌린다. 탭 목록 자체는 건드리지 않는다. */
 function resetToDraftFields(

@@ -36,6 +36,7 @@ from app.models import (
     MessageBlockVersion,
     User,
 )
+from app.services import realtime_service
 
 DEFAULT_TITLE = "새 대화"
 DEFAULT_SIDE_TITLE = "새 사이드 채팅"
@@ -62,6 +63,7 @@ def create_chat_with_main_branch(db: Session, user: User, project_id: uuid.UUID 
     db.commit()
     db.refresh(chat)
     db.refresh(main_branch)
+    realtime_service.publish_chats_changed(user.id)
     return chat, main_branch
 
 
@@ -154,6 +156,7 @@ def create_side_chat(
     db.commit()
     db.refresh(chat)
     db.refresh(main_branch)
+    realtime_service.publish_chats_changed(user.id)
     return chat, main_branch
 
 
@@ -219,6 +222,7 @@ def create_conversation_node(
     db.commit()
     db.refresh(chat)
     db.refresh(main_branch)
+    realtime_service.publish_chats_changed(user.id)
     return chat, main_branch
 
 
@@ -422,6 +426,7 @@ def update_title(db: Session, chat: Chat, generated_title: str) -> Chat:
     chat.title = title
     db.commit()
     db.refresh(chat)
+    realtime_service.publish_chats_changed(chat.owner_id)
     return chat
 
 
@@ -433,6 +438,7 @@ def touch_activity(db: Session, chat: Chat) -> None:
 
 def delete_chat(db: Session, chat: Chat) -> None:
     """명시적으로 선택한 노드와 모든 하위 노드를 함께 삭제한다."""
+    owner_id = chat.owner_id
     descendants: list[Chat] = []
     pending = [chat.id]
     seen: set[uuid.UUID] = set()
@@ -448,6 +454,7 @@ def delete_chat(db: Session, chat: Chat) -> None:
     for item in reversed(descendants):
         _delete_single_chat(db, item)
     _delete_single_chat(db, chat)
+    realtime_service.publish_chats_changed(owner_id)
 
 
 def _delete_single_chat(db: Session, chat: Chat) -> None:

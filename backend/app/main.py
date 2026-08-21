@@ -26,6 +26,7 @@ from app.routers import (
     message,
     observability,
     project,
+    realtime,
     refine,
     side_chat,
     user_setting,
@@ -91,6 +92,7 @@ app.include_router(user_setting.router)
 app.include_router(input_assist.router)
 app.include_router(observability.router)
 app.include_router(ai_execution.router)
+app.include_router(realtime.router)
 
 
 @app.get("/health")
