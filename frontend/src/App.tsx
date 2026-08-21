@@ -97,7 +97,7 @@ function Workspace() {
       if (!store) {
         store = createChatStore({ onEmptyTabs: () => { sideStoreRef.current = null; setSideStore(null) } })
         sideStoreRef.current = store
-        setSideStore(store)
+        setSideStore(() => store)
       }
       await store.getState().openChat(chatId, branchId)
     })
