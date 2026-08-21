@@ -132,6 +132,32 @@ it('이 브랜치가 직접 만든 답변은 재생성 버튼을 보여준다', 
   expect(screen.getByTitle('답변 다시 시도')).toBeTruthy()
 })
 
+it('버전 전환 도구막대는 목차보다 앞 레이어에서 이전 버전을 고른다', () => {
+  const setActiveVersion = vi.fn()
+  const regenerated = {
+    ...block,
+    role: 'assistant' as const,
+    currentVersionId: 'v2',
+    versionNo: 2,
+  }
+  useChatStore.setState({
+    setActiveVersion,
+    versionsByBlock: {
+      'block-1': [
+        { versionId: 'v1', versionNo: 1, content: '첫 답변', sourceType: 'generated', createdAt: '2026-08-22T00:00:00Z', isCurrent: false },
+        { versionId: 'v2', versionNo: 2, content: '다시 생성한 답변', sourceType: 'regenerated', createdAt: '2026-08-22T00:01:00Z', isCurrent: true },
+      ],
+    },
+  })
+  render(<MessageBlockItem block={regenerated} />)
+
+  const toolbar = screen.getByRole('toolbar', { name: '메시지 동작' })
+  expect(toolbar.className).toContain('z-20')
+
+  fireEvent.click(screen.getByRole('button', { name: '이전 버전' }))
+  expect(setActiveVersion).toHaveBeenCalledWith('block-1', 'v1')
+})
+
 it('웹 검색 근거를 답변 아래에 보여준다', () => {
   const withSources = {
     ...block,

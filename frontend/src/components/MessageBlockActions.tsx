@@ -67,7 +67,7 @@ export function MessageBlockActions({
     <div
       role="toolbar"
       aria-label="메시지 동작"
-      className="mt-2 flex gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+      className="relative z-20 mt-2 flex gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
     >
       {versions && versions.length > 1 && currentVersionIndex >= 0 && (
         <div className="mr-1 flex items-center rounded border border-line text-[10px] text-txt-2">
