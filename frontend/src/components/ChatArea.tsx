@@ -253,7 +253,6 @@ function EmptyState() {
 function Composer() {
   const text = useChatPaneStore((s) => s.draftText)
   const setText = useChatPaneStore((s) => s.setDraftText)
-  const chatId = useChatPaneStore((s) => s.chatId)
   const projectId = useChatPaneStore((s) => s.projectId)
   const isSending = useChatPaneStore((s) => s.isSending)
   // 생성 중인 답변이 있으면 전송 버튼 자리를 중단 버튼으로 바꾼다 (문서 C5).
@@ -265,7 +264,7 @@ function Composer() {
   const appliedContextLabel = useChatPaneStore((s) => s.appliedContextLabel)
   const clearApplied = useChatPaneStore((s) => s.clearAppliedContext)
   const sendMessage = useChatPaneStore((s) => s.sendMessage)
-  const attachments = useChatPaneStore((s) => s.draftAttachments)
+  const attachments = useChatPaneStore((s) => s.draftAttachments ?? [])
   const addFiles = useChatPaneStore((s) => s.addFiles)
   const removeAttachment = useChatPaneStore((s) => s.removeAttachment)
   const retryAttachment = useChatPaneStore((s) => s.retryAttachment)

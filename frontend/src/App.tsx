@@ -69,8 +69,10 @@ function Workspace() {
   const sideStoreRef = useRef<typeof useChatStore | null>(null)
   const [sideWidth, setSideWidth] = useState(() => Number(sessionStorage.getItem('flowkit_side_panel_width')) || 520)
   const openDefaultChat = useChatStore((s) => s.openDefaultChat)
-  const draftText = useChatStore((s) => s.draftText)
-  const attachmentCount = useChatStore((s) => s.draftAttachments.length)
+  // Vite가 상태 모듈을 교체하는 순간에도 이전 Store 모양 때문에 작업 화면 전체가
+  // 무너지지 않도록, 아직 없는 초안 필드는 빈 값으로 읽는다.
+  const draftText = useChatStore((s) => s.draftText ?? '')
+  const attachmentCount = useChatStore((s) => s.draftAttachments?.length ?? 0)
   const editingBlockId = useChatStore((s) => s.editingBlockId)
   const editingDraft = useChatStore((s) => s.editingDraft)
   const editingOriginal = useChatStore((s) => s.editingOriginal)
