@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ChatArea } from '@/components/ChatArea'
 import { useChatStore } from '@/store/chatStore'
@@ -51,6 +51,57 @@ function renderChat(sidebarOpen = true, onOpenSidebar = () => undefined) {
   )
   return { renameChat }
 }
+
+it('AI 답변이 스트리밍으로 길어지는 동안에는 다시 스크롤하지 않는다', () => {
+  useChatStore.setState({
+    chatId: 'chat-1', chatTitle: '대화', branches: [], selectedBlockIds: [], appliedBlockIds: [],
+    draftAttachments: [], models: [], isSending: false,
+    loadInputAssist: () => Promise.resolve(), newChat: () => Promise.resolve(), addFiles: () => Promise.resolve(),
+    sendMessage: () => Promise.resolve(),
+    blocks: [
+      { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
+    ],
+  })
+  render(
+    <ChatArea panelOpen={false} onTogglePanel={() => undefined} sidebarOpen onOpenSidebar={() => undefined} />,
+  )
+  const scrollSpy = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>
+  scrollSpy.mockClear()
+
+  // 블록 개수는 그대로, 같은 블록의 내용만 길어진다(스트리밍 조각 도착).
+  act(() => {
+    useChatStore.setState((s) => ({
+      blocks: s.blocks.map((b) => (b.blockId === 'a1' ? { ...b, content: '답변이 점점 길어지는 중입니다' } : b)),
+    }))
+  })
+
+  expect(scrollSpy).not.toHaveBeenCalled()
+})
+
+it('새 메시지 블록이 추가되면 맨 아래로 스크롤한다', () => {
+  useChatStore.setState({
+    chatId: 'chat-1', chatTitle: '대화', branches: [], selectedBlockIds: [], appliedBlockIds: [],
+    draftAttachments: [], models: [], isSending: false,
+    loadInputAssist: () => Promise.resolve(), newChat: () => Promise.resolve(), addFiles: () => Promise.resolve(),
+    sendMessage: () => Promise.resolve(),
+    blocks: [
+      { blockId: 'u1', branchId: 'branch-1', role: 'user', content: '질문', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+    ],
+  })
+  render(
+    <ChatArea panelOpen={false} onTogglePanel={() => undefined} sidebarOpen onOpenSidebar={() => undefined} />,
+  )
+  const scrollSpy = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>
+  scrollSpy.mockClear()
+
+  act(() => {
+    useChatStore.setState((s) => ({
+      blocks: [...s.blocks, { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '', currentVersionId: null, orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' }],
+    }))
+  })
+
+  expect(scrollSpy).toHaveBeenCalled()
+})
 
 it('사이드바가 닫혀 있으면 여는 버튼이 보이고, 눌러 열 수 있다 (0821_01 B1)', () => {
   const onOpenSidebar = vi.fn()

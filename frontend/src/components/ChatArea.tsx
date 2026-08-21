@@ -39,8 +39,6 @@ export function ChatArea({ panelOpen, onTogglePanel, sidebarOpen, onOpenSidebar 
   const titleInputRef = useRef<HTMLInputElement>(null)
   const ignoreTitleBlur = useRef(false)
 
-  // 마지막 블록 내용(스트리밍 중이면 계속 늘어난다)이 바뀔 때마다 따라 내려간다.
-  const lastBlockContent = blocks.length ? blocks[blocks.length - 1].content : ''
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -49,9 +47,13 @@ export function ChatArea({ panelOpen, onTogglePanel, sidebarOpen, onOpenSidebar 
   const [autoFollow, setAutoFollow] = useState(true)
   const NEAR_BOTTOM_PX = 80
 
+  // 새 메시지가 추가될 때만 맨 아래로 내린다. AI 답변이 스트리밍으로 길어지는
+  // 동안(블록 내용만 계속 늘어날 때)에는 다시 내리지 않는다 — 답변이 길어질수록
+  // 매 글자 조각마다 화면을 끌어내려 사용자가 위쪽을 읽지 못하게 되는 문제였다.
   useEffect(() => {
     if (autoFollow) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [blocks.length, isSending, lastBlockContent, autoFollow])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks.length, isSending, autoFollow])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 })
