@@ -1,4 +1,4 @@
-"""사용자별 AI API 키와 설정 API 테스트 (BE-USERSET-001~008)."""
+"""사용자별 AI API 키와 설정 API 테스트 ."""
 
 from __future__ import annotations
 
@@ -354,7 +354,7 @@ def test_provider_failure_response_does_not_expose_api_key(
     )
 
     # 생성은 배경에서 도니 전송 응답은 항상 즉시 201이다. 실패는 답변 블록의
-    # 상태로 나타난다 (BE-AIRESP-007).
+    # 상태로 나타난다 .
     assert response.status_code == 201, response.text
     assert RAW_KEY not in response.text
     block_id = response.json()["assistantBlock"]["blockId"]

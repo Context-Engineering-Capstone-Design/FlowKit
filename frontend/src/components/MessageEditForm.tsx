@@ -1,9 +1,14 @@
+import { ComposerEditor } from '@/components/ComposerEditor'
+import type { ContextRangeTag } from '@/store/chatStore'
+
 type ActionResult = void | Promise<unknown>
 
 interface Props {
   draft: string
   busy: boolean
+  tags?: ContextRangeTag[]
   onDraftChange: (draft: string) => void
+  onRemoveTag?: (id: string) => void
   onCancel: () => void
   onSaveBranch: () => ActionResult
   onSave: () => ActionResult
@@ -13,7 +18,9 @@ interface Props {
 export function MessageEditForm({
   draft,
   busy,
+  tags = [],
   onDraftChange,
+  onRemoveTag = () => {},
   onCancel,
   onSaveBranch,
   onSave,
@@ -22,12 +29,19 @@ export function MessageEditForm({
 
   return (
     <div className="mt-1">
-      <textarea
-        value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
-        aria-label="메시지 내용 수정"
-        className="min-h-24 w-full rounded-lg bg-bg-2 p-2 text-[13px] text-txt-0 outline-none"
-      />
+      <div className="min-h-24 rounded-lg bg-bg-2 p-2 text-[13px] text-txt-0">
+        <ComposerEditor
+          text={draft}
+          tags={tags}
+          focusSignal={0}
+          autoFocus
+          placeholder="메시지 내용 수정"
+          onChangeText={onDraftChange}
+          onRemoveTag={onRemoveTag}
+          onSubmit={() => { if (!busy && !empty) void onSave() }}
+          onPasteFiles={() => {}}
+        />
+      </div>
       <div className="mt-1 flex gap-1">
         <button
           type="button"

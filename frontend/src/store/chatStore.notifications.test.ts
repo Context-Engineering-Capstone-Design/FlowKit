@@ -67,7 +67,7 @@ describe('chatStore 공통 오류 안내', () => {
 
     const banner = useNotificationStore.getState().banner
     expect(chatApi.fetchChats).toHaveBeenCalledWith(
-      { keyword: '느린 검색' },
+      { keyword: '느린 검색', limit: 10 },
       expect.any(AbortSignal),
     )
     expect(banner).toMatchObject({

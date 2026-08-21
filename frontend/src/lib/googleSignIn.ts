@@ -1,7 +1,7 @@
 /** Google Identity Services 연동.
  *
  * 구글이 제공하는 스크립트를 불러와 공식 로그인 버튼을 그린다. 버튼을 누르면
- * ID 토큰을 받아오고, 그 토큰의 진위 확인은 백엔드가 한다(BE-AUTH-002).
+ * ID 토큰을 받아오고, 그 토큰의 진위 확인은 백엔드가 한다.
  */
 
 const SCRIPT_SRC = 'https://accounts.google.com/gsi/client'

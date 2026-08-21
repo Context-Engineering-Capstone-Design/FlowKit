@@ -16,7 +16,7 @@ class RunRefineRequest(BaseModel):
 
 
 class RefineResultOut(BaseModel):
-    """원본과 정제본을 함께 준다. 화면이 나란히 비교해 보여준다 (REQ-029)."""
+    """원본과 정제본을 함께 준다. 화면이 나란히 비교해 보여준다 ."""
 
     result_id: uuid.UUID = Field(..., serialization_alias="resultId")
     block_id: uuid.UUID = Field(..., serialization_alias="blockId")
@@ -64,7 +64,7 @@ class BulkRefineFailure(BaseModel):
 
 
 class BulkRefineResponse(BaseModel):
-    """일부만 실패할 수 있어 성공·실패를 나눠 돌려준다 (BE-NOTIFY-004)."""
+    """일부만 실패할 수 있어 성공·실패를 나눠 돌려준다 ."""
 
     processed: list[RefineResultOut]
     failed: list[BulkRefineFailure]

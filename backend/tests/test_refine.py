@@ -83,7 +83,7 @@ def run_refine(client, auth, chat, blocks, instruction="핵심만 요약해줘")
     return res.json()
 
 
-# ── BE-REFINE-001~003: 실행과 결과 저장 ───────────────────────────────────
+# ── 실행과 결과 저장 ───────────────────────────────────
 
 
 def test_refine_creates_one_pending_result_per_block(
@@ -168,7 +168,7 @@ def test_refine_rejects_block_outside_branch(client, auth, chat, blocks, fake_ai
 
 
 def test_refine_rejects_inherited_block(client, auth, chat, blocks, fake_ai):
-    """A3: 하위 브랜치가 이어받은(조상 브랜치 소유) 블록은 정제 대상에서 뺀다 (BE-REFINE-005, BE-MSG-004)."""
+    """A3: 하위 브랜치가 이어받은(조상 브랜치 소유) 블록은 정제 대상에서 뺀다 ."""
     chat_id = chat["chatMeta"]["chatId"]
     branch_res = client.post(
         f"/api/chats/{chat_id}/branches",
@@ -237,13 +237,13 @@ def test_mismatched_ai_result_is_rejected(client, auth, chat, blocks, monkeypatc
     assert res.status_code == 502
 
 
-# ── BE-REFINE-005: 승인 ───────────────────────────────────────────────────
+# ── 승인 ───────────────────────────────────────────────────
 
 
 def test_approve_applies_refined_content_and_keeps_history(
     client, auth, chat, blocks, fake_ai
 ):
-    """승인은 새 버전을 쌓고 원본은 이력에 남긴다 (REQ-041, REQ-042)."""
+    """승인은 새 버전을 쌓고 원본은 이력에 남긴다 ."""
     job = run_refine(client, auth, chat, blocks)
     target = job["results"][0]
 
@@ -272,7 +272,7 @@ def test_approve_applies_refined_content_and_keeps_history(
 def test_approved_result_can_be_rolled_back_by_version(
     client, auth, chat, blocks, fake_ai
 ):
-    """승인 취소 UI 대신 버전 이동으로 되돌린다 (REQ-034)."""
+    """승인 취소 UI 대신 버전 이동으로 되돌린다 ."""
     job = run_refine(client, auth, chat, blocks)
     target = job["results"][0]
     client.post(
@@ -305,7 +305,7 @@ def test_double_approve_is_rejected(client, auth, chat, blocks, fake_ai):
     assert res.json()["errorCode"] == "REFINE_RESULT_NOT_PENDING"
 
 
-# ── BE-REFINE-006: 거절 ───────────────────────────────────────────────────
+# ── 거절 ───────────────────────────────────────────────────
 
 
 def test_reject_leaves_original_untouched(client, auth, chat, blocks, fake_ai):
@@ -334,7 +334,7 @@ def test_rejected_result_cannot_be_approved(client, auth, chat, blocks, fake_ai)
     assert client.post(f"{base}/approve", headers=auth).status_code == 409
 
 
-# ── BE-REFINE-007, 008: 일괄 처리 ─────────────────────────────────────────
+# ── , 008: 일괄 처리 ─────────────────────────────────────────
 
 
 def test_approve_all_applies_every_pending_result(client, auth, chat, blocks, fake_ai):
@@ -436,11 +436,11 @@ def test_approve_all_returns_safe_formal_failure_and_continues(
     assert "internal-secret" not in response.text
 
 
-# ── BE-REFINE-010: 미승인 정리 ────────────────────────────────────────────
+# ── 미승인 정리 ────────────────────────────────────────────
 
 
 def test_cleanup_marks_pending_as_rejected(client, auth, chat, blocks, fake_ai):
-    """패널을 닫으면 남은 대기 항목은 확정 거절된다 (REQ-043)."""
+    """패널을 닫으면 남은 대기 항목은 확정 거절된다 ."""
     job = run_refine(client, auth, chat, blocks)
     client.post(
         f"{jobs_url(chat)}/{job['refineJobId']}/results/{job['results'][0]['resultId']}/approve",
@@ -476,7 +476,7 @@ def test_cleanup_does_not_undo_approved(client, auth, chat, blocks, fake_ai):
     assert detail.json()["messageBlocks"][0]["content"] == "[정제] 원본0"
 
 
-# ── BE-REFINE-011: 권한 ───────────────────────────────────────────────────
+# ── 권한 ───────────────────────────────────────────────────
 
 
 def test_job_from_other_chat_is_not_found(client, auth, chat, blocks, fake_ai):

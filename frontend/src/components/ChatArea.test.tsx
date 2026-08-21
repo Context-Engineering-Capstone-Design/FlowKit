@@ -142,7 +142,7 @@ it('Esc를 누르면 상단 제목 변경을 취소한다', () => {
 
 // 0821_07: 입력창 안 인라인 Context 태그 칩
 
-it('선택 범위 태그를 입력창 안에 짧은 미리보기 칩으로 보여주고 X로 제거할 수 있다 (B1, D2)', () => {
+it('선택 범위 태그를 입력창 안에 짧은 미리보기 칩으로 보여주고 X로 제거할 수 있다 ', () => {
   const selectedText = '원본 문장의 아주 중요한 일부분입니다'
   useChatStore.setState({
     contextRangeTags: [{
@@ -162,7 +162,7 @@ it('선택 범위 태그를 입력창 안에 짧은 미리보기 칩으로 보�
   expect(editor.querySelector('[data-range-tag-id="tag-1"]')).toBeNull()
 })
 
-it('태그에 호버하면 선택 당시 스냅샷 기준으로 고른 범위를 강조해 보여준다 (B2, D3)', () => {
+it('태그에 호버하면 선택 당시 스냅샷 기준으로 고른 범위를 강조해 보여준다 ', () => {
   const selectedText = '골라둔 부분'
   const snapshotText = `앞부분 ${selectedText} 뒷부분`
   useChatStore.setState({

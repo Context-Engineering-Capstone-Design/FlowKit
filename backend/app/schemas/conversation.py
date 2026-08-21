@@ -7,18 +7,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.input_assist import AttachmentOut, SearchSourceOut
-from app.schemas.message import BlockResponse
+from app.schemas.message import AppliedContextOut, BlockResponse, ContextRangeIn
 from app.schemas.notification import ActionMeta
-
-
-class ContextRangeIn(BaseModel):
-    """드래그로 고른 메시지 안 부분 범위 (0820_13). 전체 블록이 아니라 이 스니펫만 Context 로 쓴다."""
-
-    block_id: uuid.UUID = Field(..., alias="blockId")
-    version_id: uuid.UUID = Field(..., alias="versionId")
-    snippet_text: str = Field(..., alias="snippetText", min_length=1)
-
-    model_config = ConfigDict(populate_by_name=True)
 
 
 class SendMessageRequest(BaseModel):
@@ -35,15 +25,6 @@ class SendMessageRequest(BaseModel):
     attachment_ids: list[uuid.UUID] = Field(default_factory=list, alias="attachmentIds")
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field("medium", alias="reasoningEffort")
     library_resource_ids: list[uuid.UUID] = Field(default_factory=list, alias="libraryResourceIds")
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class AppliedContextOut(BaseModel):
-    block_id: uuid.UUID = Field(..., serialization_alias="blockId")
-    version_id: uuid.UUID = Field(..., serialization_alias="versionId")
-    order_index: int = Field(..., serialization_alias="orderIndex")
-    content: str
 
     model_config = ConfigDict(populate_by_name=True)
 

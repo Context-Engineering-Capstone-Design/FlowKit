@@ -1,4 +1,4 @@
-"""브랜치 서비스 (BE-BRANCH-001 ~ BE-BRANCH-006).
+"""브랜치 서비스 .
 
 참조형 브랜치: 분기 시점까지의 메시지를 복사하지 않는다. 조상 브랜치를 분기점까지
 거슬러 올라가며 이어붙여 화면에 보여줄 전체 흐름을 만든다.
@@ -42,7 +42,7 @@ _MAX_ANCESTOR_DEPTH = 100
 
 
 def get_branch_in_chat(db: Session, chat: Chat, branch_id: uuid.UUID) -> Branch:
-    """브랜치 접근 권한 공통 검증 (BE-BRANCH-006).
+    """브랜치 접근 권한 공통 검증 .
 
     채팅 소유권은 호출 전에 chat_service.get_owned_chat 으로 확인한다.
     """
@@ -75,7 +75,7 @@ def get_main_branch(db: Session, chat: Chat) -> Branch:
 
 
 def list_branches(db: Session, chat: Chat) -> list[Branch]:
-    """Main 을 맨 앞에 두고 나머지는 생성순 (BE-BRANCH-001)."""
+    """Main 을 맨 앞에 두고 나머지는 생성순 ."""
     branches = db.scalars(
         select(Branch).where(Branch.chat_id == chat.id).order_by(Branch.created_at)
     ).all()
@@ -142,7 +142,7 @@ def create_branch(
     context_block_ids: list[uuid.UUID],
     edited_base_content: str | None = None,
 ) -> CreateBranchResult:
-    """선택 Context 기반 브랜치 생성 (BE-BRANCH-003, 004, 005)."""
+    """선택 Context 기반 브랜치 생성 (, 004, 005)."""
     name = (branch_name or "").strip()
     if not name:
         number = 1
@@ -238,7 +238,7 @@ def create_branch(
 
 
 def build_source_context_info(db: Session, branch: Branch) -> list[dict]:
-    """브랜치 상단에 표시할 출발 Context 정보 (BE-BRANCH-002).
+    """브랜치 상단에 표시할 출발 Context 정보 .
 
     Context pill 을 누르면 원본 위치로 이동해야 하므로, 원본 블록이 그 브랜치
     흐름에서 몇 번째인지(scrollTargetIndex)를 함께 계산한다.

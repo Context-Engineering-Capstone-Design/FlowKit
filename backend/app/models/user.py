@@ -25,7 +25,7 @@ class User(Base, TimestampMixin):
 
 
 class AuthSession(Base, TimestampMixin):
-    """refreshToken 회전(BE-AUTH-006)을 위해 토큰 원문 대신 해시를 저장한다."""
+    """refreshToken 회전을 위해 토큰 원문 대신 해시를 저장한다."""
 
     __tablename__ = "auth_sessions"
 

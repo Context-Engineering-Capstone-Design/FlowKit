@@ -16,6 +16,7 @@ interface Props {
   text: string
   tags: ContextRangeTag[]
   focusSignal: number
+  autoFocus?: boolean
   placeholder?: string
   onChangeText: (text: string) => void
   onRemoveTag: (id: string) => void
@@ -31,7 +32,7 @@ export interface ComposerEditorHandle {
 
 // 질문 글 사이에 Context 태그 칩을 끼워 넣는 입력 영역
 export const ComposerEditor = forwardRef<ComposerEditorHandle, Props>(function ComposerEditor(
-  { text, tags, focusSignal, placeholder = '무엇이든 물어보세요', onChangeText, onRemoveTag, onSubmit, onPasteFiles },
+  { text, tags, focusSignal, autoFocus = true, placeholder = '무엇이든 물어보세요', onChangeText, onRemoveTag, onSubmit, onPasteFiles },
   ref,
 ) {
   const editorRef = useRef<HTMLDivElement>(null)
@@ -83,8 +84,22 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, Props>(function C
   }))
 
   useEffect(() => {
-    editorRef.current?.focus()
-  }, [focusSignal])
+    if (autoFocus) editorRef.current?.focus()
+  }, [autoFocus, focusSignal])
+
+  useEffect(() => {
+    const el = editorRef.current
+    if (!el || !text || extractComposerText(el) || listComposerChipIds(el).length > 0) return
+    el.textContent = text
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    syncEmpty()
+    resize()
+  }, [text])
 
   useEffect(() => {
     const el = editorRef.current

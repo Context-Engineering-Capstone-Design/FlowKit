@@ -1,6 +1,6 @@
 @import 'tailwindcss';
 
-/* UI 시안(기획 문서/FlowKit_0520.html)의 색을 그대로 옮겼다.
+/* 서비스 화면의 색을 그대로 옮겼다.
    화면을 만들 때 색을 직접 쓰지 말고 이 토큰을 쓴다. */
 @theme {
   --color-bg-0: #141414;
@@ -25,7 +25,7 @@
   --color-orange: #f0a03e;
   --color-red: #ff6b6b;
 
-  /* 선택된 메시지 블록 강조 (NFR-002) */
+  /* 선택된 메시지 블록 강조  */
   --color-sel-bg: rgba(79, 142, 247, 0.1);
   --color-sel-line: rgba(79, 142, 247, 0.5);
 
@@ -196,7 +196,7 @@ body {
   color: inherit;
 }
 
-/* 정제 결과 승인 직후 블록에 잠깐 주는 적용 완료 효과 (FE-REFINE-005) */
+/* 정제 결과 승인 직후 블록에 잠깐 주는 적용 완료 효과  */
 @keyframes approve-flash {
   0% {
     background-color: var(--color-blue-dim);

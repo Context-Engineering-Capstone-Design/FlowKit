@@ -40,7 +40,7 @@ def _api_key_status(record, provider: str = "openai") -> ApiKeyStatus:
 
 @router.get("", response_model=UserSettingResponse)
 def get_settings(user: CurrentUser, db: DbSession) -> UserSettingResponse:
-    """BE-USERSET-001: 현재 사용자 정보와 API 키 등록 상태를 조회한다."""
+    """현재 사용자 정보와 API 키 등록 상태를 조회한다."""
     record = user_setting_service.get_api_key_record(db, user)
     return UserSettingResponse(
         user_profile=UserProfile.model_validate(user),
@@ -55,7 +55,7 @@ def save_api_key(
     user: CurrentUser,
     db: DbSession,
 ) -> ApiKeyMutationResponse:
-    """BE-USERSET-003: 사용자 키를 암호화해 저장하거나 갱신한다."""
+    """사용자 키를 암호화해 저장하거나 갱신한다."""
     record = user_setting_service.save_api_key(db, user, provider, payload.api_key)
     status = _api_key_status(record)
     return ApiKeyMutationResponse(
@@ -73,7 +73,7 @@ def save_api_key(
 def delete_api_key(
     provider: str, user: CurrentUser, db: DbSession
 ) -> DeleteApiKeyResponse:
-    """BE-USERSET-004: 현재 사용자의 Provider 키를 삭제한다."""
+    """현재 사용자의 Provider 키를 삭제한다."""
     provider = user_setting_service.validate_provider(provider)
     user_setting_service.delete_api_key(db, user, provider)
     return DeleteApiKeyResponse(
@@ -91,7 +91,7 @@ def delete_api_key(
 def check_api_key(
     provider: str, user: CurrentUser, db: DbSession
 ) -> ApiKeyMutationResponse:
-    """BE-USERSET-005: 저장된 키로 Provider 연결을 확인한다."""
+    """저장된 키로 Provider 연결을 확인한다."""
     record = user_setting_service.check_api_key_connection(db, user, provider)
     status = _api_key_status(record)
     return ApiKeyMutationResponse(

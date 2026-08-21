@@ -41,7 +41,7 @@ describe('rehypeHighlightRanges', () => {
     ])
   })
 
-  it('여러 요소(본문+코드)에 걸친 범위를 각 텍스트 노드마다 나눠 감싼다 (A6)', () => {
+  it('여러 요소(본문+코드)에 걸친 범위를 각 텍스트 노드마다 나눠 감싼다 ', () => {
     // "안녕 " + <code>"world"</code> + " 끝" 이고, 오프셋 1~8 ("녕 world")을 고른 경우
     const tree: HastNode = {
       type: 'root',

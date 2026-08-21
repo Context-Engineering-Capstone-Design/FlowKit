@@ -1,4 +1,4 @@
-"""답변 스트리밍 통로 테스트 (BE-AIRESP-007~009).
+"""답변 스트리밍 통로 테스트 .
 
 send()/receive 흐름은 test_conversation.py 에서 검증한다. 여기서는 이
 마일스톤에서 새로 생긴 것만 다룬다: 중단, 도중 합류(재접속), 서버 재시작
@@ -66,7 +66,7 @@ def wait_done(client, auth, chat: dict, block_id: str, timeout: float = 2.0) -> 
     return block
 
 
-# ── BE-AIRESP-008: 중단 ──────────────────────────────────────────────────
+# ── 중단 ──────────────────────────────────────────────────
 
 
 def test_cancel_mid_generation_keeps_partial_content(client, auth, chat, monkeypatch):
@@ -150,7 +150,7 @@ def test_cancel_rejects_other_users_job(client, auth, chat, monkeypatch):
     assert res.json()["errorCode"] == "CHAT_ACCESS_DENIED"
 
 
-# ── BE-AIRESP-009: 새로고침·브랜치 재진입 시 다시 붙기 위한 job id 노출 ──────
+# ── 새로고침·브랜치 재진입 시 다시 붙기 위한 job id 노출 ──────
 
 
 def test_chat_detail_exposes_job_id_only_while_generating(client, auth, chat, db_session):
@@ -178,7 +178,7 @@ def test_chat_detail_exposes_job_id_only_while_generating(client, auth, chat, db
     assert blocks[user_block_id]["generationJobId"] is None
 
 
-# ── BE-AIRESP-007, 009: 중계와 도중 합류 ──────────────────────────────────
+# ── , 009: 중계와 도중 합류 ──────────────────────────────────
 
 
 def test_stream_of_finished_job_replays_final_state_once(client, auth, chat, monkeypatch):

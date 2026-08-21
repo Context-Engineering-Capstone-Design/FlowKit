@@ -90,12 +90,12 @@ def test_completed_job_records_timing_and_usage(client, auth, chat, monkeypatch)
     assert summary["usage"]["inputTokens"] == 10
     assert summary["usage"]["outputTokens"] == 5
     assert summary["usage"]["totalTokens"] == 15
-    # 실제 단가표가 없으면 비용은 미측정으로 남는다(D4).
+    # 실제 단가표가 없으면 비용은 미측정으로 남는다.
     assert summary["usage"]["costAmount"] is None
 
 
 def test_empty_response_has_no_first_chunk_but_has_finished_at(client, auth, chat, monkeypatch):
-    """첫 조각 없이 실패한 경우를 구분한다 (A4)."""
+    """첫 조각 없이 실패한 경우를 구분한다 ."""
     import modeling
 
     monkeypatch.setattr(
@@ -142,7 +142,7 @@ def test_no_usage_metadata_is_reported_as_unmeasured(client, auth, chat, monkeyp
 
 
 def test_cleanup_sets_finished_at_without_generation_timing(client, auth, chat, db_session):
-    """서버 재시작 정리는 완료 시각이 아니라 정리 시각만 남긴다 (A3)."""
+    """서버 재시작 정리는 완료 시각이 아니라 정리 시각만 남긴다 ."""
     from app.models import AiResponseJob, AiResponseJobStatus
     from app.services import ai_response_service
 
@@ -243,7 +243,7 @@ def test_web_search_with_sources_is_completed(client, auth, chat, monkeypatch):
 
 
 def test_web_search_without_sources_or_signal_is_unknown(client, auth, chat, monkeypatch):
-    """도구를 붙였다는 사실과 실제 검색은 다르다 — 추정하지 않는다 (B5)."""
+    """도구를 붙였다는 사실과 실제 검색은 다르다 — 추정하지 않는다 ."""
     import modeling
 
     monkeypatch.setattr(
@@ -265,7 +265,7 @@ def test_web_search_without_sources_or_signal_is_unknown(client, auth, chat, mon
 
 
 def test_web_search_provider_signal_without_sources_is_completed(client, auth, chat, monkeypatch):
-    """근거 인용이 없어도 공급자가 실제 실행을 알려주면 completed다 (B4)."""
+    """근거 인용이 없어도 공급자가 실제 실행을 알려주면 completed다 ."""
     import modeling
 
     monkeypatch.setattr(

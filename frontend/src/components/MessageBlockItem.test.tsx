@@ -373,3 +373,54 @@ it('highlightedRange가 일치하는 블록이면 해당 위치를 하이라이�
   expect(mark?.getAttribute('data-range-ids')).toBe('inspected-context-range')
   expect(mark?.textContent).toBe('안녕')
 })
+
+it('수정 모드에서는 ComposerEditor와 인라인 태그가 표시되고 삭제/저장 액션이 동작한다 (0821_09)', async () => {
+  const cancelEdit = vi.fn()
+  const saveEdit = vi.fn().mockResolvedValue(true)
+  const removeEditingContextTag = vi.fn()
+
+  useChatStore.setState({
+    editingBlockId: 'block-1',
+    editingDraft: '수정 중인 본문',
+    editingContextTags: [
+      {
+        id: 'tag-1',
+        messageBlockId: 'src-1',
+        messageVersionId: 'v1',
+        role: 'assistant',
+        snapshotText: '인용 태그 내용',
+        selectedText: '인용 태그 내용',
+        startOffset: 0,
+        endOffset: 8,
+      },
+    ],
+    cancelEdit,
+    editBlock: saveEdit,
+    removeEditingContextTag,
+  })
+
+  const { container } = render(<MessageBlockItem block={block} />)
+
+  // ComposerEditor 영역이 보임
+  expect(container.querySelector('.composer-editor')).not.toBeNull()
+  expect(screen.getByRole('button', { name: '저장' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '취소' })).toBeTruthy()
+
+  // 태그 칩이 보임
+  const chip = container.querySelector('[data-range-tag-id="tag-1"]')
+  expect(chip).not.toBeNull()
+  expect(chip?.textContent).toContain('“인용 태그 내용”')
+
+  // 태그 삭제 버튼 클릭
+  const removeBtn = chip?.querySelector('button')
+  if (removeBtn) fireEvent.click(removeBtn)
+  expect(removeEditingContextTag).toHaveBeenCalledWith('tag-1')
+
+  // 취소 버튼 클릭
+  fireEvent.click(screen.getByRole('button', { name: '취소' }))
+  expect(cancelEdit).toHaveBeenCalled()
+
+  // 저장 버튼 클릭
+  fireEvent.click(screen.getByRole('button', { name: '저장' }))
+  expect(saveEdit).toHaveBeenCalledWith('block-1', '수정 중인 본문')
+})

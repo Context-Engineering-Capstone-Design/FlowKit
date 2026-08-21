@@ -34,7 +34,7 @@ class Chat(Base, TimestampMixin):
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    # 최근 대화 목록 정렬 전용. API 응답에는 노출하지 않는다 (BE-CHAT-003)
+    # 최근 대화 목록 정렬 전용. API 응답에는 노출하지 않는다
     #
     # 커서 페이지네이션이 이 값의 동률을 id 로 가르는데, DB 기본값(now())에 맡기면
     # SQLite 는 초 단위라 여러 건이 같은 시각이 되고 커서가 항목을 걸러내지 못한다.
@@ -179,7 +179,7 @@ class Branch(Base, TimestampMixin):
 
 
 class BranchSourceContext(Base, TimestampMixin):
-    """브랜치가 어떤 Context에서 출발했는지에 대한 참조 (BE-BRANCH-005).
+    """브랜치가 어떤 Context에서 출발했는지에 대한 참조 .
 
     AI 요약본을 저장하는 것이 아니라 원본 블록을 가리키기만 한다.
     """

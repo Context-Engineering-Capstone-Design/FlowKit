@@ -78,7 +78,7 @@ def test_block_creation_sets_active_version(session, chat_with_main):
 
 
 def test_refine_approval_adds_version_and_keeps_history(session, chat_with_main):
-    """정제 승인은 새 버전을 추가하고 활성 포인터만 옮긴다 (REQ-041, REQ-042)."""
+    """정제 승인은 새 버전을 추가하고 활성 포인터만 옮긴다 ."""
     chat, main = chat_with_main
     block = _add_block(session, chat, main, MessageRole.ASSISTANT, 0, "원본 내용")
     original_version_id = block.current_version_id
@@ -100,7 +100,7 @@ def test_refine_approval_adds_version_and_keeps_history(session, chat_with_main)
 
 
 def test_version_rollback_restores_previous_content(session, chat_with_main):
-    """이전 버전으로 되돌리기 (REQ-021, BE-MSG-006)."""
+    """이전 버전으로 되돌리기 ."""
     chat, main = chat_with_main
     block = _add_block(session, chat, main, MessageRole.ASSISTANT, 0, "원본 내용")
     original_version_id = block.current_version_id
@@ -145,7 +145,7 @@ def test_child_branch_records_parent_and_branch_point(session, chat_with_main):
 
     assert child.parent_branch_id == main.id
     assert child.base_message_block_id == b2.id
-    # 부모 블록은 그대로 부모 브랜치에 남아 있다 (원본 보존, NFR-007)
+    # 부모 블록은 그대로 부모 브랜치에 남아 있다 (원본 보존, )
     parent_blocks = session.scalars(
         select(MessageBlock).where(MessageBlock.branch_id == main.id)
     ).all()

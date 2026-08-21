@@ -1,4 +1,4 @@
-"""Google ID 토큰 검증 및 사용자 정보 추출 (BE-AUTH-002, BE-AUTH-003).
+"""Google ID 토큰 검증 및 사용자 정보 추출 .
 
 FE가 Google SDK로 받은 ID 토큰을 그대로 보내면 서버가 서명·만료·audience·issuer 를 검증한다.
 OAuth 리다이렉트 URL 이나 콜백 처리는 필요하지 않다.
@@ -52,7 +52,7 @@ def verify_google_id_token(id_token_str: str) -> GoogleUser:
 
 
 def extract_google_user(payload: dict) -> GoogleUser:
-    """검증된 payload 에서 필수 claim 을 추출한다 (BE-AUTH-003)."""
+    """검증된 payload 에서 필수 claim 을 추출한다 ."""
     google_user_id = payload.get("sub")
     email = payload.get("email")
     if not google_user_id or not email:

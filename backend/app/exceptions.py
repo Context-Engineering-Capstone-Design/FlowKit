@@ -1,4 +1,4 @@
-"""표준 오류 응답 (BE-AUTH-010, BE-NOTIFY-001).
+"""표준 오류 응답 .
 
 FE가 일관되게 처리할 수 있도록 모든 오류를 errorCode/message/detail/traceId 형태로 반환한다.
 내부 stack trace 는 노출하지 않고 traceId 만 제공한다.
@@ -60,7 +60,7 @@ class DevLoginUnavailableError(AppError):
 
 
 class TokenReuseDetectedError(AppError):
-    """이미 회전된 refreshToken 이 다시 제출된 경우 (토큰 탈취 의심, BE-AUTH-006)."""
+    """이미 회전된 refreshToken 이 다시 제출된 경우 (토큰 탈취 의심, )."""
 
     status_code = 401
     error_code = "TOKEN_REUSE_DETECTED"

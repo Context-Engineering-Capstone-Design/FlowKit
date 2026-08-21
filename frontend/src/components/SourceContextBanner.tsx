@@ -2,7 +2,7 @@ import { GitBranch, X } from 'lucide-react'
 import { toPreview } from '@/lib/preview'
 import { useChatPaneStore } from '@/components/ChatPaneContext'
 
-// 브랜치 상단 배너 — 현재 브랜치를 알리고, 출발 Context가 있으면 함께 보여준다 (REQ-011, REQ-012)
+// 브랜치 상단 배너 — 현재 브랜치를 알리고, 출발 Context가 있으면 함께 보여준다
 export function SourceContextBanner() {
   const sourceContext = useChatPaneStore((s) => s.sourceContext)
   const branches = useChatPaneStore((s) => s.branches)

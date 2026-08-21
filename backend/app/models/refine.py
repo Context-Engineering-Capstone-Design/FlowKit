@@ -46,7 +46,7 @@ class BlockRefineJob(Base, TimestampMixin):
 
 
 class BlockRefineTarget(Base, TimestampMixin):
-    """정제 실행 시점의 활성 버전을 고정한 스냅샷 (BE-REFINE-001).
+    """정제 실행 시점의 활성 버전을 고정한 스냅샷 .
 
     이후 원본이 바뀌어도 정제 기준은 흔들리지 않는다.
     """
@@ -88,7 +88,7 @@ class BlockRefineResult(Base, TimestampMixin):
         Enum(RefineResultStatus, name="refine_result_status"),
         default=RefineResultStatus.PENDING,
     )
-    # 승인 시 생성된 새 버전. 거절/대기 상태에서는 NULL (BE-REFINE-009)
+    # 승인 시 생성된 새 버전. 거절/대기 상태에서는 NULL
     approved_version_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("message_block_versions.id", ondelete="SET NULL"), nullable=True
     )

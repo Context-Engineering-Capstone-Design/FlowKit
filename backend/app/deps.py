@@ -22,7 +22,7 @@ BearerCreds = Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
 
 
 def _session_is_valid(db: Session, session_id) -> bool:
-    """세션이 존재하고, 로그아웃 등으로 폐기되지 않았으며, 만료 전인지 확인한다 (BE-AUTH-001, 009)."""
+    """세션이 존재하고, 로그아웃 등으로 폐기되지 않았으며, 만료 전인지 확인한다 (, 009)."""
     session = db.get(AuthSession, session_id)
     if session is None or session.revoked_at is not None:
         return False
@@ -47,7 +47,7 @@ def get_current_user(request: Request, creds: BearerCreds, db: DbSession) -> Use
 
 
 def get_current_user_optional(request: Request, db: DbSession) -> User | None:
-    """BE-AUTH-001: 토큰이 없거나 유효하지 않아도 오류 대신 None 을 돌려준다."""
+    """토큰이 없거나 유효하지 않아도 오류 대신 None 을 돌려준다."""
     header = request.headers.get("Authorization", "")
     scheme, _, token = header.partition(" ")
     if scheme.lower() != "bearer" or not token:

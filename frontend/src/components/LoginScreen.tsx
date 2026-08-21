@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/authStore'
 
 const FEATURES = ['블록 선택', 'Context 정제', '브랜치 생성', '버전 관리']
 
-// 로그인 화면 — 서비스 소개와 Google 로그인 버튼 (REQ-001, REQ-002)
+// 로그인 화면 — 서비스 소개와 Google 로그인 버튼
 export function LoginScreen() {
   const error = useAuthStore((s) => s.error)
 

@@ -1,4 +1,4 @@
-"""인증 서비스 (BE-AUTH-004 ~ BE-AUTH-006, BE-AUTH-009)."""
+"""인증 서비스 ."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from app.services.google_auth import GoogleUser
 
 
 def find_or_create_user(db: Session, google_user: GoogleUser) -> tuple[User, bool]:
-    """googleUserId 우선, 없으면 email 로 조회한다 (BE-AUTH-004)."""
+    """googleUserId 우선, 없으면 email 로 조회한다 ."""
     user = db.scalar(
         select(User).where(User.google_user_id == google_user.google_user_id)
     )
@@ -55,10 +55,10 @@ def find_or_create_user(db: Session, google_user: GoogleUser) -> tuple[User, boo
 def issue_tokens(
     db: Session, user: User, device_info: str | None = None
 ) -> tuple[str, str, datetime]:
-    """accessToken/refreshToken 을 발급하고 세션을 저장한다 (BE-AUTH-005).
+    """accessToken/refreshToken 을 발급하고 세션을 저장한다 .
 
     accessToken에 세션 id(sid)를 담아, 로그아웃으로 세션이 폐기되면 만료 전에도
-    즉시 무효화되게 한다(BE-AUTH-001, 009).
+    즉시 무효화되게 한다(, 009).
     """
     raw_refresh, refresh_hash = generate_refresh_token()
     session = AuthSession(
@@ -78,7 +78,7 @@ def issue_tokens(
 def rotate_tokens(
     db: Session, raw_refresh_token: str
 ) -> tuple[str, str, datetime, User]:
-    """refreshToken 회전 (BE-AUTH-006).
+    """refreshToken 회전 .
 
     기존 토큰은 즉시 폐기한다. 이미 폐기된 토큰이 다시 들어오면 탈취로 간주하고
     해당 사용자의 모든 세션을 종료한다.
@@ -111,7 +111,7 @@ def rotate_tokens(
 
 
 def logout(db: Session, user_id: uuid.UUID) -> None:
-    """현재 사용자의 모든 refreshToken 을 무효화한다 (BE-AUTH-009)."""
+    """현재 사용자의 모든 refreshToken 을 무효화한다 ."""
     _revoke_all_sessions(db, user_id)
 
 
@@ -123,7 +123,7 @@ def update_profile(
     memo: str | None = None,
     memo_present: bool = False,
 ) -> User:
-    """계정 기본 정보 수정 (BE-AUTH-008)."""
+    """계정 기본 정보 수정 ."""
     if email is not None and email != user.email:
         existing = db.scalar(select(User).where(User.email == email))
         if existing is not None and existing.id != user.id:

@@ -54,7 +54,7 @@ export async function retryAiResponseJob(chatId: string, branchId: string, jobId
   return data
 }
 
-/** BE-AIRESP-008: 생성 중인 답변을 중단한다. 그때까지의 본문은 남는다. */
+/** : 생성 중인 답변을 중단한다. 그때까지의 본문은 남는다. */
 export async function cancelAiResponseJob(
   chatId: string,
   branchId: string,
@@ -84,7 +84,7 @@ export interface AiStreamHandlers {
 }
 
 /**
- * BE-AIRESP-007, 009: 답변 조각을 실시간으로 받는다.
+ * , 009: 답변 조각을 실시간으로 받는다.
  *
  * 인증 헤더를 실어야 해서 EventSource 대신 fetch 로 직접 스트림을 읽는다
  * (문서 C2 참고). 도중에 붙어도 서버가 지금까지의 본문을 먼저 보내준다.
@@ -189,10 +189,11 @@ export async function editBlock(
   branchId: string,
   blockId: string,
   editedContent: string,
+  contextRanges: ContextRangeIn[] = [],
 ): Promise<BlockResponse> {
   const { data } = await api.patch<BlockResponse>(
     `/api/chats/${chatId}/branches/${branchId}/blocks/${blockId}`,
-    { editedContent },
+    { editedContent, contextRanges },
   )
   return data
 }

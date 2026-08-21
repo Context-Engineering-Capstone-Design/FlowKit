@@ -1,4 +1,4 @@
-"""채팅 서비스 (BE-CHAT-001 ~ BE-CHAT-009)."""
+"""채팅 서비스 ."""
 
 from __future__ import annotations
 
@@ -45,12 +45,12 @@ MAX_TITLE_LENGTH = 200
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 
-# 제목에 들어가면 목록 표시가 깨지는 제어 문자 (BE-CHAT-004)
+# 제목에 들어가면 목록 표시가 깨지는 제어 문자
 _FORBIDDEN_TITLE_CHARS = {"\n", "\r", "\t", "\x00"}
 
 
 def create_chat_with_main_branch(db: Session, user: User, project_id: uuid.UUID | None = None) -> tuple[Chat, Branch]:
-    """새 채팅과 Main 브랜치를 한 트랜잭션으로 생성한다 (BE-CHAT-001, 002)."""
+    """새 채팅과 Main 브랜치를 한 트랜잭션으로 생성한다 (, 002)."""
     chat = Chat(owner_id=user.id, title=DEFAULT_TITLE, project_id=project_id)
     db.add(chat)
     db.flush()
@@ -337,7 +337,7 @@ def family_block_map(
 
 
 def get_owned_chat(db: Session, user: User, chat_id: uuid.UUID) -> Chat:
-    """채팅 접근 권한 공통 검증 (BE-CHAT-008).
+    """채팅 접근 권한 공통 검증 .
 
     존재하지 않는 경우와 남의 것인 경우를 구분해서 알린다.
     """
@@ -374,7 +374,7 @@ def list_chats(
     limit: int = DEFAULT_LIMIT,
     keyword: str | None = None,
 ) -> tuple[list[Chat], str | None]:
-    """최근 대화 목록·검색 (BE-CHAT-003, 006).
+    """최근 대화 목록·검색 (, 006).
 
     lastActivityAt 내림차순. 같은 시각이 여러 건일 수 있으므로 id 를 함께 비교해
     커서가 항목을 건너뛰거나 중복 반환하지 않게 한다.
@@ -411,7 +411,7 @@ def list_chats(
 
 
 def update_title(db: Session, chat: Chat, generated_title: str) -> Chat:
-    """AI가 생성한 제목을 검증 후 저장한다 (BE-CHAT-004).
+    """AI가 생성한 제목을 검증 후 저장한다 .
 
     제목 생성 자체는 AI 모델링 파트 책임이고, 여기서는 저장 가능한 값인지만 본다.
     """
@@ -431,7 +431,7 @@ def update_title(db: Session, chat: Chat, generated_title: str) -> Chat:
 
 
 def touch_activity(db: Session, chat: Chat) -> None:
-    """정렬용 활동 시각 갱신 (BE-CHAT-007). UI에는 노출하지 않는다."""
+    """정렬용 활동 시각 갱신 . UI에는 노출하지 않는다."""
     chat.last_activity_at = datetime.now(UTC)
     db.commit()
 

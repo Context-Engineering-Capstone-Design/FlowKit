@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Sidebar } from '@/components/Sidebar'
-import { useChatStore } from '@/store/chatStore'
+import { setSidePanelOpener, useChatStore } from '@/store/chatStore'
 import * as projectApi from '@/api/project'
 
 vi.mock('@/components/ProfileMenu', () => ({ ProfileMenu: () => null }))
@@ -221,7 +221,8 @@ it('브랜치와 사이드 채팅이 없으면 대화 구조 섹션을 보여주
 })
 
 it('루트와 자식 사이드 채팅을 트리로 보여주고, 누르면 그 채팅을 연다', () => {
-  const openChat = vi.fn()
+  const openSide = vi.fn()
+  setSidePanelOpener(openSide)
   useChatStore.setState({
     chats: [], chatId: 'chat-1', branches: [], nextCursor: null, isLoadingChats: false,
     chatListError: null, deletingChatId: null, loadChats: vi.fn().mockResolvedValue(undefined),
@@ -231,7 +232,6 @@ it('루트와 자식 사이드 채팅을 트리로 보여주고, 누르면 그 �
       { chatId: 'chat-1', title: '메인 대화', kind: 'MAIN', parentChatId: null, parentBranchId: null, parentMessageBlockId: null, rootChatId: null },
       { chatId: 'side-1', title: '탐색 대화', kind: 'SIDE', parentChatId: 'chat-1', parentBranchId: 'branch-1', parentMessageBlockId: 'block-1', rootChatId: 'chat-1' },
     ],
-    openChat,
   })
 
   render(<Sidebar onClose={() => undefined} />)
@@ -239,7 +239,7 @@ it('루트와 자식 사이드 채팅을 트리로 보여주고, 누르면 그 �
   expect(screen.getByText('대화 구조')).not.toBeNull()
   fireEvent.click(screen.getByText('탐색 대화'))
 
-  expect(openChat).toHaveBeenCalledWith('side-1')
+  expect(openSide).toHaveBeenCalledWith('side-1', undefined)
 })
 
 it('사이드 채팅 트리 노드의 삭제 버튼을 누르면 그 채팅을 삭제한다 (0820_08 A3)', () => {

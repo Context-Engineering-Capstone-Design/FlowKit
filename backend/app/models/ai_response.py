@@ -48,7 +48,7 @@ class AiResponseJob(Base, TimestampMixin):
     # 실행 시간 기록 (0820_06 마일스톤 A). created_at은 작업이 요청된 시각이고,
     # generation_started_at은 백그라운드 생성이 실제로 시작된 시각이다. 서버가
     # 재시작돼 정리된 작업은 generation_started_at·first_chunk_at 없이
-    # finished_at·error_code만 남는다(A3).
+    # finished_at·error_code만 남는다.
     generation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     first_chunk_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

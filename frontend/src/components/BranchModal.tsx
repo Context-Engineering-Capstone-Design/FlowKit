@@ -16,7 +16,7 @@ interface Props {
   editedBaseContent?: string
 }
 
-// 브랜치 생성 모달 — 이름, 분기 지점, 포함할 Context 블록을 정한다 (REQ-009, REQ-010)
+// 브랜치 생성 모달 — 이름, 분기 지점, 포함할 Context 블록을 정한다
 export function BranchModal({ onClose, initialBaseBlockId, editedBaseContent }: Props) {
   const blocks = useChatPaneStore((s) => s.blocks)
   const createBranch = useChatPaneStore((s) => s.createBranch)

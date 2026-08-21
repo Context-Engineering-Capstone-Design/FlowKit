@@ -40,7 +40,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # 서버가 내려갔다 올라온 사이 GENERATING으로 멈춰버린 답변 작업을 정리한다
-    # (BE-AIRESP-007 B7). 메모리 중계가 재시작과 함께 비어 다시는 끝나지 않는다.
+    # . 메모리 중계가 재시작과 함께 비어 다시는 끝나지 않는다.
     #
     # 테스트는 get_db를 오버라이드해 자체 세션(sqlite)을 쓴다. 있으면 그 세션을
     # 그대로 쓰고 닫지 않는다 — 세션의 수명은 그 오버라이드를 등록한 쪽 몫이다.

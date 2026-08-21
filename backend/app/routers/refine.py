@@ -121,7 +121,7 @@ def run_refine(
     user: CurrentUser,
     db: DbSession,
 ) -> RefineJobMutationResponse:
-    """BE-REFINE-001~003: 선택 블록을 각각 정제하고 결과를 대기 상태로 저장한다."""
+    """선택 블록을 각각 정제하고 결과를 대기 상태로 저장한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.run_refine(
         db, user, chat, branch, payload.selected_block_ids, payload.instruction_text
@@ -146,7 +146,7 @@ def get_job(
     user: CurrentUser,
     db: DbSession,
 ) -> RefineJobResponse:
-    """BE-REFINE-004, 009: 원본·정제본 비교와 상태 동기화용 조회."""
+    """, 009: 원본·정제본 비교와 상태 동기화용 조회."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     return _job_response(db, job)
@@ -164,7 +164,7 @@ def approve(
     user: CurrentUser,
     db: DbSession,
 ) -> RefineResultMutationOut:
-    """BE-REFINE-005: 승인 즉시 정제본을 새 버전으로 반영한다."""
+    """승인 즉시 정제본을 새 버전으로 반영한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     result = refine_service.get_result(db, job, result_id)
@@ -189,7 +189,7 @@ def reject(
     user: CurrentUser,
     db: DbSession,
 ) -> RefineResultMutationOut:
-    """BE-REFINE-006: 거절. 원본 활성 버전은 그대로 둔다."""
+    """거절. 원본 활성 버전은 그대로 둔다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     result = refine_service.get_result(db, job, result_id)
@@ -211,7 +211,7 @@ def approve_all(
     user: CurrentUser,
     db: DbSession,
 ) -> BulkRefineResponse:
-    """BE-REFINE-007: 대기 중인 결과 전체 승인."""
+    """대기 중인 결과 전체 승인."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     approved, failed = refine_service.approve_all(db, chat, branch, job)
@@ -232,7 +232,7 @@ def reject_all(
     user: CurrentUser,
     db: DbSession,
 ) -> BulkRefineResponse:
-    """BE-REFINE-008: 대기 중인 결과 전체 거절."""
+    """대기 중인 결과 전체 거절."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     rejected, failed = refine_service.reject_all(db, job)
@@ -253,7 +253,7 @@ def cleanup(
     user: CurrentUser,
     db: DbSession,
 ) -> CleanupResponse:
-    """BE-REFINE-010: 패널을 닫을 때 남은 미승인 결과를 정리한다."""
+    """패널을 닫을 때 남은 미승인 결과를 정리한다."""
     chat, branch = _load(db, user, chat_id, branch_id)
     job = refine_service.get_job(db, chat, branch, job_id)
     cleaned_count = refine_service.cleanup_unapproved(db, job)

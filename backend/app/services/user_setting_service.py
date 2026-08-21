@@ -1,4 +1,4 @@
-"""사용자 설정과 요청별 AI API 키 관리 (BE-USERSET-001, 003~006, 008)."""
+"""사용자 설정과 요청별 AI API 키 관리 (, 003~006, 008)."""
 
 from __future__ import annotations
 

@@ -65,7 +65,7 @@ def _add_block(db, chat_id, branch_id, order: int, text: str, role=MessageRole.U
     return block
 
 
-# ── BE-CHAT-001, 002: 생성 ─────────────────────────────────────────────────
+# ── , 002: 생성 ─────────────────────────────────────────────────
 
 
 def test_create_chat_returns_initial_state(chat):
@@ -87,7 +87,7 @@ def test_create_chat_requires_auth(client):
     assert client.post("/api/chats").status_code == 401
 
 
-# ── BE-CHAT-003, 006: 목록·검색 ────────────────────────────────────────────
+# ── , 006: 목록·검색 ────────────────────────────────────────────
 
 
 def test_list_chats_excludes_internal_sort_field(client, auth, chat):
@@ -142,7 +142,7 @@ def test_invalid_cursor_is_rejected(client, auth):
     assert res.json()["errorCode"] == "VALIDATION_ERROR"
 
 
-# ── BE-CHAT-004: 제목 ──────────────────────────────────────────────────────
+# ── 제목 ──────────────────────────────────────────────────────
 
 
 def test_update_title(client, auth, chat):
@@ -167,7 +167,7 @@ def test_update_title_rejects_bad_values(client, auth, chat, bad):
     assert res.json()["errorCode"] == "VALIDATION_ERROR"
 
 
-# ── BE-CHAT-005, 008: 상세·권한 ────────────────────────────────────────────
+# ── , 008: 상세·권한 ────────────────────────────────────────────
 
 
 def test_get_chat_detail(client, auth, chat):
@@ -193,7 +193,7 @@ def test_unknown_chat_returns_not_found(client, auth):
     assert res.json()["errorCode"] == "CHAT_NOT_FOUND"
 
 
-# ── BE-BRANCH-003, 004: 브랜치 생성 ────────────────────────────────────────
+# ── , 004: 브랜치 생성 ────────────────────────────────────────
 
 
 @pytest.fixture
@@ -273,7 +273,7 @@ def test_branch_inherits_only_up_to_branch_point(client, auth, chat_with_blocks)
 
 
 def test_original_branch_is_untouched(client, auth, chat_with_blocks):
-    """브랜치를 만들어도 원본 대화는 그대로여야 한다 (NFR-007)."""
+    """브랜치를 만들어도 원본 대화는 그대로여야 한다 ."""
     chat, blocks = chat_with_blocks
     chat_id = chat["chatMeta"]["chatId"]
 
@@ -364,7 +364,7 @@ def test_create_branch_rejects_block_from_other_chat(client, auth, chat_with_blo
     assert res.json()["errorCode"] == "MESSAGE_BLOCK_NOT_FOUND"
 
 
-# ── BE-BRANCH-001, 002: 목록·전환 ─────────────────────────────────────────
+# ── , 002: 목록·전환 ─────────────────────────────────────────
 
 
 def test_branch_list_puts_main_first(client, auth, chat_with_blocks):
@@ -388,7 +388,7 @@ def test_branch_list_puts_main_first(client, auth, chat_with_blocks):
 
 
 def test_source_context_info_points_back_to_original(client, auth, chat_with_blocks):
-    """Context pill 을 누르면 원본 위치로 갈 수 있어야 한다 (REQ-012)."""
+    """Context pill 을 누르면 원본 위치로 갈 수 있어야 한다 ."""
     chat, blocks = chat_with_blocks
     chat_id = chat["chatMeta"]["chatId"]
 
@@ -525,7 +525,7 @@ def test_edited_branch_rolls_back_copy_when_creation_fails(
     ) is None
 
 
-# ── BE-CHAT-009: 삭제 ──────────────────────────────────────────────────────
+# ── 삭제 ──────────────────────────────────────────────────────
 
 
 def test_delete_chat_removes_chat_and_messages(client, auth, chat, db_session):

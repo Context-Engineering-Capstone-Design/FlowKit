@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import Branch, Chat, MessageBlock
-from app.schemas.conversation import AppliedContextOut
+from app.schemas.message import AppliedContextOut
 from app.schemas.input_assist import AttachmentOut, SearchSourceOut
 from app.schemas.notification import ActionMeta
 
@@ -118,12 +118,12 @@ class MessageBlockOut(BaseModel):
     search_sources: list[SearchSourceOut] = Field(
         default_factory=list, serialization_alias="searchSources"
     )
-    # 생성 중/완료/중단됨/실패 (BE-AIRESP-007~009). 사용자 블록은 항상 complete.
+    # 생성 중/완료/중단됨/실패 . 사용자 블록은 항상 complete.
     generation_status: str = Field(..., serialization_alias="generationStatus")
     # generating일 때만 채워진다. 새로고침·브랜치 재진입 시 이 값으로 스트리밍
-    # 통로에 다시 붙는다(BE-AIRESP-009).
+    # 통로에 다시 붙는다.
     generation_job_id: uuid.UUID | None = Field(None, serialization_alias="generationJobId")
-    # 이 사용자 메시지를 보낼 때 인용한 Context 스니펫 (REQ-072). 어시스턴트 블록은 항상 빈 목록.
+    # 이 사용자 메시지를 보낼 때 인용한 Context 스니펫 . 어시스턴트 블록은 항상 빈 목록.
     applied_context: list[AppliedContextOut] = Field(
         default_factory=list, serialization_alias="appliedContext"
     )

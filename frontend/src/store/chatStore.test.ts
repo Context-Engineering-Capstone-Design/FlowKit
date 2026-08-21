@@ -23,6 +23,8 @@ const convApi = vi.hoisted(() => ({
   fetchRefineJob: vi.fn(),
   approveResult: vi.fn(),
   rejectResult: vi.fn(),
+  editBlock: vi.fn(),
+  fetchVersions: vi.fn(),
 }))
 
 const sideChatApi = vi.hoisted(() => ({
@@ -873,5 +875,166 @@ describe('chatStore 드래그 범위 Context', () => {
       startOffset: 12,
       endOffset: 13,
     })
+  })
+
+  it('메시지 수정 시작 시 기존 appliedContext를 editingContextTags로 옮겨 담는다 (0821_09)', async () => {
+    useChatStore.setState({
+      chatId: 'chat-1',
+      branchId: 'branch-1',
+      blocks: [
+        {
+          blockId: 'b1',
+          branchId: 'branch-1',
+          role: 'user',
+          content: '수정할 질문',
+          currentVersionId: 'v1',
+          orderIndex: 0,
+          createdAt: 't',
+          attachments: [],
+          searchSources: [],
+          generationStatus: 'complete',
+          appliedContext: [
+            {
+              blockId: 'src-1',
+              versionId: 'v-src',
+              orderIndex: 0,
+              content: '인용한 문구',
+              startOffset: 0,
+              endOffset: 6,
+            },
+          ],
+        },
+      ],
+      editingBlockId: null,
+      editingContextTags: [],
+    })
+
+    await useChatStore.getState().startEdit('b1', '수정할 질문')
+
+    const state = useChatStore.getState()
+    expect(state.editingBlockId).toBe('b1')
+    expect(state.editingDraft).toBe('수정할 질문')
+    expect(state.editingContextTags).toHaveLength(1)
+    expect(state.editingContextTags[0]).toMatchObject({
+      messageBlockId: 'src-1',
+      messageVersionId: 'v-src',
+      selectedText: '인용한 문구',
+    })
+  })
+
+  it('수정 모드 중 드래그 인용 추가/삭제 및 저장이 올바르게 처리된다 (0821_09)', async () => {
+    useChatStore.setState({
+      chatId: 'chat-1',
+      branchId: 'branch-1',
+      blocks: [
+        {
+          blockId: 'b1',
+          branchId: 'branch-1',
+          role: 'user',
+          content: '원래 질문',
+          currentVersionId: 'v1',
+          orderIndex: 0,
+          createdAt: 't',
+          attachments: [],
+          searchSources: [],
+          generationStatus: 'complete',
+          appliedContext: [],
+        },
+      ],
+      editingBlockId: 'b1',
+      editingDraft: '원래 질문',
+      editingContextTags: [],
+    })
+
+    // 수정 중에 태그 추가
+    useChatStore.getState().addContextRangeTag({
+      messageBlockId: 'src-2',
+      messageVersionId: 'v-src-2',
+      role: 'assistant',
+      snapshotText: '새로운 인용문',
+      selectedText: '새로운 인용문',
+      startOffset: 0,
+      endOffset: 7,
+    })
+
+    expect(useChatStore.getState().editingContextTags).toHaveLength(1)
+    expect(useChatStore.getState().contextRangeTags).toHaveLength(0) // 새 질문 태그와 섞이지 않음
+
+    // 수정본 저장 시 contextRanges 전달 및 블록 갱신 확인
+    convApi.editBlock.mockResolvedValue({
+      blockId: 'b1',
+      branchId: 'branch-1',
+      role: 'user',
+      content: '수정된 질문',
+      currentVersionId: 'v2',
+      versionNo: 2,
+      orderIndex: 0,
+      createdAt: 't',
+      attachments: [],
+      searchSources: [],
+      generationStatus: 'complete',
+      appliedContext: [
+        {
+          blockId: 'src-2',
+          versionId: 'v-src-2',
+          orderIndex: 0,
+          content: '새로운 인용문',
+          startOffset: 0,
+          endOffset: 7,
+        },
+      ],
+    })
+    convApi.fetchVersions.mockResolvedValue([])
+
+    await useChatStore.getState().editBlock('b1', '수정된 질문')
+
+    expect(convApi.editBlock).toHaveBeenCalledWith(
+      'chat-1',
+      'branch-1',
+      'b1',
+      '수정된 질문',
+      [
+        {
+          blockId: 'src-2',
+          versionId: 'v-src-2',
+          snippetText: '새로운 인용문',
+          startOffset: 0,
+          endOffset: 7,
+        },
+      ],
+    )
+
+    const updated = useChatStore.getState()
+    expect(updated.editingBlockId).toBeNull()
+    expect(updated.editingContextTags).toEqual([])
+    expect(updated.blocks[0].content).toBe('수정된 질문')
+    expect(updated.blocks[0].appliedContext).toHaveLength(1)
+  })
+
+  it('수정 취소 시 변경된 태그와 수정 상태를 버린다 (0821_09)', () => {
+    useChatStore.setState({
+      editingBlockId: 'b1',
+      editingDraft: '작성 중',
+      editingOriginal: '원본',
+      editingContextTags: [
+        {
+          id: 't1',
+          messageBlockId: 'src-1',
+          messageVersionId: 'v1',
+          role: 'assistant',
+          snapshotText: '인용',
+          selectedText: '인용',
+          startOffset: 0,
+          endOffset: 2,
+        },
+      ],
+    })
+
+    useChatStore.getState().cancelEdit()
+
+    const state = useChatStore.getState()
+    expect(state.editingBlockId).toBeNull()
+    expect(state.editingDraft).toBe('')
+    expect(state.editingContextTags).toEqual([])
   })
 })

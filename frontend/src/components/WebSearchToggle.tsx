@@ -10,7 +10,7 @@ const OPTIONS: { mode: WebSearchMode; label: string; description: string }[] = [
   { mode: 'off', label: '끄기', description: '검색을 쓰지 않는다' },
 ]
 
-// 웹 검색을 자동/항상/끄기 세 상태로 고르는 선택 상자 (AI-SEARCH-001)
+// 웹 검색을 자동/항상/끄기 세 상태로 고르는 선택 상자
 export function WebSearchToggle({ mode, disabled, reason, onChange }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const holderRef = useRef<HTMLDivElement>(null)

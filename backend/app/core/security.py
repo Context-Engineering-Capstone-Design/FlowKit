@@ -1,4 +1,4 @@
-"""토큰 발급·검증 유틸 (BE-AUTH-005, BE-AUTH-006).
+"""토큰 발급·검증 유틸 .
 
 accessToken 은 JWT, refreshToken 은 불투명 난수 문자열이다. refreshToken 원문은 저장하지
 않고 SHA-256 해시만 DB에 남긴다.
@@ -34,7 +34,7 @@ def create_access_token(user_id: uuid.UUID, session_id: uuid.UUID) -> tuple[str,
 
 
 def decode_access_token(token: str) -> tuple[uuid.UUID, uuid.UUID]:
-    """(userId, sessionId) 를 반환한다. 세션 유효성은 호출부가 AuthSession으로 확인한다(BE-AUTH-001, 009)."""
+    """(userId, sessionId) 를 반환한다. 세션 유효성은 호출부가 AuthSession으로 확인한다(, 009)."""
     settings = get_settings()
     try:
         payload = jwt.decode(

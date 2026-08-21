@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://flowkit:flowkit@localhost:5432/flowkit"
     redis_url: str = "redis://localhost:6379/0"
 
-    # Google 로그인 (BE-AUTH-002): FE가 획득한 ID 토큰의 audience 검증에 사용
+    # Google 로그인 : FE가 획득한 ID 토큰의 audience 검증에 사용
     google_client_id: str = ""
 
     # Cursor 내장 브라우저 등에서 쓰는 로컬 전용 로그인. 운영 환경에서는 켜지 않는다.

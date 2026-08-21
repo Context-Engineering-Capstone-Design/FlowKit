@@ -107,7 +107,7 @@ export function ChatArea({ onOpenContextEditor = () => {}, sidebarOpen, onOpenSi
     (refineJob?.results ?? []).map((r) => [r.blockId, r]),
   )
 
-  // 채팅 영역 어디에 놓아도 첨부되도록 드래그 진입 횟수를 센다 (FE-INPUT-008).
+  // 채팅 영역 어디에 놓아도 첨부되도록 드래그 진입 횟수를 센다 .
   const [isDragging, setIsDragging] = useState(false)
   const dragDepth = useRef(0)
 
@@ -119,13 +119,13 @@ export function ChatArea({ onOpenContextEditor = () => {}, sidebarOpen, onOpenSi
     <main
       className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-bg-0"
       onDragEnter={(e) => {
-        if (!chatId || !hasFiles(e)) return
+        if (!hasFiles(e)) return
         e.preventDefault()
         dragDepth.current += 1
         setIsDragging(true)
       }}
       onDragOver={(e) => {
-        if (!chatId || !hasFiles(e)) return
+        if (!hasFiles(e)) return
         e.preventDefault()
       }}
       onDragLeave={() => {
@@ -136,7 +136,6 @@ export function ChatArea({ onOpenContextEditor = () => {}, sidebarOpen, onOpenSi
         e.preventDefault()
         dragDepth.current = 0
         setIsDragging(false)
-        if (!chatId) return
         const files = Array.from(e.dataTransfer.files)
         if (files.length) void addFiles(files)
       }}

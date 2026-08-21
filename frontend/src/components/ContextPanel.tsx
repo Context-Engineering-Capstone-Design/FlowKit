@@ -137,7 +137,7 @@ function SelectedBlocks() {
   )
 }
 
-// 자연어 편집 지시 입력 (REQ-025)
+// 자연어 편집 지시 입력
 function RefineForm() {
   const instruction = useChatPaneStore((s) => s.contextInstruction)
   const setInstruction = useChatPaneStore((s) => s.setContextInstruction)
@@ -210,7 +210,7 @@ function RefineForm() {
   )
 }
 
-// 정제 결과 미리보기 — 원본과 정제본 비교 (REQ-029)
+// 정제 결과 미리보기 — 원본과 정제본 비교
 function RefinePreview() {
   const refineJob = useChatPaneStore((s) => s.refineJob)
   const blocks = useChatPaneStore((s) => s.blocks)
@@ -220,7 +220,7 @@ function RefinePreview() {
   const rejectAll = useChatPaneStore((s) => s.rejectAll)
   const closeRefine = useChatPaneStore((s) => s.closeRefine)
 
-  // 방금 승인되어 밀려 나가는 중인 항목. 애니메이션이 끝나야 목록에서 완전히 빠진다 (REQ-039)
+  // 방금 승인되어 밀려 나가는 중인 항목. 애니메이션이 끝나야 목록에서 완전히 빠진다
   const [leavingIds, setLeavingIds] = useState<Set<string>>(new Set())
   const prevStatuses = useRef<Record<string, RefineStatus>>({})
 
@@ -255,7 +255,7 @@ function RefinePreview() {
     return () => timers.forEach(clearTimeout)
   }, [refineJob])
 
-  // 승인된 항목은 목록에서 빠지고, 대기·거절 상태만 남는다 (REQ-032)
+  // 승인된 항목은 목록에서 빠지고, 대기·거절 상태만 남는다
   // 상태가 바뀐 첫 렌더에서도 항목을 유지해야 다음 렌더에서 퇴장 효과를 시작할 수 있다
   const justApprovedIds = new Set(
     refineJob?.results
@@ -375,7 +375,7 @@ function RefinePreview() {
   )
 }
 
-// 정제 결과 상태 배지 — 대기·거절됨 (REQ-032)
+// 정제 결과 상태 배지 — 대기·거절됨
 function StatusBadge({ status }: { status: RefineStatus }) {
   if (status === 'approved') {
     return (

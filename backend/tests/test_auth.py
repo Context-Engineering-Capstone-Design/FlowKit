@@ -43,7 +43,7 @@ def login(client, stub_google) -> dict:
     return res.json()
 
 
-# ── BE-AUTH-003: payload 추출 ──────────────────────────────────────────────
+# ── payload 추출 ──────────────────────────────────────────────
 
 
 def test_google_token_verification_allows_five_second_clock_skew(monkeypatch):
@@ -85,7 +85,7 @@ def test_extract_google_user_falls_back_to_email_prefix():
     assert user.name == "hong"
 
 
-# ── BE-AUTH-004, 005: 로그인 ────────────────────────────────────────────────
+# ── , 005: 로그인 ────────────────────────────────────────────────
 
 
 def test_google_login_creates_user_and_issues_tokens(client, stub_google, db_session):
@@ -171,7 +171,7 @@ def test_login_links_google_account_to_existing_email(client, stub_google, db_se
     assert user.google_user_id == GOOGLE_USER.google_user_id
 
 
-# ── BE-AUTH-001, 007: 상태 확인 및 프로필 ──────────────────────────────────
+# ── , 007: 상태 확인 및 프로필 ──────────────────────────────────
 
 
 def test_status_without_token_is_200_and_unauthenticated(client):
@@ -203,7 +203,7 @@ def test_me_returns_profile(client, stub_google):
     assert res.json()["plan"] == "free"
 
 
-# ── BE-AUTH-008: 프로필 수정 ────────────────────────────────────────────────
+# ── 프로필 수정 ────────────────────────────────────────────────
 
 
 def test_update_profile(client, stub_google):
@@ -235,7 +235,7 @@ def test_update_profile_rejects_duplicate_email(client, stub_google, db_session)
     assert res.json()["errorCode"] == "EMAIL_ALREADY_EXISTS"
 
 
-# ── BE-AUTH-006: refreshToken 회전 ─────────────────────────────────────────
+# ── refreshToken 회전 ─────────────────────────────────────────
 
 
 def test_refresh_rotates_token(client, stub_google):
@@ -293,7 +293,7 @@ def test_expired_refresh_token_rejected(client, stub_google, db_session):
     assert res.json()["errorCode"] == "TOKEN_EXPIRED"
 
 
-# ── BE-AUTH-009: 로그아웃 ──────────────────────────────────────────────────
+# ── 로그아웃 ──────────────────────────────────────────────────
 
 
 def test_logout_invalidates_refresh_tokens(client, stub_google):
@@ -317,7 +317,7 @@ def test_logout_invalidates_refresh_tokens(client, stub_google):
 
 
 def test_logout_invalidates_current_access_token(client, stub_google):
-    """BE-AUTH-001, 009: 로그아웃하면 만료 전에도 그 자리에서 쓰던 accessToken이 즉시 통하지 않아야 한다."""
+    """, 009: 로그아웃하면 만료 전에도 그 자리에서 쓰던 accessToken이 즉시 통하지 않아야 한다."""
     body = login(client, stub_google)
     headers = {"Authorization": f"Bearer {body['accessToken']}"}
 
@@ -350,7 +350,7 @@ def test_refresh_revokes_old_access_token_session(client, stub_google):
     assert client.get("/api/auth/me", headers=new_headers).status_code == 200
 
 
-# ── BE-AUTH-010: 표준 오류 형식 ────────────────────────────────────────────
+# ── 표준 오류 형식 ────────────────────────────────────────────
 
 
 def test_error_response_shape(client):

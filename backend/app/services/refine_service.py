@@ -1,4 +1,4 @@
-"""블록별 정제 서비스 (BE-REFINE-001 ~ BE-REFINE-011, BE-CTXEDIT-002)."""
+"""블록별 정제 서비스 ."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class AiRefineFailedError(AppError):
 
 
 def normalize_instruction(instruction: str) -> str:
-    """자연어 편집 지시 검증 (BE-CTXEDIT-002). 저장하지 않고 실행 시점에만 쓴다."""
+    """자연어 편집 지시 검증 . 저장하지 않고 실행 시점에만 쓴다."""
     text = (instruction or "").strip()
     if not text:
         raise ValidationError("편집 지시를 입력해주세요.")
@@ -79,7 +79,7 @@ def run_refine(
     instruction: str,
     refiner=None,
 ) -> BlockRefineJob:
-    """정제 실행 (BE-REFINE-001, 002, 003).
+    """정제 실행 (, 002, 003).
 
     선택 블록의 현재 활성 버전을 기준으로 고정한 뒤 AI에 넘긴다. 정제가 도는 동안
     사용자가 원본을 수정하더라도, 승인 시점에 비교·반영되는 기준은 흔들리지 않는다.
@@ -103,7 +103,7 @@ def run_refine(
 
     blocks = {b.id: b for b in branch_service.resolve_blocks(db, branch)}
 
-    # 조상 브랜치에서 이어받은 블록을 정제·승인하면 원본 대화가 조용히 바뀌므로 막는다(NFR-007, REQ-019)
+    # 조상 브랜치에서 이어받은 블록을 정제·승인하면 원본 대화가 조용히 바뀌므로 막는다
     inherited_ids = [bid for bid in valid_ids if blocks[bid].branch_id != branch.id]
     if inherited_ids:
         raise ValidationError(
@@ -169,7 +169,7 @@ def _call_refiner(
     api_key: str,
     refiner=None,
 ) -> dict[uuid.UUID, str]:
-    """AI 모델링 파트에 정제를 요청한다 (BE-REFINE-002).
+    """AI 모델링 파트에 정제를 요청한다 .
 
     돌아온 결과가 요청한 블록과 정확히 일대일로 맞는지 확인한다. 어긋난 채로
     저장하면 사용자가 승인한 것과 다른 내용이 원본에 반영된다.
@@ -197,7 +197,7 @@ def _call_refiner(
 
 
 def get_job(db: Session, chat: Chat, branch: Branch, job_id: uuid.UUID) -> BlockRefineJob:
-    """정제 작업 접근 권한 검증 (BE-REFINE-011)."""
+    """정제 작업 접근 권한 검증 ."""
     job = db.get(BlockRefineJob, job_id)
     if job is None or job.chat_id != chat.id or job.branch_id != branch.id:
         raise RefineJobNotFoundError()
@@ -205,7 +205,7 @@ def get_job(db: Session, chat: Chat, branch: Branch, job_id: uuid.UUID) -> Block
 
 
 def list_results(db: Session, job: BlockRefineJob) -> list[BlockRefineResult]:
-    """정제 결과 목록 (BE-REFINE-004, 009). 원본 순서대로 돌려준다."""
+    """정제 결과 목록 (, 009). 원본 순서대로 돌려준다."""
     targets = {t.block_id: t for t in job.targets}
     results = list(job.results)
     return sorted(
@@ -222,10 +222,10 @@ def base_content_map(job: BlockRefineJob) -> dict[uuid.UUID, tuple[str, int]]:
 def approve(
     db: Session, chat: Chat, branch: Branch, result: BlockRefineResult
 ) -> BlockRefineResult:
-    """정제 결과 승인 (BE-REFINE-005).
+    """정제 결과 승인 .
 
     정제본을 새 버전으로 저장하고 활성화한다. 이전 내용은 이력에 남으므로
-    되돌리기는 버전 이동으로 처리한다(REQ-034).
+    되돌리기는 버전 이동으로 처리한다.
     """
     if result.status is not RefineResultStatus.PENDING:
         raise RefineResultNotPendingError()
@@ -246,7 +246,7 @@ def approve(
 
 
 def reject(db: Session, result: BlockRefineResult) -> BlockRefineResult:
-    """정제 결과 거절 (BE-REFINE-006). 원본 활성 버전은 건드리지 않는다."""
+    """정제 결과 거절 . 원본 활성 버전은 건드리지 않는다."""
     if result.status is not RefineResultStatus.PENDING:
         raise RefineResultNotPendingError()
 
@@ -268,7 +268,7 @@ def get_result(
 def approve_all(
     db: Session, chat: Chat, branch: Branch, job: BlockRefineJob
 ) -> tuple[list[BlockRefineResult], list[BulkRefineFailure]]:
-    """대기 중인 결과를 한 번에 승인한다 (BE-REFINE-007).
+    """대기 중인 결과를 한 번에 승인한다 .
 
     하나가 실패해도 나머지는 반영한다. 실패 항목은 따로 알려 FE가 표시할 수 있게 한다.
     """
@@ -298,7 +298,7 @@ def approve_all(
 def reject_all(
     db: Session, job: BlockRefineJob
 ) -> tuple[list[BlockRefineResult], list[BulkRefineFailure]]:
-    """대기 중인 결과를 한 번에 거절한다 (BE-REFINE-008)."""
+    """대기 중인 결과를 한 번에 거절한다 ."""
     rejected, failed = [], []
     for result in list_results(db, job):
         if result.status is not RefineResultStatus.PENDING:
@@ -323,7 +323,7 @@ def reject_all(
 
 
 def cleanup_unapproved(db: Session, job: BlockRefineJob) -> int:
-    """미승인 결과 정리 (BE-REFINE-010).
+    """미승인 결과 정리 .
 
     대기 중인 결과를 거절로 확정한다. 정제 미리보기를 닫으면 화면에서 사라지므로,
     남겨두면 나중에 되살아난 것처럼 보인다. 이미 승인된 결과는 건드리지 않는다.
