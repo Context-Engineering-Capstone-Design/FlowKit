@@ -15,6 +15,7 @@ interface GoogleAccountsId {
     client_id: string
     callback: (response: CredentialResponse) => void
     auto_select?: boolean
+    use_fedcm_for_prompt?: boolean
   }) => void
   renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void
 }
@@ -58,6 +59,9 @@ export async function renderGoogleButton(
   api.initialize({
     client_id: clientId,
     callback: (response) => onCredential(response.credential),
+    // 서드파티 쿠키를 막는 최신 브라우저에서 "다른 계정 사용" 흐름이
+    // 400으로 막히는 문제를 피하기 위해 구글 권장 FedCM 경로를 사용한다.
+    use_fedcm_for_prompt: true,
   })
 
   parent.replaceChildren()
