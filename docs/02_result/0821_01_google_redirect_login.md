@@ -29,21 +29,25 @@
 - `backend/.venv/bin/alembic heads` — `a82111googlelogin (head)`
 - `backend/.venv/bin/alembic upgrade head` — 로컬 PostgreSQL 적용 완료
 
-## 배포 전 설정
+## 운영 배포 설정
 
-Google Cloud Console의 OAuth 클라이언트 **승인된 리디렉션 URI**에 아래 주소를 추가해야 한다.
-
-`https://flowkit-backend-prod.onrender.com/api/auth/google/redirect`
-
-그리고 배포 환경변수를 설정한다.
+2026-08-22에 운영 환경변수를 저장하고 각 서비스를 재배포했다.
 
 | 서비스 | 환경변수 | 값 |
 | --- | --- | --- |
 | Vercel 운영 | `VITE_GOOGLE_LOGIN_URI` | `https://flowkit-backend-prod.onrender.com/api/auth/google/redirect` |
 | Render 운영 | `FRONTEND_BASE_URL` | `https://flow-kit-three.vercel.app` |
 
+Vercel 운영 배포는 `Ready`, Render 운영 배포는 `live` 상태를 확인했다. Render `/health`는 `{"status":"ok"}`를 반환했다.
+
+## Google Cloud Console 설정
+
+OAuth 클라이언트 **승인된 리디렉션 URI**에 아래 주소를 추가해야 실제 Google 로그인 복귀가 완료된다.
+
+`https://flowkit-backend-prod.onrender.com/api/auth/google/redirect`
+
 개발·Preview 환경은 해당 백엔드와 프론트엔드의 실제 주소로 각각 맞춰야 한다.
 
 ## 남은 제한 사항
 
-실제 Google 계정 선택과 복귀는 위 Google Cloud Console 및 Vercel·Render 환경변수 설정 후에만 운영 URL에서 검증할 수 있다.
+실제 Google 계정 선택과 복귀는 Google Cloud Console 승인 리디렉션 URI 등록 후에 운영 URL에서 검증할 수 있다.
