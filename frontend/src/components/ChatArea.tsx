@@ -117,7 +117,7 @@ export function ChatArea({ onOpenContextEditor = () => {}, sidebarOpen, onOpenSi
 
   return (
     <main
-      className="relative flex min-w-0 flex-1 flex-col bg-bg-0"
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-bg-0"
       onDragEnter={(e) => {
         if (!chatId || !hasFiles(e)) return
         e.preventDefault()
