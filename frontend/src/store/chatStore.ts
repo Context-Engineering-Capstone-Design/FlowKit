@@ -867,6 +867,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   async sendMessage(prompt) {
     if (!prompt.trim()) return
+    if (get().isSending) return // 새 채팅 생성이 끝나기 전 두 번째 전송이 겹치면 서로 다른 채팅이 만들어진다
+    set({ isSending: true })
     const clickedAt = Date.now() // 0820_06 C1: 전송 클릭 시각(네트워크 요청 전에 잰다)
     let { chatId, branchId } = get()
     if (!chatId || !branchId) {
@@ -905,17 +907,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           void get().loadChats()
         }
       } catch (e) {
-        set({ error: toErrorMessage(e) })
+        set({ error: toErrorMessage(e), isSending: false })
         return
       }
     }
     const { appliedBlockIds, contextRangeTags, selectedModelId, webSearchMode, reasoningEffort, draftAttachments, selectedLibraryResourceIds } = get()
     if (draftAttachments.some((item) => item.status === 'uploading')) {
-      set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.' })
+      set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.', isSending: false })
       return
     }
     if (draftAttachments.some((item) => item.status === 'failed')) {
-      set({ error: '업로드에 실패한 파일을 제거하거나 다시 시도해주세요.' })
+      set({ error: '업로드에 실패한 파일을 제거하거나 다시 시도해주세요.', isSending: false })
       return
     }
 
