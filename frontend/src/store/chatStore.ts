@@ -398,14 +398,30 @@ export interface ChatStoreOptions {
 /** 패널마다 완전히 독립된 대화 상태를 만든다. */
 export function createChatStore(options: ChatStoreOptions = {}) {
   let sideChatContextRequestId = 0
-  // 대화·브랜치·초안 화면을 바꾸는 요청은 같은 세대 번호를 쓴다.
-  // 늦게 끝난 이전 요청이 마지막으로 고른 화면을 다시 덮지 못하게 한다.
+  // 대화·브랜치·초안 화면을 여는 요청의 최신성만 판별한다.
   let viewRequestId = 0
+  // 실제 화면이 바뀐 순간에만 증가한다. 전환 조회가 실패하면 기존 화면의 비동기 작업은 계속 유효하다.
+  let committedViewEpoch = 0
+  let latestExistingSendSequence = 0
+  const sendStateByTarget = new Map<string, { sequence: number; pending: boolean }>()
+  const pendingChatCreationsByDraftId = new Map<string, Promise<ChatDetail>>()
   let pendingOpenChat: { chatId: string; requestId: number } | null = null
 
   function beginViewRequest() {
     pendingOpenChat = null
     return ++viewRequestId
+  }
+
+  function commitViewChange() {
+    return ++committedViewEpoch
+  }
+
+  function sendTargetKey(chatId: string, branchId: string) {
+    return `${chatId}:${branchId}`
+  }
+
+  function isSendPending(chatId: string, branchId: string) {
+    return sendStateByTarget.get(sendTargetKey(chatId, branchId))?.pending === true
   }
 
   return create<ChatState>((set, get) => ({
@@ -547,6 +563,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         const created = await chatApi.createChat(projectId)
         if (requestId !== viewRequestId) return
         captureActiveTabSnapshot(set, get)
+        commitViewChange()
         applyDetail(set, created)
         upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
         scheduleChatsRefresh(get)
@@ -557,6 +574,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       return
     }
     captureActiveTabSnapshot(set, get)
+    commitViewChange()
     resetToDraft(set, get, newDraftId())
   },
 
@@ -570,11 +588,13 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     }
     if (get().tabs.length > 0) return
     beginViewRequest()
+    commitViewChange()
     resetToDraft(set, get, newDraftId())
   },
 
   resetSession() {
     beginViewRequest()
+    commitViewChange()
     get().clearDraft()
     set({
       chats: [],
@@ -710,16 +730,30 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     }
     const validFiles = files.filter((file) => !validateAttachment(file))
     if (!validFiles.length) return
-    // 새 대화에서 붙여넣기·드래그로 첫 파일을 올리는 경우, 첫 메시지 전송과 같은 방식으로
-    // 채팅을 먼저 만든다. 잘못된 파일만 왔을 때는 채팅을 만들지 않는다(위에서 이미 걸러졌다).
-    // 이미 채팅이 있으면 await 을 타지 않는다.
-    if (!get().chatId && !(await ensureChat(set, get))) return
+    const viewLease = committedViewEpoch
+    const ownsView = () => viewLease === committedViewEpoch
     const entries = validFiles.map((file) => ({
       localId: crypto.randomUUID(), attachmentId: null, file, fileName: file.name,
       mimeType: file.type, localUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
       status: 'uploading' as const, error: null,
     }))
+    // 첫 채팅 생성보다 먼저 파일 의도를 화면에 남긴다. 그 사이 전송되면 업로드 중 상태를 보고 기다린다.
     set((s) => ({ draftAttachments: [...s.draftAttachments, ...entries] }))
+    // 새 대화에서 붙여넣기·드래그로 첫 파일을 올리는 경우, 첫 메시지 전송과 같은 방식으로
+    // 채팅을 먼저 만든다. 잘못된 파일만 왔을 때는 채팅을 만들지 않는다(위에서 이미 걸러졌다).
+    // 이미 채팅이 있으면 await 을 타지 않는다.
+    if (!get().chatId && !(await ensureChat(set, get, pendingChatCreationsByDraftId, ownsView))) {
+      if (ownsView()) {
+        const localIds = new Set<string>(entries.map((entry) => entry.localId))
+        set((s) => ({
+          draftAttachments: s.draftAttachments.map((item) => localIds.has(item.localId)
+            ? { ...item, status: 'failed', error: '채팅을 만들지 못해 파일을 올릴 수 없습니다.' }
+            : item),
+        }))
+      }
+      return
+    }
+    if (!ownsView()) return
     await Promise.all(entries.map((entry) => get().uploadAttachment(entry.localId)))
   },
 
@@ -754,7 +788,16 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async openChat(chatId, branchId) {
-    if (get().chatId !== chatId && !(await confirmPendingDiscard(get()))) return
+    const beforeOpen = get()
+    const requestedBranchId = branchId ?? (beforeOpen.chatId === chatId ? beforeOpen.branchId : null)
+    if (beforeOpen.chatId === chatId && requestedBranchId === beforeOpen.branchId && requestedBranchId && isSendPending(chatId, requestedBranchId)) {
+      beginViewRequest()
+      return
+    }
+    if (beforeOpen.chatId !== chatId && !(await confirmPendingDiscard(get()))) return
+    const requestSendSequence = requestedBranchId
+      ? sendStateByTarget.get(sendTargetKey(chatId, requestedBranchId))?.sequence ?? 0
+      : 0
     const requestId = beginViewRequest()
     pendingOpenChat = { chatId, requestId }
     try {
@@ -764,7 +807,19 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       }
       const detail = await chatApi.fetchChat(chatId, branchId)
       if (requestId !== viewRequestId) return
+      const current = get()
+      const sendState = sendStateByTarget.get(sendTargetKey(detail.chatMeta.chatId, detail.branchMeta.branchId))
+      if (
+        current.chatId === detail.chatMeta.chatId &&
+        current.branchId === detail.branchMeta.branchId &&
+        (sendState?.pending || (sendState?.sequence ?? 0) > requestSendSequence)
+      ) {
+        if (pendingOpenChat?.requestId === requestId) pendingOpenChat = null
+        return
+      }
+      commitViewChange()
       applyDetail(set, detail)
+      set({ isSending: isSendPending(detail.chatMeta.chatId, detail.branchMeta.branchId) })
       upsertTab(set, get, detail.chatMeta, detail.branchMeta.branchId)
       if (pendingOpenChat?.requestId === requestId) pendingOpenChat = null
       get().reattachGeneratingBlocks()
@@ -849,14 +904,25 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async switchBranch(branchId) {
     const { chatId } = get()
     if (!chatId) return false
+    if (get().branchId === branchId && isSendPending(chatId, branchId)) {
+      beginViewRequest()
+      return true
+    }
     if (get().branchId !== branchId && !(await confirmPendingDiscard(get()))) return false
     if (get().chatId !== chatId) return false
+    const requestSendSequence = sendStateByTarget.get(sendTargetKey(chatId, branchId))?.sequence ?? 0
     const requestId = beginViewRequest()
     try {
       if (get().branchId !== branchId) get().clearDraft()
       const detail = await chatApi.fetchBranch(chatId, branchId)
       if (requestId !== viewRequestId || get().chatId !== chatId) return false
       const loadedBranchId = detail.branchMeta.branchId
+      const sendState = sendStateByTarget.get(sendTargetKey(chatId, loadedBranchId))
+      if (
+        get().branchId === loadedBranchId &&
+        (sendState?.pending || (sendState?.sequence ?? 0) > requestSendSequence)
+      ) return true
+      commitViewChange()
       set({
         branchId: loadedBranchId,
         blocks: detail.messageBlocks,
@@ -871,6 +937,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         ratings: {},
         versionsByBlock: {},
         contextInstruction: '',
+        isSending: isSendPending(chatId, loadedBranchId),
         appliedContextLabel: null,
         lastRefineInstruction: null,
         refineFailed: false,
@@ -951,6 +1018,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     beginViewRequest()
     captureActiveTabSnapshot(set, get)
     const draftId = newDraftId()
+    commitViewChange()
     resetToDraftFields(set, get)
     set({
       tabs: [
@@ -977,25 +1045,60 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async sendMessage(prompt) {
     if (!prompt.trim()) return
     if (get().isSending) return // 새 채팅 생성이 끝나기 전 두 번째 전송이 겹치면 서로 다른 채팅이 만들어진다
+    const input = get()
+    const viewLease = committedViewEpoch
+    const ownsView = () => viewLease === committedViewEpoch
+    const {
+      appliedBlockIds,
+      contextRangeTags,
+      selectedModelId,
+      webSearchMode,
+      reasoningEffort,
+      draftAttachments,
+      selectedLibraryResourceIds,
+    } = input
     set({ isSending: true })
     const clickedAt = Date.now() // 0820_06 C1: 전송 클릭 시각(네트워크 요청 전에 잰다)
     // 대화는 화면을 열 때가 아니라 사용자가 첫 메시지를 보낼 때 만든다 (새로고침마다 빈 대화가 쌓이는 문제 방지).
     // 이미 채팅이 있으면 await 을 타지 않아, 아래 임시 질문 블록이 여전히 동기적으로 바로 보인다.
-    let { chatId, branchId } = get()
+    let { chatId, branchId } = input
     if (!chatId || !branchId) {
-      const ensured = await ensureChat(set, get)
-      if (!ensured) { set({ isSending: false }); return }
+      const ensured = await ensureChat(set, get, pendingChatCreationsByDraftId, ownsView)
+      if (!ensured) {
+        if (ownsView()) set({ isSending: false })
+        return
+      }
       chatId = ensured.chatId
       branchId = ensured.branchId
     }
-    const { appliedBlockIds, contextRangeTags, selectedModelId, webSearchMode, reasoningEffort, draftAttachments, selectedLibraryResourceIds } = get()
-    if (draftAttachments.some((item) => item.status === 'uploading')) {
-      set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.', isSending: false })
+    const current = get()
+    const sendAttachments = ownsView() && current.chatId === chatId && current.branchId === branchId
+      ? current.draftAttachments
+      : draftAttachments
+    if (sendAttachments.some((item) => item.status === 'uploading')) {
+      if (ownsView()) set({ error: '파일 업로드가 끝난 뒤 전송할 수 있습니다.', isSending: false })
       return
     }
-    if (draftAttachments.some((item) => item.status === 'failed')) {
-      set({ error: '업로드에 실패한 파일을 제거하거나 다시 시도해주세요.', isSending: false })
+    if (sendAttachments.some((item) => item.status === 'failed')) {
+      if (ownsView()) set({ error: '업로드에 실패한 파일을 제거하거나 다시 시도해주세요.', isSending: false })
       return
+    }
+
+    const sendTarget = {
+      chatId,
+      branchId,
+      key: sendTargetKey(chatId, branchId),
+      sequence: ++latestExistingSendSequence,
+    }
+    sendStateByTarget.set(sendTarget.key, { sequence: sendTarget.sequence, pending: true })
+    const ownsReenteredTarget = () => {
+      if (ownsView()) return false
+      const current = get()
+      const sendState = sendStateByTarget.get(sendTarget.key)
+      return current.chatId === sendTarget.chatId &&
+        current.branchId === sendTarget.branchId &&
+        sendState?.sequence === sendTarget.sequence &&
+        sendState.pending
     }
 
     // 응답을 기다리는 동안에도 방금 보낸 질문이 바로 보이게 임시 블록을 먼저 넣는다
@@ -1006,9 +1109,9 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       role: 'user',
       content: prompt,
       currentVersionId: null,
-      orderIndex: get().blocks.length,
+      orderIndex: input.blocks.length,
       createdAt: new Date().toISOString(),
-      attachments: draftAttachments.map((item) => ({
+      attachments: sendAttachments.map((item) => ({
         attachmentId: item.attachmentId ?? item.localId,
         fileName: item.fileName,
         mimeType: item.mimeType,
@@ -1022,14 +1125,14 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     }
     const dropTempBlock = (s: ChatState) => s.blocks.filter((b) => b.blockId !== tempBlockId)
 
-    set((s) => ({ isSending: true, error: null, blocks: [...s.blocks, tempBlock] }))
+    if (ownsView()) set((s) => ({ isSending: true, error: null, blocks: [...s.blocks, tempBlock] }))
     try {
       const res = await convApi.sendMessage(
         chatId,
         branchId,
         prompt,
         appliedBlockIds,
-        { selectedModelId, webSearchMode, reasoningEffort, attachmentIds: draftAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []), libraryResourceIds: selectedLibraryResourceIds },
+        { selectedModelId, webSearchMode, reasoningEffort, attachmentIds: sendAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []), libraryResourceIds: selectedLibraryResourceIds },
         contextRangeTags.map((tag): ContextRangeIn => ({
           blockId: tag.messageBlockId,
           versionId: tag.messageVersionId,
@@ -1038,25 +1141,53 @@ export function createChatStore(options: ChatStoreOptions = {}) {
           endOffset: tag.endOffset,
         })),
       )
-      set((s) => ({
-        // 전송 응답에는 인용 스니펫 내용(appliedContext)이 userBlock과 별도로 온다
-        blocks: [...dropTempBlock(s), { ...res.userBlock, appliedContext: res.appliedContext }, res.assistantBlock],
-        chatTitle: res.chatTitle,
-        tabs: s.tabs.map((t) => (t.chatId === chatId ? { ...t, title: res.chatTitle } : t)),
-        // 한 번 쓴 Context 는 자동으로 해제한다. 남겨두면 다음 질문까지
-        // 같은 맥락에 묶여, 사용자가 의도하지 않은 답이 나온다.
-        appliedBlockIds: [],
-        appliedContextLabel: null,
-        selectedBlockIds: [],
-        contextRangeTags: [],
-        selectedLibraryResourceIds: [],
-        failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([id]) => id !== res.userBlock.blockId)),
-      }))
-      get().clearDraft()
-      useNotificationStore.getState().dismissBanner('api-key-required')
-      void get().attachToJob(res.assistantBlock.blockId, res.aiResponseJobId, clickedAt)
+      if (ownsView()) {
+        set((s) => ({
+          // 전송 응답에는 인용 스니펫 내용(appliedContext)이 userBlock과 별도로 온다
+          blocks: mergeSentMessageBlocks(s.blocks, tempBlockId, res.userBlock, res.assistantBlock, res.appliedContext),
+          chatTitle: res.chatTitle,
+          tabs: s.tabs.map((t) => (t.chatId === chatId ? { ...t, title: res.chatTitle } : t)),
+          // 한 번 쓴 Context 는 자동으로 해제한다. 남겨두면 다음 질문까지
+          // 같은 맥락에 묶여, 사용자가 의도하지 않은 답이 나온다.
+          appliedBlockIds: [],
+          appliedContextLabel: null,
+          selectedBlockIds: [],
+          contextRangeTags: [],
+          selectedLibraryResourceIds: [],
+          failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([id]) => id !== res.userBlock.blockId)),
+        }))
+        get().clearDraft()
+        useNotificationStore.getState().dismissBanner('api-key-required')
+        void get().attachToJob(res.assistantBlock.blockId, res.aiResponseJobId, clickedAt)
+      } else if (ownsReenteredTarget()) {
+        // 같은 대화 노드로 돌아온 경우에는 늦은 응답만 합치고, 그 뒤에 새로 쓴 입력·Context 는 보존한다.
+        set((s) => ({
+          blocks: mergeSentMessageBlocks(s.blocks, tempBlockId, res.userBlock, res.assistantBlock, res.appliedContext, true),
+          chatTitle: res.chatTitle,
+          tabs: s.tabs.map((t) => (t.chatId === chatId ? { ...t, title: res.chatTitle } : t)),
+          failedJobsByBlockId: Object.fromEntries(Object.entries(s.failedJobsByBlockId).filter(([id]) => id !== res.userBlock.blockId)),
+        }))
+        void get().attachToJob(res.assistantBlock.blockId, res.aiResponseJobId, clickedAt)
+      }
       if (res.titleGenerated) scheduleChatsRefresh(get)
     } catch (e) {
+      if (!ownsView()) {
+        if (!ownsReenteredTarget()) return
+        const detail = errorDetail<AiResponseFailureDetail>(e)
+        if (detail) {
+          try { await refreshReenteredChat(set, get, chatId, branchId, ownsReenteredTarget) } catch {}
+          if (!ownsReenteredTarget()) return
+          set((s) => ({
+            error: toErrorMessage(e),
+            failedJobsByBlockId: detail.retryable
+              ? { ...s.failedJobsByBlockId, [detail.userMessageBlockId]: detail.aiResponseJobId }
+              : s.failedJobsByBlockId,
+          }))
+        } else {
+          set({ error: toErrorMessage(e) })
+        }
+        return
+      }
       if (openApiKeyWhenMissing(e)) {
         set((s) => ({ error: null, blocks: dropTempBlock(s) }))
       } else if (errorCode(e) === 'WEB_SEARCH_NOT_SUPPORTED') {
@@ -1066,7 +1197,8 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         const detail = errorDetail<AiResponseFailureDetail>(e)
         if (detail) {
           // 질문은 이미 서버에 저장됐으므로 화면을 다시 맞춘다(임시 블록은 이 조회 결과로 자연히 교체된다)
-          await get().openChat(chatId, branchId)
+          try { await refreshOwnedChat(set, get, chatId, branchId, ownsView) } catch {}
+          if (!ownsView()) return
           set((s) => ({ error: toErrorMessage(e), failedJobsByBlockId: detail.retryable ? { ...s.failedJobsByBlockId, [detail.userMessageBlockId]: detail.aiResponseJobId } : s.failedJobsByBlockId }))
         } else {
           // 질문이 저장되기 전 실패이므로 입력 내용과 첨부를 그대로 남겨 다시 보낼 수 있게 한다
@@ -1074,7 +1206,9 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         }
       }
     } finally {
-      set({ isSending: false })
+      if (ownsView() || ownsReenteredTarget()) set({ isSending: false })
+      const sendState = sendStateByTarget.get(sendTarget.key)
+      if (sendState?.sequence === sendTarget.sequence) sendState.pending = false
     }
   },
 
@@ -1119,6 +1253,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async attachToJob(blockId, jobId, clickedAt) {
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
+    const ownsStreamView = () => get().chatId === chatId && get().branchId === branchId
     stopStream(blockId)
     const controller = new AbortController()
     activeStreams.set(blockId, controller)
@@ -1131,6 +1266,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         if (draft && draft.streamConnectedAt === undefined) draft.streamConnectedAt = Date.now()
       },
       onText: (delta) => {
+        if (!ownsStreamView()) return
         if (!firstChunkSeen) {
           firstChunkSeen = true
           const draft = deliveryDrafts.get(jobId)
@@ -1141,24 +1277,27 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         }))
       },
       onSources: (sources: SearchSource[]) => {
+        if (!ownsStreamView()) return
         set((s) => ({ blocks: s.blocks.map((b) => b.blockId === blockId ? { ...b, searchSources: sources } : b) }))
       },
       onDone: (payload) => {
-        set((s) => ({
-          blocks: s.blocks.map((b) =>
-            b.blockId === blockId
-              ? {
-                  ...b,
-                  content: payload.content,
-                  searchSources: payload.sources,
-                  generationStatus: payload.status === 'completed' ? 'complete' : payload.status,
-                  generationJobId: null,
-                }
-              : b,
-          ),
-        }))
-        if (payload.status === 'failed' && payload.error) {
-          useNotificationStore.getState().show(payload.error.message, 'error')
+        if (ownsStreamView()) {
+          set((s) => ({
+            blocks: s.blocks.map((b) =>
+              b.blockId === blockId
+                ? {
+                    ...b,
+                    content: payload.content,
+                    searchSources: payload.sources,
+                    generationStatus: payload.status === 'completed' ? 'complete' : payload.status,
+                    generationJobId: null,
+                  }
+                : b,
+            ),
+          }))
+          if (payload.status === 'failed' && payload.error) {
+            useNotificationStore.getState().show(payload.error.message, 'error')
+          }
         }
         scheduleChatsRefresh(get)
         flushDeliveryTiming(chatId, branchId, jobId, payload.status)
@@ -1472,6 +1611,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       const created = await chatApi.createConversationNode(chatId, { baseMessageBlockId: baseBlockId })
       if (openSidePanel) await openSidePanel(created.chatMeta.chatId, created.branchMeta.branchId)
       else {
+        commitViewChange()
         applyDetail(set, created)
         upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
         void get().loadSideChatContext()
@@ -1566,6 +1706,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       return
     }
     beginViewRequest()
+    commitViewChange()
     resetToDraftFields(set, get)
     set({ activeTabId: id })
   },
@@ -1604,6 +1745,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     const remaining = get().tabs
     if (remaining.length === 0 && options.onEmptyTabs) {
       beginViewRequest()
+      commitViewChange()
       options.onEmptyTabs()
       return
     }
@@ -1618,11 +1760,13 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     }
     if (tab) {
       beginViewRequest()
+      commitViewChange()
       resetToDraftFields(set, get)
       set({ activeTabId: tab.id })
       return
     }
     beginViewRequest()
+    commitViewChange()
     resetToDraft(set, get, newDraftId())
   },
 
@@ -1641,6 +1785,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       )
       if (openSidePanel) await openSidePanel(created.chatMeta.chatId, created.branchMeta.branchId)
       else {
+        commitViewChange()
         applyDetail(set, created)
         upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
       }
@@ -1837,6 +1982,7 @@ function resetToDraftFields(
     ratings: {},
     versionsByBlock: {},
     contextInstruction: '',
+    isSending: false,
     error: null,
     pendingByBlockId: {},
     failedJobsByBlockId: {},
@@ -1899,6 +2045,7 @@ function applyDetail(
     ratings: {},
         versionsByBlock: {},
         contextInstruction: '',
+    isSending: false,
     error: null,
     draftText: '',
     draftAttachments: [],
@@ -1955,7 +2102,34 @@ function promoteDraftTab(
     isTemporary: meta.isTemporary ?? false,
   }
   const index = draftId ? tabs.findIndex((t) => t.id === draftId) : -1
-  return index === -1 ? [...tabs, tab] : tabs.map((t, i) => (i === index ? tab : t))
+  if (index !== -1) return tabs.map((t, i) => (i === index ? tab : t))
+  const existingIndex = tabs.findIndex((t) => t.id === meta.chatId || t.chatId === meta.chatId)
+  return existingIndex === -1 ? [...tabs, tab] : tabs.map((t, i) => (i === existingIndex ? tab : t))
+}
+
+/** 서버 응답으로 임시 질문을 교체한다. 재진입 조회에 같은 블록이 이미 있으면 한 번만 남긴다. */
+function mergeSentMessageBlocks(
+  blocks: MessageBlock[],
+  tempBlockId: string,
+  userBlock: MessageBlock,
+  assistantBlock: MessageBlock,
+  appliedContext: AppliedContextOut[],
+  preserveExistingResponseBlocks = false,
+) {
+  const responseBlockIds = new Set([userBlock.blockId, assistantBlock.blockId])
+  const withoutTemp = blocks.filter((block) => block.blockId !== tempBlockId)
+  if (preserveExistingResponseBlocks) {
+    const presentBlockIds = new Set(withoutTemp.map((block) => block.blockId))
+    return [
+      ...withoutTemp,
+      ...([{ ...userBlock, appliedContext }, assistantBlock].filter((block) => !presentBlockIds.has(block.blockId))),
+    ].sort((left, right) => left.orderIndex - right.orderIndex)
+  }
+  return [
+    ...withoutTemp.filter((block) => !responseBlockIds.has(block.blockId)),
+    { ...userBlock, appliedContext },
+    assistantBlock,
+  ].sort((left, right) => left.orderIndex - right.orderIndex)
 }
 
 /** 아직 채팅이 없으면(새 대화 draft 상태) 만들고, 있으면 그대로 돌려준다.
@@ -1964,48 +2138,120 @@ function promoteDraftTab(
 async function ensureChat(
   set: (partial: Partial<ChatState>) => void,
   get: () => ChatState,
+  pendingCreations: Map<string, Promise<ChatDetail>>,
+  shouldApply: () => boolean = () => true,
 ): Promise<{ chatId: string; branchId: string } | null> {
   const existing = get()
   if (existing.chatId && existing.branchId) return { chatId: existing.chatId, branchId: existing.branchId }
 
   const draftId = get().activeTabId
   const draftAnchor = get().tabs.find((t) => t.id === draftId)?.draftSideChatAnchor
+  const creationKey = draftId ?? '__untabbed__'
+  let creation = pendingCreations.get(creationKey)
+  const startsCreation = !creation
+  if (!creation) {
+    creation = draftAnchor
+      ? sideChatApi.createSideChat(draftAnchor.parentChatId, draftAnchor.parentBranchId, {
+          anchorMessageBlockId: draftAnchor.anchorMessageBlockId,
+        })
+      : chatApi.createChat()
+    pendingCreations.set(creationKey, creation)
+  }
   try {
+    const created = await creation
+    const chatId = created.chatMeta.chatId
+    const branchId = created.branchMeta.branchId
     if (draftAnchor) {
       // 사이드 채팅에 질문(0820_13 C1, C2): 패널을 여는 시점이 아니라 첫 전송에서만 서버에 만든다
-      const created = await sideChatApi.createSideChat(draftAnchor.parentChatId, draftAnchor.parentBranchId, {
-        anchorMessageBlockId: draftAnchor.anchorMessageBlockId,
-      })
-      const chatId = created.chatMeta.chatId
-      const branchId = created.branchMeta.branchId
+      if (shouldApply()) {
+        set({
+          chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
+          chatKind: created.chatMeta.kind,
+          parentChatId: created.chatMeta.parentChatId,
+          parentBranchId: created.chatMeta.parentBranchId,
+          parentMessageBlockId: created.chatMeta.parentMessageBlockId,
+          rootChatId: created.chatMeta.rootChatId,
+          rootBranchId: created.chatMeta.rootBranchId,
+          tabs: promoteDraftTab(get().tabs, draftId, created.chatMeta, created.branchMeta.branchId),
+          activeTabId: chatId,
+        })
+        void get().loadSideChatContext()
+      } else {
+        promoteExistingDraftTab(set, get, draftId, created.chatMeta, branchId)
+      }
+      return { chatId, branchId }
+    }
+    if (shouldApply()) {
       set({
-        chatId, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
-        chatKind: created.chatMeta.kind,
-        parentChatId: created.chatMeta.parentChatId,
-        parentBranchId: created.chatMeta.parentBranchId,
-        parentMessageBlockId: created.chatMeta.parentMessageBlockId,
-        rootChatId: created.chatMeta.rootChatId,
-        rootBranchId: created.chatMeta.rootBranchId,
+        chatId, projectId: created.chatMeta.projectId ?? null, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
         tabs: promoteDraftTab(get().tabs, draftId, created.chatMeta, created.branchMeta.branchId),
         activeTabId: chatId,
       })
-      void get().loadSideChatContext()
-      return { chatId, branchId }
+    } else {
+      promoteExistingDraftTab(set, get, draftId, created.chatMeta, branchId)
     }
-    const created = await chatApi.createChat()
-    const chatId = created.chatMeta.chatId
-    const branchId = created.branchMeta.branchId
-    set({
-      chatId, projectId: created.chatMeta.projectId ?? null, chatTitle: created.chatMeta.title, branchId, branches: created.branchList, blocks: created.messageBlocks,
-      tabs: promoteDraftTab(get().tabs, draftId, created.chatMeta, created.branchMeta.branchId),
-      activeTabId: chatId,
-    })
-    scheduleChatsRefresh(get)
+    if (startsCreation) scheduleChatsRefresh(get)
     return { chatId, branchId }
   } catch (e) {
-    set({ error: toErrorMessage(e) })
+    if (shouldApply()) set({ error: toErrorMessage(e) })
     return null
+  } finally {
+    if (pendingCreations.get(creationKey) === creation) pendingCreations.delete(creationKey)
   }
+}
+
+/** 화면을 떠난 뒤 완료된 첫 채팅은 원래 초안 탭이 남아 있을 때만 배경 탭으로 보존한다. */
+function promoteExistingDraftTab(
+  set: (partial: Partial<ChatState>) => void,
+  get: () => ChatState,
+  draftId: string | null,
+  meta: ChatMeta,
+  branchId: string,
+) {
+  const draft = draftId ? get().tabs.find((tab) => tab.id === draftId) : null
+  // 사용자가 같은 초안으로 되돌아와 새 입력을 시작했다면, 늦은 첫 생성 결과가
+  // 활성 탭의 식별자·입력 상태를 바꾸면 안 된다. 이 경우 새 대화는 목록에서 연다.
+  if (!draft || draft.chatId || get().activeTabId === draftId) return
+  set({ tabs: promoteDraftTab(get().tabs, draftId, meta, branchId) })
+}
+
+/** 현재 화면이 그대로일 때만 서버의 최신 대화 상태를 다시 적용한다. */
+async function refreshOwnedChat(
+  set: (partial: Partial<ChatState>) => void,
+  get: () => ChatState,
+  chatId: string,
+  branchId: string,
+  shouldApply: () => boolean,
+) {
+  const detail = await chatApi.fetchChat(chatId, branchId)
+  if (!shouldApply()) return false
+  applyDetail(set, detail)
+  upsertTab(set, get, detail.chatMeta, detail.branchMeta.branchId)
+  get().reattachGeneratingBlocks()
+  void get().loadSideChatContext()
+  void refreshFeedbacks(set, detail.chatMeta.chatId, detail.branchMeta.branchId, detail.messageBlocks, shouldApply)
+  return true
+}
+
+/** 같은 대화 노드로 다시 들어온 뒤의 실패 복구는 새 입력·Context를 지우지 않고 서버 블록만 맞춘다. */
+async function refreshReenteredChat(
+  set: (partial: Partial<ChatState>) => void,
+  get: () => ChatState,
+  chatId: string,
+  branchId: string,
+  shouldApply: () => boolean,
+) {
+  const detail = await chatApi.fetchChat(chatId, branchId)
+  if (!shouldApply()) return false
+  const current = get()
+  set({
+    blocks: detail.messageBlocks,
+    chatTitle: detail.chatMeta.title,
+    tabs: current.tabs.map((tab) => (tab.chatId === chatId ? { ...tab, title: detail.chatMeta.title } : tab)),
+  })
+  get().reattachGeneratingBlocks()
+  void refreshFeedbacks(set, detail.chatMeta.chatId, detail.branchMeta.branchId, detail.messageBlocks, shouldApply)
+  return true
 }
 
 /** 지금 활성 탭이 실제 채팅이면, 떠나기 전에 최신 브랜치·제목을 캐시에 남긴다. */

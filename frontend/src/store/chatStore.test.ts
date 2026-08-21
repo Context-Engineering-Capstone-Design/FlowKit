@@ -45,8 +45,9 @@ import type { SideChatTreeResponse } from '@/types/api'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
-  return { promise, resolve }
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 
 describe('chatStore 화면 상태', () => {
@@ -54,9 +55,10 @@ describe('chatStore 화면 상태', () => {
     vi.clearAllMocks()
     useChatStore.setState({
       chats: [], nextCursor: null, chatListKeyword: '', chatListError: null,
-      chatId: 'chat-1', branchId: 'branch-1', branches: [], blocks: [],
+      chatId: 'chat-1', branchId: 'branch-1', chatTitle: '대화', branches: [], blocks: [],
       selectedBlockIds: [], appliedBlockIds: [], appliedContextLabel: null,
       contextInstruction: '', draftText: '', draftAttachments: [],
+      isSending: false, error: null, pendingByBlockId: {}, failedJobsByBlockId: {},
       editingBlockId: null, editingDraft: '', editingOriginal: '',
       deletingChatId: null,
       tabs: [{ id: 'chat-1', chatId: 'chat-1', branchId: 'branch-1', title: '대화', kind: 'MAIN', parentChatId: null }],
@@ -289,6 +291,486 @@ describe('chatStore 화면 상태', () => {
     await promise
 
     expect(useChatStore.getState().blocks.map((b) => b.blockId)).toEqual(['u1', 'a1'])
+  })
+
+  it('전송 중 다른 학습 대화로 이동하면 늦은 성공을 현재 화면에 적용하지 않는다', async () => {
+    const pending = deferred<unknown>()
+    const pendingB = deferred<unknown>()
+    convApi.sendMessage.mockReturnValueOnce(pending.promise).mockReturnValueOnce(pendingB.promise)
+
+    const sending = useChatStore.getState().sendMessage('Self-Attention의 Q, K, V 역할을 설명해줘.')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: 'Transformer Encoder 학습' }),
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'block-b', branchId: 'branch-b', role: 'user', content: 'B의 기존 질문', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    expect(useChatStore.getState().isSending).toBe(false)
+    useChatStore.setState({
+      draftText: 'B의 입력 초안',
+      selectedBlockIds: ['block-b'],
+      appliedBlockIds: ['block-b'],
+      selectedLibraryResourceIds: ['library-b'],
+      error: 'B의 기존 오류',
+    })
+    const sendingB = useChatStore.getState().sendMessage('B 화면의 LayerNorm 질문')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(2))
+
+    pending.resolve({
+      userBlock: { blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'Self-Attention의 Q, K, V 역할을 설명해줘.', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: 'A의 답변', currentVersionId: 'v-a', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating' },
+      appliedContext: [], chatTitle: 'A의 새 제목', titleGenerated: false, aiResponseJobId: 'job-a', jobStatus: 'generating',
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', activeTabId: 'chat-b', chatTitle: 'Transformer Encoder 학습', draftText: 'B의 입력 초안', error: null })
+    expect(state.blocks[0]?.blockId).toBe('block-b')
+    expect(state.appliedBlockIds).toEqual(['block-b'])
+    expect(state.selectedLibraryResourceIds).toEqual(['library-b'])
+    expect(state.isSending).toBe(true)
+    expect(state.blocks).toHaveLength(2)
+    expect(state.blocks[1]).toMatchObject({ branchId: 'branch-b', content: 'B 화면의 LayerNorm 질문' })
+    expect(convApi.openAiResponseStream).not.toHaveBeenCalled()
+
+    pendingB.resolve({
+      userBlock: { blockId: 'user-b', branchId: 'branch-b', role: 'user', content: 'B 화면의 LayerNorm 질문', currentVersionId: 'v-b', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-b', branchId: 'branch-b', role: 'assistant', content: 'B의 답변', currentVersionId: 'v-b', orderIndex: 2, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      appliedContext: [], chatTitle: 'LayerNorm 학습', titleGenerated: false, aiResponseJobId: 'job-b-send', jobStatus: 'completed',
+    })
+    await sendingB
+  })
+
+  it('다른 학습 대화 열기가 실패해도 현재 전송 결과를 유지한다', async () => {
+    const pending = deferred<unknown>()
+    convApi.sendMessage.mockReturnValueOnce(pending.promise)
+
+    const sending = useChatStore.getState().sendMessage('Residual Connection이 학습 안정성에 주는 효과는?')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockRejectedValueOnce(new Error('학습 대화를 불러오지 못했습니다.'))
+
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    expect(useChatStore.getState()).toMatchObject({ chatId: 'chat-1', branchId: 'branch-1', isSending: true })
+
+    pending.resolve({
+      userBlock: { blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'Residual Connection이 학습 안정성에 주는 효과는?', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: '그래디언트 흐름을 돕습니다.', currentVersionId: 'v-a', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      appliedContext: [], chatTitle: 'Residual Connection 학습', titleGenerated: false, aiResponseJobId: 'job-a', jobStatus: 'completed',
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-1', branchId: 'branch-1', chatTitle: 'Residual Connection 학습', isSending: false })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['user-a', 'assistant-a'])
+  })
+
+  it('다른 학습 대화 노드 열기가 실패해도 현재 전송 결과를 유지한다', async () => {
+    const pending = deferred<unknown>()
+    convApi.sendMessage.mockReturnValueOnce(pending.promise)
+
+    const sending = useChatStore.getState().sendMessage('LayerNorm이 배치 크기에 덜 의존하는 이유는?')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+    chatApi.fetchBranch.mockRejectedValueOnce(new Error('학습 노드를 불러오지 못했습니다.'))
+
+    await useChatStore.getState().switchBranch('branch-b')
+    expect(useChatStore.getState()).toMatchObject({ chatId: 'chat-1', branchId: 'branch-1', isSending: true })
+
+    pending.resolve({
+      userBlock: { blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'LayerNorm이 배치 크기에 덜 의존하는 이유는?', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: '토큰 내부 특성을 정규화합니다.', currentVersionId: 'v-a', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      appliedContext: [], chatTitle: 'LayerNorm 학습', titleGenerated: false, aiResponseJobId: 'job-a', jobStatus: 'completed',
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-1', branchId: 'branch-1', chatTitle: 'LayerNorm 학습', isSending: false })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['user-a', 'assistant-a'])
+  })
+
+  it('같은 학습 대화 노드로 돌아오면 늦은 결과만 합치고 새 입력은 남긴다', async () => {
+    const pending = deferred<unknown>()
+    convApi.sendMessage.mockReturnValueOnce(pending.promise)
+
+    const sending = useChatStore.getState().sendMessage('Feed-Forward Network가 토큰별로 하는 일은?')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat
+      .mockResolvedValueOnce({
+        chatMeta: mainMeta({ chatId: 'chat-b', title: '다른 Transformer 학습' }),
+        branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [],
+      })
+      .mockResolvedValueOnce({
+        chatMeta: mainMeta({ chatId: 'chat-1', title: '원래 학습 대화' }),
+        branchMeta: { branchId: 'branch-1' },
+        messageBlocks: [
+          { blockId: 'before-a', branchId: 'branch-1', role: 'user', content: '기존 질문', currentVersionId: 'v-before', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+          { blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'Feed-Forward Network가 토큰별로 하는 일은?', currentVersionId: 'v-a', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+          { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: '스트리밍 중 본문', currentVersionId: 'v-a', orderIndex: 2, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-a' },
+        ],
+        branchList: [],
+      })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    await useChatStore.getState().openChat('chat-1', 'branch-1')
+    expect(useChatStore.getState().isSending).toBe(true)
+    useChatStore.setState({ draftText: '복귀 뒤 새 입력은 보존한다' })
+
+    pending.resolve({
+      userBlock: { blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'Feed-Forward Network가 토큰별로 하는 일은?', currentVersionId: 'v-a', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: '각 토큰의 표현을 비선형 변환합니다.', currentVersionId: 'v-a', orderIndex: 2, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      appliedContext: [], chatTitle: 'Feed-Forward 학습', titleGenerated: false, aiResponseJobId: 'job-a', jobStatus: 'completed',
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-1', branchId: 'branch-1', chatTitle: 'Feed-Forward 학습', draftText: '복귀 뒤 새 입력은 보존한다', isSending: false })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['before-a', 'user-a', 'assistant-a'])
+    expect(state.blocks.find((block) => block.blockId === 'assistant-a')).toMatchObject({ content: '스트리밍 중 본문', generationStatus: 'generating' })
+    expect(convApi.openAiResponseStream).toHaveBeenCalledWith('chat-1', 'branch-1', 'job-a', expect.anything(), expect.any(AbortSignal))
+  })
+
+  it('같은 학습 대화 노드로 돌아온 뒤의 전송 실패는 재시도 정보를 남긴다', async () => {
+    const pending = deferred<unknown>()
+    convApi.sendMessage.mockReturnValueOnce(pending.promise)
+
+    const sending = useChatStore.getState().sendMessage('Causal Mask가 디코더에서 필요한 이유는?')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat
+      .mockResolvedValueOnce({
+        chatMeta: mainMeta({ chatId: 'chat-b', title: '다른 Transformer 학습' }),
+        branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [],
+      })
+      .mockResolvedValueOnce({
+        chatMeta: mainMeta({ chatId: 'chat-1', title: '원래 학습 대화' }),
+        branchMeta: { branchId: 'branch-1' }, messageBlocks: [], branchList: [],
+      })
+      .mockResolvedValueOnce({
+        chatMeta: mainMeta({ chatId: 'chat-1', title: 'Causal Mask 학습' }),
+        branchMeta: { branchId: 'branch-1' },
+        messageBlocks: [{ blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'Causal Mask가 디코더에서 필요한 이유는?', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+        branchList: [],
+      })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    await useChatStore.getState().openChat('chat-1', 'branch-1')
+    useChatStore.setState({ draftText: '복귀 뒤 새 초안' })
+
+    pending.reject({
+      isAxiosError: true,
+      response: { data: { errorCode: 'AI_RESPONSE_FAILED', message: 'A 답변 생성 실패', detail: { aiResponseJobId: 'job-a', userMessageBlockId: 'user-a', retryable: true } } },
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(chatApi.fetchChat).toHaveBeenCalledTimes(3)
+    expect(state).toMatchObject({ chatId: 'chat-1', branchId: 'branch-1', chatTitle: 'Causal Mask 학습', draftText: '복귀 뒤 새 초안', isSending: false })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['user-a'])
+    expect(state.failedJobsByBlockId).toEqual({ 'user-a': 'job-a' })
+  })
+
+  it('첫 학습 질문을 보낸 초안으로 다시 들어오면 늦은 결과를 이어서 표시한다', async () => {
+    const creating = deferred<unknown>()
+    const pending = deferred<unknown>()
+    chatApi.createChat.mockReturnValueOnce(creating.promise)
+    chatApi.fetchChats.mockResolvedValue({ chats: [], nextCursor: null })
+    convApi.sendMessage.mockReturnValueOnce(pending.promise)
+    useChatStore.setState({
+      chatId: null, branchId: null, chatTitle: '', blocks: [],
+      tabs: [
+        { id: 'chat-b', chatId: 'chat-b', branchId: 'branch-b', title: '기존 Transformer 대화', kind: 'MAIN', parentChatId: null },
+        { id: 'draft-a', chatId: null, branchId: null, title: '새 대화', kind: 'MAIN', parentChatId: null },
+      ],
+      activeTabId: 'draft-a',
+    })
+
+    const sending = useChatStore.getState().sendMessage('Cross-Attention이 Encoder-Decoder를 잇는 방식은?')
+    await vi.waitFor(() => expect(chatApi.createChat).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: '기존 Transformer 대화' }),
+      branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [],
+    })
+    await useChatStore.getState().switchTab('chat-b')
+    creating.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-new', title: '새 대화' }),
+      branchMeta: { branchId: 'branch-new' }, messageBlocks: [], branchList: [],
+    })
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-new', title: '새 대화' }),
+      branchMeta: { branchId: 'branch-new' }, messageBlocks: [], branchList: [],
+    })
+    await useChatStore.getState().openChat('chat-new', 'branch-new')
+    expect(useChatStore.getState().isSending).toBe(true)
+
+    pending.resolve({
+      userBlock: { blockId: 'user-new', branchId: 'branch-new', role: 'user', content: 'Cross-Attention이 Encoder-Decoder를 잇는 방식은?', currentVersionId: 'v-new', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-new', branchId: 'branch-new', role: 'assistant', content: 'Decoder query가 Encoder 표현을 참조합니다.', currentVersionId: 'v-new', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      appliedContext: [], chatTitle: 'Cross-Attention 학습', titleGenerated: false, aiResponseJobId: 'job-new', jobStatus: 'completed',
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-new', branchId: 'branch-new', chatTitle: 'Cross-Attention 학습', isSending: false })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['user-new', 'assistant-new'])
+  })
+
+  it('같은 학습 대화의 늦은 조회가 전송 완료 상태를 덮지 않는다', async () => {
+    const staleDetail = deferred<unknown>()
+    const pending = deferred<unknown>()
+    chatApi.fetchChat.mockReturnValueOnce(staleDetail.promise)
+    convApi.sendMessage.mockReturnValueOnce(pending.promise)
+
+    const reloading = useChatStore.getState().openChat('chat-1', 'branch-1')
+    await vi.waitFor(() => expect(chatApi.fetchChat).toHaveBeenCalledTimes(1))
+    const sending = useChatStore.getState().sendMessage('Scaled Dot-Product Attention에서 나누기 sqrt(dk)의 이유는?')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+    pending.resolve({
+      userBlock: { blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'Scaled Dot-Product Attention에서 나누기 sqrt(dk)의 이유는?', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: '내적 크기를 안정화합니다.', currentVersionId: 'v-a', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      appliedContext: [], chatTitle: 'Scaled Dot-Product Attention 학습', titleGenerated: false, aiResponseJobId: 'job-a', jobStatus: 'completed',
+    })
+    await sending
+    staleDetail.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-1', title: '오래된 제목' }),
+      branchMeta: { branchId: 'branch-1' }, messageBlocks: [], branchList: [],
+    })
+    await reloading
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-1', branchId: 'branch-1', chatTitle: 'Scaled Dot-Product Attention 학습' })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['user-a', 'assistant-a'])
+  })
+
+  it('현재 학습 대화를 다시 고르면 대기 중인 다른 대화 열기를 취소한다', async () => {
+    const pending = deferred<unknown>()
+    const pendingB = deferred<unknown>()
+    convApi.sendMessage.mockReturnValueOnce(pending.promise)
+    chatApi.fetchChat.mockReturnValueOnce(pendingB.promise)
+
+    const sending = useChatStore.getState().sendMessage('Transformer에서 잔차 연결이 중요한 이유는?')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+    const openingB = useChatStore.getState().openChat('chat-b', 'branch-b')
+    await vi.waitFor(() => expect(chatApi.fetchChat).toHaveBeenCalledTimes(1))
+
+    await useChatStore.getState().openChat('chat-1', 'branch-1')
+    pendingB.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: 'B 학습 대화' }),
+      branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [],
+    })
+    await openingB
+
+    pending.resolve({
+      userBlock: { blockId: 'user-a', branchId: 'branch-1', role: 'user', content: 'Transformer에서 잔차 연결이 중요한 이유는?', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-a', branchId: 'branch-1', role: 'assistant', content: '그래디언트가 더 안정적으로 흐르게 합니다.', currentVersionId: 'v-a', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      appliedContext: [], chatTitle: '잔차 연결 학습', titleGenerated: false, aiResponseJobId: 'job-a', jobStatus: 'completed',
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-1', branchId: 'branch-1', chatTitle: '잔차 연결 학습', isSending: false })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['user-a', 'assistant-a'])
+  })
+
+  it('첫 채팅 생성 중 다른 탭으로 이동해도 생성된 학습 대화가 현재 화면을 바꾸지 않는다', async () => {
+    const creating = deferred<unknown>()
+    chatApi.createChat.mockReturnValueOnce(creating.promise)
+    chatApi.fetchChats.mockResolvedValue({ chats: [], nextCursor: null })
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'user-new', branchId: 'branch-new', role: 'user', content: 'Softmax가 왜 필요한가?', currentVersionId: 'v-new', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-new', branchId: 'branch-new', role: 'assistant', content: '정규화 답변', currentVersionId: 'v-new', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      appliedContext: [], chatTitle: 'Softmax 학습', titleGenerated: false, aiResponseJobId: 'job-new', jobStatus: 'completed',
+    })
+    useChatStore.setState({
+      chatId: null, branchId: null, chatTitle: '', blocks: [],
+      tabs: [
+        { id: 'chat-b', chatId: 'chat-b', branchId: 'branch-b', title: '기존 Transformer 대화', kind: 'MAIN', parentChatId: null },
+        { id: 'draft-a', chatId: null, branchId: null, title: '새 대화', kind: 'MAIN', parentChatId: null },
+      ],
+      activeTabId: 'draft-a',
+    })
+
+    const sending = useChatStore.getState().sendMessage('Softmax가 왜 필요한가?')
+    await vi.waitFor(() => expect(chatApi.createChat).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: '기존 Transformer 대화' }),
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'block-b', branchId: 'branch-b', role: 'user', content: 'B의 내용', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await useChatStore.getState().switchTab('chat-b')
+    creating.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-new', title: '새 대화' }),
+      branchMeta: { branchId: 'branch-new' }, messageBlocks: [], branchList: [],
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', activeTabId: 'chat-b', chatTitle: '기존 Transformer 대화' })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['block-b'])
+    expect(state.tabs.find((tab) => tab.id === 'chat-new')).toMatchObject({ chatId: 'chat-new', branchId: 'branch-new' })
+    expect(convApi.sendMessage).toHaveBeenCalledWith('chat-new', 'branch-new', 'Softmax가 왜 필요한가?', [], expect.anything(), [])
+  })
+
+  it('첫 채팅 생성 중 돌아온 같은 초안 탭의 식별자를 바꾸지 않는다', async () => {
+    const creating = deferred<unknown>()
+    chatApi.createChat.mockReturnValueOnce(creating.promise)
+    chatApi.fetchChats.mockResolvedValue({ chats: [], nextCursor: null })
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'user-new', branchId: 'branch-new', role: 'user', content: 'Positional Encoding의 목적은?', currentVersionId: 'v-new', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-new', branchId: 'branch-new', role: 'assistant', content: '순서 정보 답변', currentVersionId: 'v-new', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      appliedContext: [], chatTitle: 'Positional Encoding 학습', titleGenerated: false, aiResponseJobId: 'job-new', jobStatus: 'completed',
+    })
+    useChatStore.setState({
+      chatId: null, branchId: null, chatTitle: '', blocks: [],
+      tabs: [
+        { id: 'chat-b', chatId: 'chat-b', branchId: 'branch-b', title: '기존 Transformer 대화', kind: 'MAIN', parentChatId: null },
+        { id: 'draft-a', chatId: null, branchId: null, title: '새 대화', kind: 'MAIN', parentChatId: null },
+      ],
+      activeTabId: 'draft-a',
+    })
+
+    const sending = useChatStore.getState().sendMessage('Positional Encoding의 목적은?')
+    await vi.waitFor(() => expect(chatApi.createChat).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: '기존 Transformer 대화' }),
+      branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [],
+    })
+    await useChatStore.getState().switchTab('chat-b')
+    await useChatStore.getState().switchTab('draft-a')
+    creating.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-new', title: '새 대화' }),
+      branchMeta: { branchId: 'branch-new' }, messageBlocks: [], branchList: [],
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: null, branchId: null, activeTabId: 'draft-a' })
+    expect(state.tabs.find((tab) => tab.id === 'draft-a')).toMatchObject({ chatId: null, branchId: null })
+    expect(state.tabs.some((tab) => tab.id === 'chat-new')).toBe(false)
+  })
+
+  it('전송 실패 뒤 다른 학습 대화를 다시 열지 않는다', async () => {
+    const pending = deferred<unknown>()
+    convApi.sendMessage.mockReturnValueOnce(pending.promise)
+
+    const sending = useChatStore.getState().sendMessage('Transformer 잔차 연결의 목적은 무엇인가?')
+    await vi.waitFor(() => expect(convApi.sendMessage).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: 'B 학습 대화' }),
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'block-b', branchId: 'branch-b', role: 'user', content: 'B의 내용', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await useChatStore.getState().openChat('chat-b', 'branch-b')
+    useChatStore.setState({ draftText: 'B의 입력 초안', error: 'B의 기존 오류', failedJobsByBlockId: { 'block-b': 'job-b' } })
+
+    pending.reject({
+      isAxiosError: true,
+      response: { data: { errorCode: 'AI_RESPONSE_FAILED', message: 'A 답변 생성 실패', detail: { aiResponseJobId: 'job-a', userMessageBlockId: 'user-a', retryable: true } } },
+    })
+    await sending
+
+    const state = useChatStore.getState()
+    expect(chatApi.fetchChat).toHaveBeenCalledTimes(1)
+    expect(state).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', activeTabId: 'chat-b', draftText: 'B의 입력 초안', error: 'B의 기존 오류' })
+    expect(state.blocks.map((block) => block.blockId)).toEqual(['block-b'])
+    expect(state.failedJobsByBlockId).toEqual({ 'block-b': 'job-b' })
+  })
+
+  it('첫 첨부용 채팅 생성이 늦어도 다른 탭에 파일 상태를 추가하지 않는다', async () => {
+    const creating = deferred<unknown>()
+    chatApi.createChat.mockReturnValueOnce(creating.promise)
+    chatApi.fetchChats.mockResolvedValue({ chats: [], nextCursor: null })
+    useChatStore.setState({
+      chatId: null, branchId: null, chatTitle: '', blocks: [], draftAttachments: [],
+      tabs: [
+        { id: 'chat-b', chatId: 'chat-b', branchId: 'branch-b', title: '기존 Transformer 대화', kind: 'MAIN', parentChatId: null },
+        { id: 'draft-a', chatId: null, branchId: null, title: '새 대화', kind: 'MAIN', parentChatId: null },
+      ],
+      activeTabId: 'draft-a',
+    })
+
+    const adding = useChatStore.getState().addFiles([new File(['attention'], 'attention.png', { type: 'image/png' })])
+    await vi.waitFor(() => expect(chatApi.createChat).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-b', title: '기존 Transformer 대화' }),
+      branchMeta: { branchId: 'branch-b' }, messageBlocks: [], branchList: [],
+    })
+    await useChatStore.getState().switchTab('chat-b')
+    creating.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-new', title: '새 대화' }),
+      branchMeta: { branchId: 'branch-new' }, messageBlocks: [], branchList: [],
+    })
+    await adding
+
+    const state = useChatStore.getState()
+    expect(state).toMatchObject({ chatId: 'chat-b', branchId: 'branch-b', activeTabId: 'chat-b' })
+    expect(state.draftAttachments).toEqual([])
+    expect(state.tabs.find((tab) => tab.id === 'chat-new')).toMatchObject({ chatId: 'chat-new', branchId: 'branch-new' })
+  })
+
+  it('첫 첨부와 학습 질문 전송이 겹치면 업로드가 끝날 때까지 전송하지 않는다', async () => {
+    const creating = deferred<unknown>()
+    chatApi.createChat.mockReturnValueOnce(creating.promise)
+    chatApi.fetchChats.mockResolvedValue({ chats: [], nextCursor: null })
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'user-new', branchId: 'branch-new', role: 'user', content: 'Attention Head마다 다른 관계를 배우는 이유는?', currentVersionId: 'v-new', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'assistant-new', branchId: 'branch-new', role: 'assistant', content: '서로 다른 표현 부분공간을 봅니다.', currentVersionId: 'v-new', orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      appliedContext: [], chatTitle: 'Multi-Head Attention 학습', titleGenerated: false, aiResponseJobId: 'job-new', jobStatus: 'completed',
+    })
+    useChatStore.setState({
+      chatId: null, branchId: null, chatTitle: '', blocks: [], draftAttachments: [],
+      tabs: [{ id: 'draft-a', chatId: null, branchId: null, title: '새 대화', kind: 'MAIN', parentChatId: null }],
+      activeTabId: 'draft-a',
+    })
+
+    const sending = useChatStore.getState().sendMessage('Attention Head마다 다른 관계를 배우는 이유는?')
+    await vi.waitFor(() => expect(chatApi.createChat).toHaveBeenCalledTimes(1))
+    const adding = useChatStore.getState().addFiles([new File(['attention'], 'heads.png', { type: 'image/png' })])
+    await Promise.resolve()
+    expect(chatApi.createChat).toHaveBeenCalledTimes(1)
+    creating.resolve({
+      chatMeta: mainMeta({ chatId: 'chat-new', title: '새 대화' }),
+      branchMeta: { branchId: 'branch-new' }, messageBlocks: [], branchList: [],
+    })
+    await Promise.all([adding, sending])
+
+    const state = useChatStore.getState()
+    expect(chatApi.createChat).toHaveBeenCalledTimes(1)
+    expect(convApi.sendMessage).not.toHaveBeenCalled()
+    expect(state.tabs.filter((tab) => tab.chatId === 'chat-new')).toHaveLength(1)
+    expect(state.draftAttachments).toHaveLength(1)
+    expect(state.draftAttachments[0]).toMatchObject({ fileName: 'heads.png' })
+    expect(state.error).toBe('파일 업로드가 끝난 뒤 전송할 수 있습니다.')
+  })
+
+  it('생성 스트림이 같은 학습 대화의 다른 노드에 있는 같은 블록 ID를 바꾸지 않는다', async () => {
+    let handlers!: Parameters<typeof convApi.openAiResponseStream>[3]
+    const streaming = deferred<unknown>()
+    convApi.openAiResponseStream.mockImplementation(async (_chatId: string, _branchId: string, _jobId: string, nextHandlers: typeof handlers) => {
+      handlers = nextHandlers
+      await streaming.promise
+    })
+    useChatStore.setState({
+      blocks: [{ blockId: 'stream-block', branchId: 'branch-1', role: 'assistant', content: 'A', currentVersionId: 'v-a', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'generating', generationJobId: 'job-a' }],
+    })
+
+    const attaching = useChatStore.getState().attachToJob('stream-block', 'job-a')
+    await vi.waitFor(() => expect(convApi.openAiResponseStream).toHaveBeenCalledTimes(1))
+    chatApi.fetchChat.mockResolvedValueOnce({
+      chatMeta: mainMeta({ chatId: 'chat-1', title: 'Transformer 분기 학습' }),
+      branchMeta: { branchId: 'branch-b' },
+      messageBlocks: [{ blockId: 'stream-block', branchId: 'branch-b', role: 'assistant', content: 'B', currentVersionId: 'v-b', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' }],
+      branchList: [],
+    })
+    await useChatStore.getState().openChat('chat-1', 'branch-b')
+    handlers.onText?.('의 스트림')
+    handlers.onSources?.([{ title: 'A의 검색 출처', url: 'https://example.com/attention' }])
+    expect(useChatStore.getState().blocks[0]?.searchSources).toEqual([])
+    handlers.onDone?.({ status: 'completed', content: 'A의 완료 답변', sources: [], error: null })
+    streaming.resolve(undefined)
+    await attaching
+
+    expect(useChatStore.getState().blocks).toMatchObject([{ blockId: 'stream-block', branchId: 'branch-b', content: 'B', generationStatus: 'complete' }])
   })
 
   it('전송 응답의 인용 스니펫을 사용자 블록에 합쳐 저장한다 ', async () => {
