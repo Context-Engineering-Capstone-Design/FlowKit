@@ -118,4 +118,9 @@ def _safe_connection_message(reason: str | None) -> str:
         for token in ("api key", "api_key", "unauthorized", "permission", "401", "403")
     ):
         return "API 키를 확인해주세요."
+    if any(
+        token in normalized
+        for token in ("insufficient_quota", "quota", "credit", "429")
+    ):
+        return "OpenAI 계정에 남은 크레딧이 없거나 사용량 한도를 초과했습니다. 결제 정보를 확인해주세요."
     return "Provider에 연결하지 못했습니다. 잠시 후 다시 시도해주세요."
