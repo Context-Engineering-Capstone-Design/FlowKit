@@ -84,6 +84,8 @@ function SelectedBlocks() {
   const editBusy = useChatPaneStore((s) => s.isSavingEdit)
   const startEdit = useChatPaneStore((s) => s.startEdit)
   const setEditingDraft = useChatPaneStore((s) => s.setEditingDraft)
+  const editingContextTags = useChatPaneStore((s) => s.editingContextTags)
+  const removeEditingContextTag = useChatPaneStore((s) => s.removeEditingContextTag)
   const cancelEdit = useChatPaneStore((s) => s.cancelEdit)
   const saveEdit = useChatPaneStore((s) => s.editBlock)
   const createBranchAt = useChatPaneStore((s) => s.createBranchAt)
@@ -115,7 +117,9 @@ function SelectedBlocks() {
           <MessageEditForm
             draft={draft}
             busy={editBusy}
+            tags={editingContextTags}
             onDraftChange={setEditingDraft}
+            onRemoveTag={removeEditingContextTag}
             onCancel={cancelEdit}
             onSaveBranch={() => void createBranchAt(selected.blockId)}
             onSave={() => saveEdit(selected.blockId, draft)}

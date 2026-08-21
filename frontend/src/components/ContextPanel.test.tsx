@@ -64,3 +64,38 @@ it('정제할 블록 옆 수정 아이콘으로 내용 편집을 시작한다', 
 
   expect(startEdit).toHaveBeenCalledWith('b1', 'TV 화소 설명')
 })
+
+it('Context가 적용된 블록을 편집할 때 인용 범위를 보이고 제거할 수 있다', () => {
+  const removeEditingContextTag = vi.fn()
+  const selectedText = 'Query와 Key의 역할'
+  useChatStore.setState({
+    chatId: 'chat-1',
+    branchId: 'branch-1',
+    blocks: [
+      {
+        blockId: 'b1', branchId: 'branch-1', role: 'user', content: 'Q와 K를 비교해줘',
+        currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete',
+      },
+    ],
+    refineTargetBlockId: 'b1',
+    refineJob: null,
+    editingBlockId: 'b1',
+    editingDraft: 'Q와 K를 비교해줘',
+    isSavingEdit: false,
+    editingContextTags: [{
+      id: 'tag-1', messageBlockId: 'source-1', messageVersionId: 'source-v1', role: 'assistant',
+      snapshotText: `Self-Attention에서 ${selectedText}을 구분한다`, selectedText,
+      startOffset: 18, endOffset: 18 + selectedText.length,
+    }],
+    removeEditingContextTag,
+    sideChatTree: [],
+    tabs: [],
+    isCreatingSideChat: false,
+  })
+
+  renderPanel()
+
+  expect(screen.getByText(`“${selectedText.slice(0, 10)}…”`)).toBeTruthy()
+  fireEvent.click(screen.getByLabelText('선택 범위 태그 제거'))
+  expect(removeEditingContextTag).toHaveBeenCalledWith('tag-1')
+})
