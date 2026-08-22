@@ -23,7 +23,7 @@ from app.schemas.chat import (
     SideChatTreeResponse,
 )
 from app.schemas.notification import ActionMeta
-from app.services import branch_service, chat_service, side_chat_service
+from app.services import branch_service, chat_service, realtime_service, side_chat_service
 
 router = APIRouter(prefix="/api/chats", tags=["SideChat"])
 
@@ -150,6 +150,8 @@ def import_blocks(
     created = side_chat_service.import_blocks_as_messages(
         db, chat, branch, payload.block_ids
     )
+    realtime_service.publish_chat_activity(user.id, chat.id, branch.id)
+    realtime_service.publish_chats_changed(user.id)
     return ImportBlocksResponse(
         imported_blocks=[MessageBlockOut.of(b) for b in created],
         action_meta=ActionMeta(

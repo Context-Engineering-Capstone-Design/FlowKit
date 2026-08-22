@@ -444,6 +444,31 @@ def test_range_context_handles_repeated_words_at_different_offsets(client, auth,
     assert captured[-1].applied_context == ["첫 번째 K 그리고 두 번째 [[K]]와 세 번째 K"]
 
 
+def test_range_context_without_offsets_rejects_ambiguous_markdown_text(client, auth, chat, captured):
+    """렌더 오프셋을 원문에 쓸 수 없는 경우, 같은 문구를 임의의 위치로 바꾸면 안 된다."""
+    source = client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}/blocks",
+        json={"role": "assistant", "content": "**Query** 뒤의 Query"},
+        headers=auth,
+    ).json()
+
+    res = client.post(
+        msg_url(chat),
+        json={
+            "userPrompt": "두 번째 Query만 설명해줘",
+            "contextRanges": [{
+                "blockId": source["blockId"],
+                "versionId": source["currentVersionId"],
+                "snippetText": "Query",
+            }],
+        },
+        headers=auth,
+    )
+
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
 def test_range_context_rejects_mismatched_offset(client, auth, chat, captured):
     """0821_10: 오프셋 위치의 원문과 snippetText가 일치하지 않으면 거부한다."""
     first = send_and_wait(client, auth, chat, "질문")

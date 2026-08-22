@@ -108,7 +108,7 @@ def create_side_chat(
     기록한다. 자식은 루트 메인 채팅의 공통 컨텍스트만 자동 참고하므로, 부모가
     이미 사이드 채팅이면 그 root_chat_id/root_branch_id 를 그대로 물려받는다.
     """
-    from app.services import branch_service
+    from app.services import branch_service, message_service
 
     visible = branch_service.resolve_blocks(db, parent_branch)
     if anchor_message_block_id is not None:
@@ -117,6 +117,8 @@ def create_side_chat(
             raise MessageBlockNotFoundError("사이드 채팅을 만들 지점을 찾을 수 없습니다.")
     else:
         anchor = visible[-1] if visible else None
+    if anchor is not None:
+        message_service.ensure_generation_complete(anchor)
 
     if parent_chat.kind is ChatKind.SIDE:
         root_chat_id = parent_chat.root_chat_id
@@ -174,7 +176,7 @@ def create_conversation_node(
     부모가 있으면 그 부모 아래, 루트면 루트 아래에 배치한다. 출발 흐름은 새 Main
     branch에 물리적으로 복제해 원본의 이후 수정·추가와 완전히 분리한다.
     """
-    from app.services import branch_service
+    from app.services import branch_service, message_service
 
     visible = branch_service.resolve_blocks(db, source_branch)
     if base_message_block_id is not None:
@@ -183,6 +185,8 @@ def create_conversation_node(
             raise MessageBlockNotFoundError("분기 지점 메시지를 찾을 수 없습니다.")
     else:
         anchor = visible[-1] if visible else None
+    if anchor is not None:
+        message_service.ensure_generation_complete(anchor)
 
     parent_id = source_chat.parent_chat_id or source_chat.id
     root_id = source_chat.root_chat_id or source_chat.id

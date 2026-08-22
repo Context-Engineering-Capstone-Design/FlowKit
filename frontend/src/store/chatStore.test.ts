@@ -2220,7 +2220,9 @@ describe('chatStore 드래그 범위 Context', () => {
     vi.clearAllMocks()
     sideChatApi.fetchSideChatTree.mockResolvedValue({ rootChatId: null, chats: [] })
     useChatStore.setState({
-      chatId: 'chat-1', branchId: 'branch-1', blocks: [], branches: [],
+      chatId: 'chat-1', branchId: 'branch-1', blocks: [
+        { blockId: 'block-1', branchId: 'branch-1', role: 'assistant', content: '전체 답변 내용입니다', currentVersionId: 'v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      ], branches: [],
       chatKind: 'MAIN', parentChatId: null, parentBranchId: null, parentMessageBlockId: null,
       draftText: '', draftAttachments: [], contextRangeTags: [],
       editingBlockId: null, editingDraft: '', editingOriginal: '',
@@ -2236,6 +2238,8 @@ describe('chatStore 드래그 범위 Context', () => {
     role: 'assistant' as const,
     snapshotText: '전체 답변 내용입니다',
     selectedText: '답변 내용',
+    rawStartOffset: 2,
+    rawEndOffset: 6,
     startOffset: 2,
     endOffset: 6,
   }
@@ -2332,6 +2336,35 @@ describe('chatStore 드래그 범위 Context', () => {
     expect(useChatStore.getState().contextRangeTags).toEqual([])
   })
 
+  it('Markdown 렌더 텍스트의 오프셋은 원문과 다르면 서버에 보내지 않는다', async () => {
+    useChatStore.setState({
+      blocks: [
+        { blockId: 'markdown-block', branchId: 'branch-1', role: 'assistant', content: '**Query**와 Self-Attention', currentVersionId: 'markdown-v1', orderIndex: 0, createdAt: 't', attachments: [], searchSources: [], generationStatus: 'complete' },
+      ],
+    })
+    useChatStore.getState().addContextRangeTag({
+      messageBlockId: 'markdown-block',
+      messageVersionId: 'markdown-v1',
+      role: 'assistant',
+      snapshotText: 'Query와 Self-Attention',
+      selectedText: 'Query',
+      startOffset: 0,
+      endOffset: 5,
+    })
+    convApi.sendMessage.mockResolvedValue({
+      userBlock: { blockId: 'u1', branchId: 'branch-1', role: 'user', content: 'Transformer 질문', currentVersionId: null, orderIndex: 1, createdAt: 't', attachments: [], searchSources: [] },
+      assistantBlock: { blockId: 'a1', branchId: 'branch-1', role: 'assistant', content: '답변', currentVersionId: 'v2', orderIndex: 2, createdAt: 't', attachments: [], searchSources: [] },
+      chatTitle: '대화', titleGenerated: false,
+    })
+
+    await useChatStore.getState().sendMessage('Query만 설명해줘')
+
+    expect(convApi.sendMessage).toHaveBeenCalledWith(
+      'chat-1', 'branch-1', 'Query만 설명해줘', [], expect.anything(),
+      [{ blockId: 'markdown-block', versionId: 'markdown-v1', snippetText: 'Query' }],
+    )
+  })
+
   it('전송된 인용 태그를 누르면 해당 블록과 범위를 하이라이트한다 (0821_10)', () => {
     const item = {
       blockId: 'block-1',
@@ -2416,6 +2449,18 @@ describe('chatStore 드래그 범위 Context', () => {
           searchSources: [],
           generationStatus: 'complete',
           appliedContext: [],
+        },
+        {
+          blockId: 'src-2',
+          branchId: 'branch-1',
+          role: 'assistant',
+          content: '새로운 인용문',
+          currentVersionId: 'v-src-2',
+          orderIndex: 1,
+          createdAt: 't',
+          attachments: [],
+          searchSources: [],
+          generationStatus: 'complete',
         },
       ],
       editingBlockId: 'b1',

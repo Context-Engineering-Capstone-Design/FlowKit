@@ -96,6 +96,7 @@ def send_message(db: Session, user: User, chat: Chat, branch: Branch, user_promp
     db.add(job); db.commit(); db.refresh(user_block); db.refresh(assistant_block); db.refresh(job)
     _pin_current_version(assistant_block)
     ai_execution_service.record_input_events(db, job, snapshot); db.commit()
+    realtime_service.publish_chat_activity(user.id, chat.id, branch.id, job.id)
 
     titled = is_first and chat.title == chat_service.DEFAULT_TITLE and _try_generate_title(db, chat, prompt, api_key, titler)
 
@@ -159,6 +160,7 @@ def regenerate(db: Session, user: User, chat: Chat, branch: Branch, block_id: uu
     db.add(job); db.commit(); db.refresh(job)
     ai_execution_service.record_input_events(db, job, origin.input_snapshot); db.commit()
 
+    realtime_service.publish_chat_activity(user.id, chat.id, branch.id, job.id)
     _start_job(job.id, block.id, block.current_version_id, chat.id, user.id, origin.input_snapshot, api_key, answerer)
 
     return RegenerateResult(block, [], job)
@@ -180,6 +182,7 @@ def retry_failed_job(db: Session, user: User, chat: Chat, branch: Branch, job_id
     db.add(job); db.commit(); db.refresh(assistant_block); db.refresh(job)
     _pin_current_version(assistant_block)
     ai_execution_service.record_input_events(db, job, failed.input_snapshot); db.commit()
+    realtime_service.publish_chat_activity(user.id, chat.id, branch.id, job.id)
 
     snapshot = failed.input_snapshot
     titled = (
@@ -466,7 +469,6 @@ def _new_job(user, chat, branch, user_block_id, kind, snapshot, source=None):
     # 채워지므로, 커밋 전인 여기서 job.id를 그냥 읽으면 아직 None이다.
     job_id = uuid.uuid4()
     job = AiResponseJob(id=job_id, user_id=user.id, chat_id=chat.id, branch_id=branch.id, user_message_block_id=user_block_id, source_job_id=source, job_type=kind, status=AiResponseJobStatus.REQUESTED, input_snapshot=snapshot)
-    realtime_service.publish_chat_activity(user.id, chat.id, branch.id, job_id)
     return job
 
 def _origin_job(db, assistant_id):

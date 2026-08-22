@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from app.models import Branch, Chat, MessageBlock, MessageBlockVersion, MessageRole, User, VersionSourceType
+from app.models import BlockGenerationStatus, Branch, Chat, MessageBlock, MessageBlockVersion, MessageRole, User, VersionSourceType
 from app.routers import auth as auth_router
 from app.services.google_auth import GoogleUser
 from modeling.types import AnswerChunk, AnswerResult
@@ -39,10 +39,13 @@ def chat(client, auth) -> dict:
     return res.json()
 
 
-def _add_block(db, chat_id, branch_id, order: int, text: str, role=MessageRole.USER):
+def _add_block(
+    db, chat_id, branch_id, order: int, text: str, role=MessageRole.USER,
+    generation_status=BlockGenerationStatus.COMPLETE,
+):
     block = MessageBlock(
         chat_id=uuid.UUID(str(chat_id)), branch_id=uuid.UUID(str(branch_id)),
-        role=role, order_index=order,
+        role=role, order_index=order, generation_status=generation_status,
     )
     db.add(block)
     db.flush()
@@ -156,6 +159,52 @@ def test_create_side_chat_rejects_unknown_anchor(client, auth, chat):
     )
     assert res.status_code == 404
     assert res.json()["errorCode"] == "MESSAGE_BLOCK_NOT_FOUND"
+
+
+def test_create_side_chat_rejects_generating_anchor(client, auth, chat, db_session):
+    generating = _add_block(
+        db_session, chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"], 0, "",
+        role=MessageRole.ASSISTANT, generation_status=BlockGenerationStatus.GENERATING,
+    )
+
+    res = client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}/branches/{chat['branchMeta']['branchId']}/side-chats",
+        json={"anchorMessageBlockId": str(generating.id)}, headers=auth,
+    )
+
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+def test_create_side_chat_without_anchor_rejects_latest_generating_block(client, auth, chat, db_session):
+    chat_id, branch_id = chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"]
+    _add_block(db_session, chat_id, branch_id, 0, "완료된 Transformer 설명")
+    _add_block(
+        db_session, chat_id, branch_id, 1, "", role=MessageRole.ASSISTANT,
+        generation_status=BlockGenerationStatus.GENERATING,
+    )
+
+    res = client.post(
+        f"/api/chats/{chat_id}/branches/{branch_id}/side-chats", json={}, headers=auth,
+    )
+
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
+
+
+def test_create_conversation_node_rejects_generating_anchor(client, auth, chat, db_session):
+    generating = _add_block(
+        db_session, chat["chatMeta"]["chatId"], chat["branchMeta"]["branchId"], 0, "",
+        role=MessageRole.ASSISTANT, generation_status=BlockGenerationStatus.GENERATING,
+    )
+
+    res = client.post(
+        f"/api/chats/{chat['chatMeta']['chatId']}/nodes",
+        json={"baseMessageBlockId": str(generating.id)}, headers=auth,
+    )
+
+    assert res.status_code == 400
+    assert res.json()["errorCode"] == "VALIDATION_ERROR"
 
 
 def test_create_side_chat_denied_for_other_users_chat(client, auth, chat, monkeypatch):

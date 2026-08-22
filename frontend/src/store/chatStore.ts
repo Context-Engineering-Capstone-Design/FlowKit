@@ -60,6 +60,9 @@ export interface ContextRangeTag {
   snapshotText: string
   /** 실제로 고른 부분 (snapshotText.slice(startOffset, endOffset)과 같다). */
   selectedText: string
+  /** 원문 기준으로도 같은 문자 범위였을 때만 채운다. Markdown 렌더 오프셋과 구분한다. */
+  rawStartOffset?: number
+  rawEndOffset?: number
   startOffset: number
   endOffset: number
 }
@@ -93,6 +96,28 @@ function retryableJobsByBlock(blocks: MessageBlock[]): Record<string, string> {
 const CHAT_STATUS_POLL_INTERVAL_MS = 60_000
 const TEMPORARY_CHAT_STORAGE_KEY = 'flowkit:temporary-chat-ids'
 const registeredChatSessionResetters = new Set<(deactivate?: boolean) => void>()
+const registeredChatStoreGetters = new Set<() => ChatState>()
+
+/** 렌더된 Markdown 평문과 원문이 다르면 DOM 오프셋을 서버 원문 오프셋으로 쓰지 않는다. */
+function contextRangeRequest(tag: ContextRangeTag, blocks: MessageBlock[]): ContextRangeIn {
+  const source = blocks.find((block) =>
+    block.blockId === tag.messageBlockId && block.currentVersionId === tag.messageVersionId,
+  )
+  const rawStartOffset = tag.rawStartOffset ?? (
+    source?.content.slice(tag.startOffset, tag.endOffset) === tag.selectedText ? tag.startOffset : undefined
+  )
+  const rawEndOffset = tag.rawEndOffset ?? (
+    rawStartOffset === tag.startOffset ? tag.endOffset : undefined
+  )
+  return {
+    blockId: tag.messageBlockId,
+    versionId: tag.messageVersionId,
+    snippetText: tag.selectedText,
+    ...(rawStartOffset !== undefined && rawEndOffset !== undefined
+      ? { startOffset: rawStartOffset, endOffset: rawEndOffset }
+      : {}),
+  }
+}
 
 /** 로그인 전환 시 메인·사이드 패널의 대화 상태와 실행 중 작업을 함께 비운다. */
 export function resetAllChatSessions() {
@@ -255,6 +280,8 @@ export interface ChatState {
   dispose: () => void
   /** 같은 스토어 안에서 채팅 목록 갱신 신호를 짧게 합친다. */
   refreshChatListSoon: () => void
+  /** 실시간 변경 신호의 대상이 지금 열린 화면일 때만 최신 상세를 반영한다. */
+  refreshCurrentChatFromRealtime: (data: realtimeApi.RealtimeChatActivity) => Promise<void>
   openChat: (chatId: string, branchId?: string) => Promise<void>
   deleteChat: (chatId: string) => Promise<void>
   /** 대화 이름을 사용자가 직접 입력한 값으로 바꾼다 . */
@@ -363,6 +390,14 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   let committedViewEpoch = 0
   let latestTargetActivitySequence = 0
   let latestTargetActivityRevision = 0
+  let latestBranchCreationId = 0
+  let latestSideChatCreationId = 0
+  let latestParentTransferId = 0
+  let latestDeleteId = 0
+  let latestEditRequestId = 0
+  let latestVersionLoadSequence = 0
+  const latestVersionLoadByKey = new Map<string, number>()
+  let latestRealtimeActivityRequestId = 0
   const targetActivityByKey = new Map<string, { sequence: number; pending: boolean; revision: number }>()
   const pendingChatCreationsByDraftId = new Map<string, Promise<ChatDetail>>()
   let pendingOpenChat: { chatId: string; requestId: number } | null = null
@@ -374,6 +409,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   let chatStatusPoll: ReturnType<typeof setInterval> | null = null
   let chatsRefreshTimer: ReturnType<typeof setTimeout> | null = null
   let sessionResetter: ((deactivate?: boolean) => void) | null = null
+  let storeGetter: (() => ChatState) | null = null
   const activeStreams = new Map<string, { controller: AbortController; jobId: string }>()
   const deliveryDrafts = new Map<string, DeliveryDraft>()
 
@@ -498,6 +534,14 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     sideChatContextRequestId += 1
     latestTargetActivitySequence = 0
     latestTargetActivityRevision = 0
+    latestBranchCreationId += 1
+    latestSideChatCreationId += 1
+    latestParentTransferId += 1
+    latestDeleteId += 1
+    latestEditRequestId += 1
+    latestVersionLoadSequence += 1
+    latestVersionLoadByKey.clear()
+    latestRealtimeActivityRequestId += 1
     beginViewRequest()
     commitViewChange()
   }
@@ -562,6 +606,24 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       current.chatId === chatId &&
       current.branchId === branchId &&
       current.refineJob?.refineJobId === jobId
+  }
+
+  function ownsCurrentView(
+    get: () => ChatState,
+    epoch: number,
+    viewEpoch: number,
+    requestId: number,
+    chatId: string | null,
+    branchId: string | null,
+    activeTabId: string | null,
+  ) {
+    const current = get()
+    return isCurrentSession(epoch) &&
+      committedViewEpoch === viewEpoch &&
+      viewRequestId === requestId &&
+      current.chatId === chatId &&
+      current.branchId === branchId &&
+      current.activeTabId === activeTabId
   }
 
   function finishTargetActivity(activity: { key: string; sequence: number }) {
@@ -708,7 +770,16 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async newChat(projectId) {
+    const beforeNew = get()
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const originRequestId = viewRequestId
+    const ownsOrigin = () => ownsCurrentView(
+      get, epoch, viewEpoch, originRequestId,
+      beforeNew.chatId, beforeNew.branchId, beforeNew.activeTabId,
+    )
     if (!(await confirmPendingDiscard(get()))) return
+    if (!ownsOrigin()) return
     const requestId = beginViewRequest()
     if (projectId) {
       try {
@@ -750,6 +821,31 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
   refreshChatListSoon() {
     scheduleChatsRefresh(get)
+  },
+
+  async refreshCurrentChatFromRealtime(data) {
+    const state = get()
+    const { chatId, branchId, activeTabId } = state
+    if (!chatId || !branchId || chatId !== data.chatId || branchId !== data.branchId) return
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const activityRequestId = ++latestRealtimeActivityRequestId
+    const ownsRequest = () => ownsCurrentView(
+      get, epoch, viewEpoch, requestId, chatId, branchId, activeTabId,
+    ) && latestRealtimeActivityRequestId === activityRequestId
+    try {
+      const detail = await chatApi.fetchChat(chatId, branchId)
+      if (!ownsRequest()) return
+      set({
+        blocks: detail.messageBlocks,
+        chatTitle: detail.chatMeta.title,
+        failedJobsByBlockId: retryableJobsByBlock(detail.messageBlocks),
+      })
+      if (ownsRequest()) get().reattachGeneratingBlocks()
+    } catch {
+      // 다음 실시간 신호나 상태 폴링이 다시 맞춘다.
+    }
   },
 
   resetSession(deactivate = false) {
@@ -829,6 +925,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
     get().resetSession()
     disposed = true
     if (sessionResetter) registeredChatSessionResetters.delete(sessionResetter)
+    if (storeGetter) registeredChatStoreGetters.delete(storeGetter)
   },
 
   async loadInputAssist() {
@@ -972,12 +1069,20 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
   async openChat(chatId, branchId) {
     const beforeOpen = get()
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const originRequestId = viewRequestId
+    const ownsOrigin = () => ownsCurrentView(
+      get, epoch, viewEpoch, originRequestId,
+      beforeOpen.chatId, beforeOpen.branchId, beforeOpen.activeTabId,
+    )
     const requestedBranchId = branchId ?? (beforeOpen.chatId === chatId ? beforeOpen.branchId : null)
     if (beforeOpen.chatId === chatId && requestedBranchId === beforeOpen.branchId && requestedBranchId && isTargetActivityPending(chatId, requestedBranchId)) {
       beginViewRequest()
       return
     }
     if (beforeOpen.chatId !== chatId && !(await confirmPendingDiscard(get()))) return
+    if (!ownsOrigin()) return
     const requestActivity = requestedBranchId
       ? targetActivityByKey.get(targetKey(chatId, requestedBranchId))
       : undefined
@@ -1036,6 +1141,14 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
   async deleteChat(chatId) {
     if (get().deletingChatId) return
+    const beforeDelete = get()
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const ownsOrigin = () => ownsCurrentView(
+      get, epoch, viewEpoch, requestId,
+      beforeDelete.chatId, beforeDelete.branchId, beforeDelete.activeTabId,
+    )
     const title =
       get().chats.find((item) => item.chatId === chatId)?.title ??
       get().sideChatTree.find((item) => item.chatId === chatId)?.title ??
@@ -1046,23 +1159,30 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       { confirmLabel: '삭제' },
     )
     if (!confirmed) return
+    if (!ownsOrigin()) return
 
+    const deleteId = ++latestDeleteId
+    const ownsDelete = () => isCurrentSession(epoch) && latestDeleteId === deleteId
     const wasCurrent = get().chatId === chatId
     set({ deletingChatId: chatId })
     try {
       const result = await chatApi.deleteChat(chatId)
+      if (!ownsOrigin() || !ownsDelete()) return
       set((s) => ({
         chats: s.chats.filter((item) => item.chatId !== chatId),
         tabs: s.tabs.filter((t) => t.chatId !== chatId),
+        deletingChatId: null,
       }))
       useNotificationStore.getState().showAction(result.actionMeta)
       if (wasCurrent) await get().switchToTabOrDraft(get().tabs[0] ?? null)
       else void get().loadSideChatContext()
     } catch (e) {
+      if (!ownsOrigin() || !ownsDelete()) return
       if (errorCode(e) === 'CHAT_ACCESS_DENIED' || errorCode(e) === 'CHAT_NOT_FOUND') {
         set((s) => ({
           chats: s.chats.filter((item) => item.chatId !== chatId),
           tabs: s.tabs.filter((t) => t.chatId !== chatId),
+          deletingChatId: null,
         }))
         if (wasCurrent) await get().switchToTabOrDraft(get().tabs[0] ?? null)
       } else {
@@ -1070,7 +1190,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         showChatError(e, 'chat-delete', () => void get().deleteChat(chatId))
       }
     } finally {
-      set({ deletingChatId: null })
+      if (ownsDelete()) set({ deletingChatId: null })
     }
   },
 
@@ -1094,14 +1214,22 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async switchBranch(branchId) {
-    const { chatId } = get()
+    const beforeSwitch = get()
+    const { chatId } = beforeSwitch
     if (!chatId) return false
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const originRequestId = viewRequestId
+    const ownsOrigin = () => ownsCurrentView(
+      get, epoch, viewEpoch, originRequestId,
+      beforeSwitch.chatId, beforeSwitch.branchId, beforeSwitch.activeTabId,
+    )
     if (get().branchId === branchId && isTargetActivityPending(chatId, branchId)) {
       beginViewRequest()
       return true
     }
     if (get().branchId !== branchId && !(await confirmPendingDiscard(get()))) return false
-    if (get().chatId !== chatId) return false
+    if (!ownsOrigin()) return false
     const requestActivity = targetActivityByKey.get(targetKey(chatId, branchId))
     const requestActivitySequence = requestActivity?.sequence ?? 0
     const requestActivityRevision = requestActivity?.revision ?? 0
@@ -1138,6 +1266,8 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         versionsByBlock: {},
         contextInstruction: '',
         isSending: isTargetActivityPending(chatId, loadedBranchId),
+        isCreatingSideChat: false,
+        isCreatingBranch: false,
         appliedContextLabel: null,
         lastRefineInstruction: null,
         refineFailed: false,
@@ -1214,7 +1344,13 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   async openDraftSideChatWithRange(tag) {
     const { chatId, branchId } = get()
     if (!chatId || !branchId) return
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const activeTabId = get().activeTabId
+    const ownsOrigin = () => ownsCurrentView(get, epoch, viewEpoch, requestId, chatId, branchId, activeTabId)
     if (!(await confirmPendingDiscard(get()))) return
+    if (!ownsOrigin()) return
     beginViewRequest()
     captureActiveTabSnapshot(set, get)
     const draftId = newDraftId()
@@ -1322,13 +1458,7 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         prompt,
         appliedBlockIds,
         { selectedModelId, webSearchMode, reasoningEffort, attachmentIds: sendAttachments.flatMap((item) => item.attachmentId ? [item.attachmentId] : []), libraryResourceIds: selectedLibraryResourceIds },
-        contextRangeTags.map((tag): ContextRangeIn => ({
-          blockId: tag.messageBlockId,
-          versionId: tag.messageVersionId,
-          snippetText: tag.selectedText,
-          startOffset: tag.startOffset,
-          endOffset: tag.endOffset,
-        })),
+        contextRangeTags.map((tag) => contextRangeRequest(tag, input.blocks)),
       )
       if (ownsView()) {
         set((s) => ({
@@ -1689,15 +1819,26 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async loadVersions(blockId) {
-    const { chatId, branchId } = get()
+    const state = get()
+    const { chatId, branchId } = state
     if (!chatId || !branchId) return
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const key = `${chatId}:${branchId}:${blockId}`
+    const loadId = ++latestVersionLoadSequence
+    latestVersionLoadByKey.set(key, loadId)
+    const ownsLoad = () => ownsCurrentView(
+      get, epoch, viewEpoch, requestId, chatId, branchId, state.activeTabId,
+    ) && latestVersionLoadByKey.get(key) === loadId
     try {
       const versions = await convApi.fetchVersions(chatId, branchId, blockId)
+      if (!ownsLoad()) return
       set((s) => ({
         versionsByBlock: { ...s.versionsByBlock, [blockId]: versions },
       }))
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      if (ownsLoad()) set({ error: toErrorMessage(e) })
     }
   },
 
@@ -1724,30 +1865,48 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async editBlock(blockId, content) {
-    const { chatId, branchId } = get()
-    if (!chatId || !branchId || !content.trim()) return false
+    const state = get()
+    const { chatId, branchId } = state
+    if (!chatId || !branchId || !content.trim() || state.isSavingEdit) return false
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const editId = ++latestEditRequestId
+    const ownsEdit = () => ownsCurrentView(
+      get, epoch, viewEpoch, requestId, chatId, branchId, state.activeTabId,
+    ) && latestEditRequestId === editId
     try {
       set({ isSavingEdit: true })
-      const contextRanges = get().editingContextTags.map((tag): ContextRangeIn => ({
-        blockId: tag.messageBlockId,
-        versionId: tag.messageVersionId,
-        snippetText: tag.selectedText,
-        startOffset: tag.startOffset,
-        endOffset: tag.endOffset,
-      }))
+      const contextRanges = state.editingContextTags.map((tag) => contextRangeRequest(tag, state.blocks))
       const block = await convApi.editBlock(chatId, branchId, blockId, content, contextRanges)
+      if (!ownsEdit()) return false
       set((s) => ({ blocks: s.blocks.map((item) => item.blockId === blockId ? { ...item, ...block } : item) }))
       await get().loadVersions(blockId)
-      set({ editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [] })
+      if (!ownsEdit()) return false
+      set((current) => current.editingBlockId === blockId
+        ? { editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [] }
+        : {})
       useNotificationStore.getState().show('메시지를 수정했습니다.', 'success')
       return true
-    } catch (e) { set({ error: toErrorMessage(e) }); return false }
-    finally { set({ isSavingEdit: false }) }
+    } catch (e) {
+      if (ownsEdit()) set({ error: toErrorMessage(e) })
+      return false
+    } finally {
+      if (ownsEdit()) set({ isSavingEdit: false })
+    }
   },
 
   async startEdit(blockId, content) {
     const state = get()
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const ownsOrigin = () => ownsCurrentView(
+      get, epoch, viewEpoch, requestId,
+      state.chatId, state.branchId, state.activeTabId,
+    )
     if (state.editingBlockId && state.editingBlockId !== blockId && state.editingDraft !== state.editingOriginal && !(await useConfirmStore.getState().request('다른 메시지의 수정 내용을 버릴까요?'))) return
+    if (!ownsOrigin()) return
     const block = state.blocks.find((item) => item.blockId === blockId)
     const editingContextTags = (block?.appliedContext ?? []).map((item) => ({
       id: crypto.randomUUID(),
@@ -1756,6 +1915,8 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       role: state.blocks.find((source) => source.blockId === item.blockId)?.role ?? 'assistant',
       snapshotText: item.content,
       selectedText: item.content,
+      rawStartOffset: item.startOffset ?? undefined,
+      rawEndOffset: item.endOffset ?? undefined,
       startOffset: item.startOffset ?? 0,
       endOffset: item.endOffset ?? item.content.length,
     }))
@@ -1929,7 +2090,12 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
   async createBranch(name, baseBlockId, contextBlockIds, editedBaseContent) {
     const { chatId, branchId } = get()
-    if (!chatId || !branchId) return false
+    if (!chatId || !branchId || get().isCreatingBranch) return false
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const activeTabId = get().activeTabId
+    const ownsOrigin = () => ownsCurrentView(get, epoch, viewEpoch, requestId, chatId, branchId, activeTabId)
     const state = get()
     const hasOtherUnsavedEdit = Boolean(
       state.editingBlockId &&
@@ -1937,7 +2103,10 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       editedBaseContent === undefined,
     )
     if (hasOtherUnsavedEdit && !(await useConfirmStore.getState().request('저장하지 않은 메시지 수정 내용을 버리고 브랜치를 만들까요?'))) return false
+    if (!ownsOrigin() || get().isCreatingBranch) return false
 
+    const creationId = ++latestBranchCreationId
+    const ownsCreation = () => isCurrentSession(epoch) && latestBranchCreationId === creationId
     set({ isCreatingBranch: true, branchError: null })
     try {
       const created = await chatApi.createBranch(chatId, {
@@ -1947,46 +2116,74 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         contextBlockIds,
         editedBaseContent,
       })
+      if (!ownsOrigin() || !ownsCreation()) return false
       // 만든 브랜치로 바로 들어간다. 목록만 갱신하면 어디로 갔는지 알기 어렵다
-      set({ branches: await chatApi.fetchBranches(chatId) })
+      const branches = await chatApi.fetchBranches(chatId)
+      if (!ownsOrigin() || !ownsCreation()) return false
+      set({ branches })
       // 분기 전 이탈 확인을 마쳤거나 수정본이 새 브랜치에 저장됐으므로 초안을 정리한다.
       set({ editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [] })
       const switched = await get().switchBranch(created.branchId)
-      if (!switched) return false
+      if (!switched || !ownsCreation() || get().chatId !== chatId || get().branchId !== created.branchId) return false
       useNotificationStore.getState().show('브랜치를 만들었습니다.', 'success')
       useNotificationStore.getState().dismissBanner('branch')
       return true
     } catch (e) {
-      set({ branchError: toErrorMessage(e) })
-      showChatError(e, 'branch', () => void get().createBranch(name, baseBlockId, contextBlockIds, editedBaseContent))
+      if (ownsOrigin() && ownsCreation()) {
+        set({ branchError: toErrorMessage(e) })
+        showChatError(e, 'branch', () => void get().createBranch(name, baseBlockId, contextBlockIds, editedBaseContent))
+      }
       return false
     } finally {
-      set({ isCreatingBranch: false })
+      if (ownsCreation()) set({ isCreatingBranch: false })
     }
   },
   async createBranchAt(baseBlockId) {
-    const { chatId } = get()
-    if (!chatId) return false
+    const { chatId, branchId } = get()
+    if (!chatId || !branchId || get().isCreatingBranch) return false
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const activeTabId = get().activeTabId
+    const ownsOrigin = () => ownsCurrentView(get, epoch, viewEpoch, requestId, chatId, branchId, activeTabId)
     if (!(await confirmPendingDiscard(get()))) return false
+    if (!ownsOrigin() || get().isCreatingBranch) return false
+    const creationId = ++latestBranchCreationId
+    const ownsCreation = () => isCurrentSession(epoch) && latestBranchCreationId === creationId
     set({ isCreatingBranch: true, branchError: null })
     try {
       const created = await chatApi.createConversationNode(chatId, { baseMessageBlockId: baseBlockId })
-      if (openSidePanel) await openSidePanel(created.chatMeta.chatId, created.branchMeta.branchId)
+      if (!ownsOrigin() || !ownsCreation()) return false
+      const panelOpener = openSidePanel
+      if (panelOpener) {
+        await panelOpener(created.chatMeta.chatId, created.branchMeta.branchId)
+        if (!ownsOrigin() || !ownsCreation()) return false
+      }
       else {
         commitViewChange()
         applyDetail(set, created)
         upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
         void get().loadSideChatContext()
       }
+      if (!ownsCreation()) return false
+      const ownsResultView = () => {
+        if (!ownsCreation()) return false
+        if (panelOpener) return ownsOrigin()
+        const current = get()
+        return current.chatId === created.chatMeta.chatId && current.branchId === created.branchMeta.branchId
+      }
       await refreshMainSideChatTree()
+      if (!ownsResultView()) return false
       useNotificationStore.getState().show('분기 대화를 만들었습니다.', 'success')
       return true
     } catch (e) {
-      set({ branchError: toErrorMessage(e) })
-      showChatError(e, 'branch', () => void get().createBranchAt(baseBlockId))
+      if (ownsOrigin() && ownsCreation()) {
+        set({ branchError: toErrorMessage(e) })
+        showChatError(e, 'branch', () => void get().createBranchAt(baseBlockId))
+      }
       return false
     } finally {
-      set({ isCreatingBranch: false })
+      if (ownsCreation()) set({ isCreatingBranch: false })
     }
   },
 
@@ -2057,14 +2254,25 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   clearSourceNavigationError() { set({ sourceNavigationError: null }) },
 
   async switchTab(id) {
-    const tab = get().tabs.find((t) => t.id === id)
-    if (!tab || id === get().activeTabId) return
+    const beforeSwitch = get()
+    const tab = beforeSwitch.tabs.find((t) => t.id === id)
+    if (!tab || id === beforeSwitch.activeTabId) return
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const ownsOrigin = () => ownsCurrentView(
+      get, epoch, viewEpoch, requestId,
+      beforeSwitch.chatId, beforeSwitch.branchId, beforeSwitch.activeTabId,
+    )
     if (!(await confirmPendingDiscard(get()))) return
+    if (!ownsOrigin()) return
+    const currentTab = get().tabs.find((item) => item.id === id)
+    if (!currentTab) return
     captureActiveTabSnapshot(set, get)
     get().clearDraft()
     set({ editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [] })
-    if (tab.chatId && tab.branchId) {
-      await get().openChat(tab.chatId, tab.branchId)
+    if (currentTab.chatId && currentTab.branchId) {
+      await get().openChat(currentTab.chatId, currentTab.branchId)
       return
     }
     beginViewRequest()
@@ -2074,7 +2282,8 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async closeTab(id) {
-    const { tabs, activeTabId } = get()
+    const beforeClose = get()
+    const { tabs, activeTabId } = beforeClose
     const index = tabs.findIndex((t) => t.id === id)
     if (index === -1) return
 
@@ -2091,7 +2300,15 @@ export function createChatStore(options: ChatStoreOptions = {}) {
       return
     }
 
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const ownsOrigin = () => ownsCurrentView(
+      get, epoch, viewEpoch, requestId,
+      beforeClose.chatId, beforeClose.branchId, beforeClose.activeTabId,
+    )
     if (!(await confirmPendingDiscard(get()))) return
+    if (!ownsOrigin() || !get().tabs.some((tab) => tab.id === id)) return
     get().clearDraft()
     set((s) => ({
       editingBlockId: null,
@@ -2134,8 +2351,16 @@ export function createChatStore(options: ChatStoreOptions = {}) {
 
   async createSideChatTab(anchorMessageBlockId, title, isTemporary = false) {
     const { chatId, branchId } = get()
-    if (!chatId || !branchId) return
+    if (!chatId || !branchId || get().isCreatingSideChat) return
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const activeTabId = get().activeTabId
+    const ownsOrigin = () => ownsCurrentView(get, epoch, viewEpoch, requestId, chatId, branchId, activeTabId)
     if (!(await confirmPendingDiscard(get()))) return
+    if (!ownsOrigin() || get().isCreatingSideChat) return
+    const creationId = ++latestSideChatCreationId
+    const ownsCreation = () => isCurrentSession(epoch) && latestSideChatCreationId === creationId
     captureActiveTabSnapshot(set, get)
     get().clearDraft()
     set({ editingBlockId: null, editingDraft: '', editingOriginal: '', editingContextTags: [], isCreatingSideChat: true })
@@ -2145,19 +2370,31 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         branchId,
         isTemporary ? { anchorMessageBlockId, title, isTemporary: true } : { anchorMessageBlockId, title },
       )
-      if (openSidePanel) await openSidePanel(created.chatMeta.chatId, created.branchMeta.branchId)
-      else {
+      if (!ownsOrigin() || !ownsCreation()) return
+      const panelOpener = openSidePanel
+      if (panelOpener) {
+        await panelOpener(created.chatMeta.chatId, created.branchMeta.branchId)
+        if (!ownsOrigin() || !ownsCreation()) return
+      } else {
         commitViewChange()
         applyDetail(set, created)
         upsertTab(set, get, created.chatMeta, created.branchMeta.branchId)
       }
+      if (!ownsCreation()) return
+      const ownsResultView = () => {
+        if (!ownsCreation()) return false
+        if (panelOpener) return ownsOrigin()
+        const current = get()
+        return current.chatId === created.chatMeta.chatId && current.branchId === created.branchMeta.branchId
+      }
       if (created.chatMeta.isTemporary) rememberTemporaryChat(created.chatMeta.chatId)
       await refreshMainSideChatTree()
+      if (!ownsResultView()) return
       useNotificationStore.getState().show(created.chatMeta.isTemporary ? 'Temporary Chat을 만들었습니다. 탭을 닫으면 삭제됩니다.' : '사이드 채팅을 만들었습니다.', 'success')
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      if (ownsOrigin() && ownsCreation()) set({ error: toErrorMessage(e) })
     } finally {
-      set({ isCreatingSideChat: false })
+      if (ownsCreation()) set({ isCreatingSideChat: false })
     }
   },
 
@@ -2184,11 +2421,20 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async sendSelectedToParentAsContext() {
-    const { parentChatId, parentBranchId, selectedBlockIds } = get()
-    if (!parentChatId || !parentBranchId || selectedBlockIds.length === 0) return false
+    const { chatId: sourceChatId, branchId: sourceBranchId, parentChatId, parentBranchId, selectedBlockIds } = get()
+    if (!sourceChatId || !sourceBranchId || !parentChatId || !parentBranchId || selectedBlockIds.length === 0) return false
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const sourceTabId = get().activeTabId
+    const ownsOrigin = () => ownsCurrentView(get, epoch, viewEpoch, requestId, sourceChatId, sourceBranchId, sourceTabId)
     const blockIds = [...selectedBlockIds]
-    const parentTab = get().tabs.find((t) => t.chatId === parentChatId)
-    await get().openChat(parentChatId, parentTab?.branchId ?? parentBranchId)
+    const targetBranchId = parentBranchId
+    const transferId = ++latestParentTransferId
+    const ownsTransfer = () => isCurrentSession(epoch) && latestParentTransferId === transferId
+    if (!ownsOrigin() || !ownsTransfer()) return false
+    await get().openChat(parentChatId, targetBranchId)
+    if (!ownsTransfer() || get().chatId !== parentChatId || get().branchId !== targetBranchId) return false
     set({
       appliedBlockIds: blockIds,
       appliedContextLabel: '사이드 채팅에서 가져온 Context',
@@ -2199,24 +2445,40 @@ export function createChatStore(options: ChatStoreOptions = {}) {
   },
 
   async importSelectedToParentAsMessages() {
-    const { parentChatId, parentBranchId, selectedBlockIds } = get()
-    if (!parentChatId || !parentBranchId || selectedBlockIds.length === 0) return false
+    const { chatId: sourceChatId, branchId: sourceBranchId, parentChatId, parentBranchId, selectedBlockIds } = get()
+    if (!sourceChatId || !sourceBranchId || !parentChatId || !parentBranchId || selectedBlockIds.length === 0) return false
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const sourceTabId = get().activeTabId
+    const ownsOrigin = () => ownsCurrentView(get, epoch, viewEpoch, requestId, sourceChatId, sourceBranchId, sourceTabId)
     const blockIds = [...selectedBlockIds]
+    const transferId = ++latestParentTransferId
+    const ownsTransfer = () => isCurrentSession(epoch) && latestParentTransferId === transferId
     try {
       const result = await sideChatApi.importBlocksAsMessages(parentChatId, parentBranchId, blockIds)
-      const parentTab = get().tabs.find((t) => t.chatId === parentChatId)
-      await get().openChat(parentChatId, parentTab?.branchId ?? parentBranchId)
+      if (!ownsOrigin() || !ownsTransfer()) return false
+      const targetBranchId = parentBranchId
+      await get().openChat(parentChatId, targetBranchId)
+      if (!ownsTransfer() || get().chatId !== parentChatId || get().branchId !== targetBranchId) return false
       useNotificationStore.getState().showAction(result.actionMeta)
       return true
     } catch (e) {
-      set({ error: toErrorMessage(e) })
+      if (ownsOrigin() && ownsTransfer()) set({ error: toErrorMessage(e) })
       return false
     }
   },
 
   async createSiblingBranchFromSideChat(branchName, editedBaseContent) {
-    const { parentChatId, parentBranchId, parentMessageBlockId } = get()
-    if (!parentChatId || !parentBranchId || !parentMessageBlockId) return false
+    const { chatId: sourceChatId, branchId: sourceBranchId, parentChatId, parentBranchId, parentMessageBlockId } = get()
+    if (!sourceChatId || !sourceBranchId || !parentChatId || !parentBranchId || !parentMessageBlockId || get().isCreatingBranch) return false
+    const epoch = sessionEpoch
+    const viewEpoch = committedViewEpoch
+    const requestId = viewRequestId
+    const sourceTabId = get().activeTabId
+    const ownsOrigin = () => ownsCurrentView(get, epoch, viewEpoch, requestId, sourceChatId, sourceBranchId, sourceTabId)
+    const creationId = ++latestBranchCreationId
+    const ownsCreation = () => isCurrentSession(epoch) && latestBranchCreationId === creationId
     set({ isCreatingBranch: true, branchError: null })
     try {
       const created = await chatApi.createBranch(parentChatId, {
@@ -2226,19 +2488,23 @@ export function createChatStore(options: ChatStoreOptions = {}) {
         contextBlockIds: [],
         editedBaseContent,
       })
+      if (!ownsOrigin() || !ownsCreation()) return false
       await get().openChat(parentChatId, created.branchId)
+      if (!ownsCreation() || get().chatId !== parentChatId || get().branchId !== created.branchId) return false
       useNotificationStore.getState().show('부모 아래 형제 브랜치를 만들었습니다.', 'success')
       return true
     } catch (e) {
-      set({ branchError: toErrorMessage(e) })
+      if (ownsOrigin() && ownsCreation()) set({ branchError: toErrorMessage(e) })
       return false
     } finally {
-      set({ isCreatingBranch: false })
+      if (ownsCreation()) set({ isCreatingBranch: false })
     }
   },
   }))
   sessionResetter = (deactivate) => store.getState().resetSession(deactivate)
+  storeGetter = () => store.getState()
   registeredChatSessionResetters.add(sessionResetter)
+  registeredChatStoreGetters.add(storeGetter)
   return store
 }
 
@@ -2295,26 +2561,18 @@ async function runRealtimeLoop(signal: AbortSignal, attempt: number): Promise<vo
 }
 
 function handleRealtimeChatsChanged() {
-  useChatStore.getState().refreshChatListSoon()
+  for (const getStore of [...registeredChatStoreGetters]) {
+    const state = getStore()
+    state.refreshChatListSoon()
+    if (state.chatId) void state.loadSideChatContext()
+  }
 }
 
 /** 지금 열려 있는 대화와 같은 chatId·branchId일 때만 조용히 다시 불러오고, 생성 중인 블록에 다시 붙는다. */
-async function handleRealtimeChatActivity(data: realtimeApi.RealtimeChatActivity) {
-  const before = useChatStore.getState()
-  if (before.chatId !== data.chatId || before.branchId !== data.branchId) return
-  try {
-    const detail = await chatApi.fetchChat(data.chatId, data.branchId)
-    const current = useChatStore.getState()
-    if (current.chatId !== data.chatId || current.branchId !== data.branchId) return
-    useChatStore.setState({
-      blocks: detail.messageBlocks,
-      chatTitle: detail.chatMeta.title,
-      failedJobsByBlockId: retryableJobsByBlock(detail.messageBlocks),
-    })
-  } catch {
-    return // 조회 실패는 조용히 넘어간다 — 다음 이벤트나 안전망 폴링이 보정한다
+function handleRealtimeChatActivity(data: realtimeApi.RealtimeChatActivity) {
+  for (const getStore of [...registeredChatStoreGetters]) {
+    void getStore().refreshCurrentChatFromRealtime(data)
   }
-  useChatStore.getState().reattachGeneratingBlocks()
 }
 
 /** 대화 관련 필드만 빈 상태로 되돌린다. 탭 목록 자체는 건드리지 않는다. */
@@ -2352,6 +2610,8 @@ function resetToDraftFields(
     versionsByBlock: {},
     contextInstruction: '',
     isSending: false,
+    isCreatingSideChat: false,
+    isCreatingBranch: false,
     error: null,
     pendingByBlockId: {},
     failedJobsByBlockId: {},
@@ -2413,8 +2673,10 @@ function applyDetail(
     inlineView: {},
     ratings: {},
         versionsByBlock: {},
-        contextInstruction: '',
+    contextInstruction: '',
     isSending: false,
+    isCreatingSideChat: false,
+    isCreatingBranch: false,
     error: null,
     draftText: '',
     draftAttachments: [],

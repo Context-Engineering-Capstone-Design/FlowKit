@@ -164,12 +164,16 @@ export function MessageBlockItem({ block, refine }: Props) {
 
   function addPendingToChat() {
     if (!pendingSelection || !block.currentVersionId) return
+    const rawOffsets = block.content.slice(pendingSelection.startOffset, pendingSelection.endOffset) === pendingSelection.text
+      ? { rawStartOffset: pendingSelection.startOffset, rawEndOffset: pendingSelection.endOffset }
+      : {}
     addContextRangeTag({
       messageBlockId: block.blockId,
       messageVersionId: block.currentVersionId,
       role: block.role,
       snapshotText: pendingSelection.snapshotText,
       selectedText: pendingSelection.text,
+      ...rawOffsets,
       startOffset: pendingSelection.startOffset,
       endOffset: pendingSelection.endOffset,
     })
@@ -178,12 +182,16 @@ export function MessageBlockItem({ block, refine }: Props) {
 
   function askPendingInSideChat() {
     if (!pendingSelection || !block.currentVersionId) return
+    const rawOffsets = block.content.slice(pendingSelection.startOffset, pendingSelection.endOffset) === pendingSelection.text
+      ? { rawStartOffset: pendingSelection.startOffset, rawEndOffset: pendingSelection.endOffset }
+      : {}
     void openDraftSideChatWithRange({
       messageBlockId: block.blockId,
       messageVersionId: block.currentVersionId,
       role: block.role,
       snapshotText: pendingSelection.snapshotText,
       selectedText: pendingSelection.text,
+      ...rawOffsets,
       startOffset: pendingSelection.startOffset,
       endOffset: pendingSelection.endOffset,
     })

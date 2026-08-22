@@ -45,6 +45,13 @@ function stubOpenConnection(): () => RealtimeHandlers {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
+
 describe('chatStore 실시간 이벤트 (0821_05)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -102,6 +109,34 @@ describe('chatStore 실시간 이벤트 (0821_05)', () => {
     expect(chatApi.fetchChat).toHaveBeenCalledWith('chat-1', 'branch-1')
     expect(useChatStore.getState().blocks).toEqual([
       { blockId: 'b1', role: 'assistant', generationStatus: 'complete' },
+    ])
+  })
+
+  it('늦게 도착한 이전 chat_activity 조회가 최신 상태를 덮지 않는다', async () => {
+    useChatStore.setState({ chatId: 'chat-1', branchId: 'branch-1', activeTabId: 'chat-1', chatTitle: '이전', blocks: [] })
+    const first = deferred<unknown>()
+    const second = deferred<unknown>()
+    chatApi.fetchChat.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const getHandlers = stubOpenConnection()
+    connectRealtime()
+
+    getHandlers().onChatActivity?.({ chatId: 'chat-1', branchId: 'branch-1', jobId: 'job-1' } satisfies RealtimeChatActivity)
+    getHandlers().onChatActivity?.({ chatId: 'chat-1', branchId: 'branch-1', jobId: null } satisfies RealtimeChatActivity)
+    second.resolve({
+      chatMeta: { title: '완료된 Self-Attention' },
+      messageBlocks: [{ blockId: 'new', role: 'assistant', generationStatus: 'complete' }],
+    })
+    await vi.waitFor(() => expect(useChatStore.getState().chatTitle).toBe('완료된 Self-Attention'))
+
+    first.resolve({
+      chatMeta: { title: '생성 중인 이전 상태' },
+      messageBlocks: [{ blockId: 'old', role: 'assistant', generationStatus: 'generating' }],
+    })
+    await Promise.resolve()
+
+    expect(useChatStore.getState().chatTitle).toBe('완료된 Self-Attention')
+    expect(useChatStore.getState().blocks).toEqual([
+      { blockId: 'new', role: 'assistant', generationStatus: 'complete' },
     ])
   })
 

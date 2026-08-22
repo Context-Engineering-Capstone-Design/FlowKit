@@ -179,9 +179,18 @@ def build_range_snapshot(
                     "선택한 범위가 원본 내용과 일치하지 않습니다.",
                     detail={"blockId": str(r.block_id)},
                 )
-            idx = version.content.find(r.snippet_text)
-            start_off = idx if idx != -1 else None
-            end_off = idx + len(r.snippet_text) if idx != -1 else None
+            matches: list[int] = []
+            offset = version.content.find(r.snippet_text)
+            while offset != -1:
+                matches.append(offset)
+                offset = version.content.find(r.snippet_text, offset + 1)
+            if len(matches) != 1:
+                raise ValidationError(
+                    "선택한 범위의 위치를 하나로 정할 수 없습니다.",
+                    detail={"blockId": str(r.block_id)},
+                )
+            start_off = matches[0]
+            end_off = start_off + len(r.snippet_text)
 
         ai_content = format_context_content(version.content, start_off, end_off)
         items.append(
